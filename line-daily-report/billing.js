@@ -423,6 +423,20 @@ function replaceMonthRows_(name, headers, ym, newRows) {
 // freee取込データ生成（請求サマリ → 取引先ごとの品目明細）
 // ============================================================
 
+// セル値を yyyy/MM/dd へ正規化する。
+// スプレッドシートは "2026/03/31" のような文字列を書き込むと自動で Date 値に変換する
+// ことがあり、その場合 String() すると "Tue Mar 31 2026 ..." になってしまう。
+// Date でも文字列でも一貫して yyyy/MM/dd を返す。
+function dateCellToYmd_(v) {
+  if (v instanceof Date) {
+    return isNaN(v.getTime()) ? "" : Utilities.formatDate(v, TZ, "yyyy/MM/dd");
+  }
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? s : Utilities.formatDate(d, TZ, "yyyy/MM/dd");
+}
+
 function exportFreee_(ym) {
   const summary = readSheetObjects_(BILLING.sheetSummary, HEADERS_BILLING_SUMMARY)
     .filter((r) => String(r["対象月"] ?? "").trim() === String(ym).trim());
@@ -433,7 +447,7 @@ function exportFreee_(ym) {
   const rows = [];
   for (const s of summary) {
     const client      = String(s["取引先"] ?? "").trim();
-    const billingDate = String(s["請求日"] ?? "").trim();
+    const billingDate = dateCellToYmd_(s["請求日"]); // Sheetsが日付をDate化しても yyyy/MM/dd に統一
     const manDays     = toNumber(s["常用_人工合計"], 0);
     const joyo        = toNumber(s["常用請求額"], 0);
     const lump        = toNumber(s["請負請求額"], 0);
@@ -463,10 +477,15 @@ function exportFreee_(ym) {
 //   extractExpensesFromText_(text) を呼んで addExpenseRow_ で書き込む
 // ============================================================
 
+// キーワードと金額の間は「代/金/料/:/￥/空白」等の短い連結のみ許可し、金額は3桁以上
+// （≥100円）に限定する。これで現場名や人数（「高速道路高架下 5名」「第二駐車場 2台」）を
+// 経費と誤検知して請求額を水増しするのを防ぐ。
+const EXPENSE_CONNECTOR = "[\\s\\u3000代金料:：¥￥]*";
+const EXPENSE_AMOUNT    = "([0-9][0-9,]{2,})"; // 3桁以上（カンマ区切り可）
 const EXPENSE_PATTERNS = [
-  { 種別: "パーキング", re: /(?:パーキング|駐車場?|ﾊﾟｰｷﾝｸﾞ|コインP|P代)\D*([0-9,]+)\s*円?/i },
-  { 種別: "ガソリン",   re: /(?:ガソリン|燃料|給油|ｶﾞｿﾘﾝ)\D*([0-9,]+)\s*円?/i },
-  { 種別: "高速",       re: /(?:高速|有料道路|ETC)\D*([0-9,]+)\s*円?/i },
+  { 種別: "パーキング", re: new RegExp(`(?:パーキング|駐車場?|ﾊﾟｰｷﾝｸﾞ|コインP|P代)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
+  { 種別: "ガソリン",   re: new RegExp(`(?:ガソリン|燃料|給油|ｶﾞｿﾘﾝ)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
+  { 種別: "高速",       re: new RegExp(`(?:高速|有料道路|ETC)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
 ];
 
 function extractExpensesFromText_(text) {
@@ -524,6 +543,8 @@ function captureExpensesFromText_(text, messageId, ts) {
     // 経費行（パーキング/ガソリン/高速）→ 現在の取引先・現場に紐付けて登録
     const exps = extractExpensesFromText_(line);
     if (exps.length > 0) {
+      // 取引先が未確定（ブロック先頭前）の経費は帰属できないため記録しない
+      if (!curClient) continue;
       const dateStr = Utilities.formatDate(curDate || base, TZ, "yyyy/MM/dd");
       for (const e of exps) {
         // 既定は「請求」（立替を元請けに請求）。自社負担なら経費シートで切替

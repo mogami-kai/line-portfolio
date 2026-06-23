@@ -94,6 +94,11 @@ class MockSheet {
   }
 
   getRange(row, col, numRows = 1, numCols = 1) {
+    // Real GAS throws on a zero/negative-sized range; mirror that so tests
+    // catch any reader that drops its getLastRow() >= 2 guard.
+    if (numRows < 1 || numCols < 1) {
+      throw new Error("The number of rows in the range must be at least 1.");
+    }
     const sheet = this;
     const r0 = row - 1;
     const c0 = col - 1;

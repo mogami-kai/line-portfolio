@@ -8,7 +8,7 @@
 // 依存（他ファイルで定義済みのグローバル）:
 //   TZ / BILLING / HEADERS_BILLING_SUMMARY /
 //   readSheetObjects_ / clientMasterMap_ / ymForMonthOffset_ /
-//   toNumber / prop_ / appendProcessLog_
+//   toNumber / prop_ / appendProcessLog_ / SpreadsheetApp / UrlFetchApp
 //
 // 使用するfreeeエンドポイント（※下の⚠注意を必ず参照）:
 //   請求書作成: POST https://api.freee.co.jp/api/1/invoices
@@ -52,21 +52,31 @@ const freeeConfig_ = () => ({
   companyId:    prop_("FREEE_COMPANY_ID"),
 });
 
+// freeeのID（company_id / partner_id）は整数。数値でなければ 0 を返す。
+// （文字列のまま送ると freee API が 400/422 で全件失敗するため）
+const parseFreeeId_ = (v) => {
+  const n = Number(String(v ?? "").trim());
+  return Number.isInteger(n) && n > 0 ? n : 0;
+};
+
 // ============================================================
 // 請求書作成（請求サマリ → freee請求書をAPIで作成）
 // ============================================================
 
 function freeeCreateInvoices_(ym) {
-  const cfg = freeeConfig_();
+  const cfg       = freeeConfig_();
+  const companyId = parseFreeeId_(cfg.companyId);
 
-  // 未設定なら安全に no-op（月末ジョブから無条件で呼ばれるため止めない）
-  if (!cfg.accessToken || !cfg.companyId) {
+  // 未設定・不正なら安全に no-op（月末ジョブから無条件で呼ばれるため止めない）
+  if (!cfg.accessToken || !companyId) {
+    const reason = !cfg.accessToken
+      ? "FREEE_ACCESS_TOKEN が未設定"
+      : "FREEE_COMPANY_ID が未設定または整数でない";
     appendProcessLog_(
       new Date(), "", "", "",
-      `[FREEE_SKIP] ${ym}`, "INFO",
-      "FREEE_ACCESS_TOKEN / FREEE_COMPANY_ID が未設定のためスキップ"
+      `[FREEE_SKIP] ${ym}`, "INFO", `${reason}のためスキップ`
     );
-    return { skipped: true, reason: "未設定" };
+    return { skipped: true, reason };
   }
 
   // 対象月の請求サマリを取得
@@ -81,15 +91,15 @@ function freeeCreateInvoices_(ym) {
 
   for (const s of summary) {
     const client      = String(s["取引先"] ?? "").trim();
-    const billingDate = String(s["請求日"] ?? "").trim();
+    const billingDate = s["請求日"]; // 文字列 or SheetsがDate化した値（toFreeeDate_で吸収）
     const joyo        = toNumber(s["常用請求額"], 0);
     const lump        = toNumber(s["請負請求額"], 0);
     const exp         = toNumber(s["経費請求額"], 0);
     if (!client) continue;
 
-    // 取引先マスタから freee取引先ID を引く（無ければスキップ＝エラーではない）
+    // 取引先マスタから freee取引先ID（整数）を引く（無ければスキップ＝エラーではない）
     const cm        = masterMap[client];
-    const partnerId = cm ? String(cm["freee取引先ID"] ?? "").trim() : "";
+    const partnerId = cm ? parseFreeeId_(cm["freee取引先ID"]) : 0;
     if (!partnerId) {
       skippedClients.push(client);
       continue;
@@ -106,9 +116,13 @@ function freeeCreateInvoices_(ym) {
     }
 
     const issueDate = toFreeeDate_(billingDate);
+    if (!issueDate) {
+      errors.push(`${client}: 請求日が不正のため作成をスキップ`);
+      continue;
+    }
     const payload = {
-      company_id: toNumber(cfg.companyId, cfg.companyId),
-      partner_id: toNumber(partnerId, partnerId),
+      company_id: companyId,
+      partner_id: partnerId,
       issue_date: issueDate, // 請求日
       // 請求日＝期日（同日）。フィールド名はfreeeのバージョンにより
       // payment_date / due_date のいずれか（⚠ドキュメント要確認）。
@@ -177,9 +191,14 @@ function freeeFetch_(url, token, payload) {
   return { code: res.getResponseCode(), body: res.getContentText() };
 }
 
-// 「yyyy/MM/dd」や Date を freee形式「yyyy-MM-dd」へ。失敗時は当日。
+// 「yyyy/MM/dd」文字列 or Date を freee形式「yyyy-MM-dd」へ。
+// 不明・空なら "" を返す（当日で代用すると請求日を誤るため、呼び出し側でスキップ）。
 const toFreeeDate_ = (v) => {
+  if (v instanceof Date) {
+    return isNaN(v.getTime()) ? "" : Utilities.formatDate(v, TZ, "yyyy-MM-dd");
+  }
   const s = String(v ?? "").trim();
+  if (!s) return "";
   const m = s.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
   if (m) {
     const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
@@ -187,7 +206,7 @@ const toFreeeDate_ = (v) => {
   }
   const parsed = new Date(s);
   if (!isNaN(parsed.getTime())) return Utilities.formatDate(parsed, TZ, "yyyy-MM-dd");
-  return Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
+  return "";
 };
 
 // ============================================================
