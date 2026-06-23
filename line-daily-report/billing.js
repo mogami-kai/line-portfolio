@@ -498,3 +498,115 @@ function addExpenseRow_(date, client, site, worker, type, amount, billable, mess
     "",
   ]);
 }
+
+// ============================================================
+// MVP-2: LINEメッセージからの経費自動取込
+// webhook（ファイル1）の handleLineEvent から呼ばれる。
+// 日報ブロックの文脈（日付→取引先→現場）を辿りながら経費行を拾う。
+// 既存の parseDate / parseClientLine / removeWorkShiftText（ファイル1）を再利用。
+// ============================================================
+
+function captureExpensesFromText_(text, messageId, ts) {
+  const base = ts instanceof Date ? ts : new Date(ts); // 受信時刻（日付の年推定の基準）
+  const lines = String(text ?? "")
+    .split(/\r\n|\r|\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  let curDate = null, curClient = "", curSite = "", phase = "date";
+  let count = 0;
+
+  for (const line of lines) {
+    // 日付行 → ブロックの先頭。文脈をリセット
+    const d = parseDate(line, base);
+    if (d) { curDate = d; curClient = ""; curSite = ""; phase = "client"; continue; }
+
+    // 経費行（パーキング/ガソリン/高速）→ 現在の取引先・現場に紐付けて登録
+    const exps = extractExpensesFromText_(line);
+    if (exps.length > 0) {
+      const dateStr = Utilities.formatDate(curDate || base, TZ, "yyyy/MM/dd");
+      for (const e of exps) {
+        // 既定は「請求」（立替を元請けに請求）。自社負担なら経費シートで切替
+        addExpenseRow_(dateStr, curClient, curSite, "", e["種別"], e["金額"], true, messageId, "LINE");
+        count++;
+      }
+      continue;
+    }
+
+    if (phase === "client") {
+      const { clientName, siteName } = parseClientLine(line);
+      curClient = clientName;
+      if (siteName) { curSite = removeWorkShiftText(siteName); phase = "workers"; }
+      else { phase = "site"; }
+      continue;
+    }
+
+    if (phase === "site") { curSite = removeWorkShiftText(line); phase = "workers"; continue; }
+    // 職人行・その他は経費の文脈維持のみ
+  }
+
+  return count;
+}
+
+// 送信取消（unsend）で、同一メッセージIDの経費行も連動削除する
+function deleteExpensesByMessageId_(messageId) {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(BILLING.sheetExpense);
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+
+  const idCol = HEADERS_EXPENSE.indexOf("元メッセージID");
+  if (idCol < 0) return 0;
+
+  const ids = sheet.getRange(2, idCol + 1, sheet.getLastRow() - 1, 1).getValues();
+  const toDelete = ids
+    .map(([v], i) => (String(v) === String(messageId) ? i + 2 : null))
+    .filter((r) => r !== null);
+
+  [...toDelete].reverse().forEach((r) => sheet.deleteRow(r));
+  return toDelete.length;
+}
+
+// 月末締めで、対象月の 経費／請求サマリ／freee取込 をリセットする
+// （アーカイブ後に呼ばれる前提。他の月は残す）
+function purgeBillingMonth_(ym) {
+  const ss  = SpreadsheetApp.getActiveSpreadsheet();
+  const exp = ss.getSheetByName(BILLING.sheetExpense);
+
+  if (exp && exp.getLastRow() >= 2) {
+    const last = exp.getLastRow();
+    const vals = exp.getRange(2, 1, last - 1, HEADERS_EXPENSE.length).getValues();
+    const keep = vals.filter((r) =>
+      r.some((v) => String(v ?? "").trim()) &&
+      (!r[0] || ymFromDateCell_(r[0]) !== String(ym).trim())
+    );
+    exp.getRange(2, 1, last - 1, HEADERS_EXPENSE.length).clearContent();
+    if (keep.length > 0) {
+      exp.getRange(2, 1, keep.length, HEADERS_EXPENSE.length).setValues(keep);
+    }
+  }
+
+  // 請求サマリ・freee取込は対象月の行を削除（アーカイブ済み）
+  replaceMonthRows_(BILLING.sheetSummary, HEADERS_BILLING_SUMMARY, ym, []);
+  replaceMonthRows_(BILLING.sheetFreee,   HEADERS_FREEE, ym, []);
+}
+
+// ============================================================
+// MVP-3: 月末締めへの組み込み
+// management（ファイル2）の closeMonthAtEnd_ から、アーカイブ前に呼ばれる。
+// 当月の請求サマリ・freee取込を確定生成し、freee API は設定時のみ実行する。
+// 請求の失敗は月末アーカイブを止めないよう、ここで握りつぶしてログに残す。
+// ============================================================
+
+function finalizeBillingForMonth_(ym) {
+  try {
+    buildBillingSummary_(ym);
+    exportFreee_(ym);
+    if (typeof freeeCreateInvoices_ === "function") freeeCreateInvoices_(ym);
+    appendProcessLog_(new Date(), "", "", "", `[BILLING_CLOSE] ${ym}`, "INFO", "billing finalized");
+  } catch (err) {
+    appendProcessLog_(
+      new Date(), "", "", "",
+      `[BILLING_CLOSE_ERROR] ${ym}`, "ERROR", err && err.stack ? err.stack : String(err)
+    );
+  }
+}

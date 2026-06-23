@@ -214,7 +214,10 @@ function handleLineEvent(event) {
     const unsentId = event?.unsend?.messageId ?? "";
     if (unsentId) {
       const count = deleteRowsByMessageId(unsentId);
-      appendProcessLog_(ts, unsentId, groupId, userId, "[送信取消]", "DELETED", `削除件数: ${count}`);
+      // 経費の自動取込分も連動削除（billing.js が無い環境でも動くよう関数存在を確認）
+      const expCount = (typeof deleteExpensesByMessageId_ === "function")
+        ? deleteExpensesByMessageId_(unsentId) : 0;
+      appendProcessLog_(ts, unsentId, groupId, userId, "[送信取消]", "DELETED", `削除件数: ${count} / 経費: ${expCount}`);
     }
     return;
   }
@@ -237,6 +240,16 @@ function handleLineEvent(event) {
 
   const result = processReport(text, messageId, ts);
 
+  // 経費の自動取込（日報が登録できたメッセージのみ。billing.js が無い環境では何もしない）
+  let expCaptured = 0;
+  if (result.rows > 0 && typeof captureExpensesFromText_ === "function") {
+    try {
+      expCaptured = captureExpensesFromText_(text, messageId, ts);
+    } catch (expErr) {
+      Logger.log(`経費取込に失敗: ${expErr}`); // 経費取込の失敗は日報本処理を止めない
+    }
+  }
+
   appendProcessLog_(
     ts,
     messageId,
@@ -244,7 +257,7 @@ function handleLineEvent(event) {
     userId,
     text.slice(0, 100),
     result.status,
-    `登録件数: ${result.rows} / 判定: ${result.mode}`
+    `登録件数: ${result.rows} / 判定: ${result.mode} / 経費: ${expCaptured}`
   );
 
   if (groupId && result.rows > 0) {
