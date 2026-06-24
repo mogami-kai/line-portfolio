@@ -1,0 +1,11 @@
+# clasp push の対象は下の許可リストのみ。
+# worker.js（Cloudflare Worker）/ README / .clasp.json などは GAS に上げない。
+**/**
+
+!appsscript.json
+!webhook.js
+!management.js
+!billing.js
+!billing_freee.js
+!invoice_doc.js
+!setup.js

@@ -342,6 +342,16 @@ function parseByRules(text, messageId, receivedAt) {
   const entries       = [];
   let currentEntry    = null;
 
+  // ブロック既定（半日/全日/残業の別行指定）を currentEntry.workers にも反映する。
+  // これが無いと、シートは正しいが管理者通知の人工/残業がズレる（2026-03-24 修正）。
+  const syncCurrentEntryWorkers = ({ qty, ot } = {}) => {
+    if (!currentEntry || !Array.isArray(currentEntry.workers)) return;
+    currentEntry.workers.forEach((worker) => {
+      if (qty !== undefined) worker.qty = qty;
+      if (ot  !== undefined) worker.ot  = ot;
+    });
+  };
+
   for (const rawLine of lines) {
     const dateObj = parseDate(rawLine, receivedAt);
     if (dateObj) {
@@ -405,6 +415,7 @@ function parseByRules(text, messageId, receivedAt) {
         newRows[i][8] = 0.5;
         newRows[i][5] = buildWorkStyleLabel({ workShift: newRows[i][5], qty: 0.5, ot: newRows[i][9] });
       }
+      syncCurrentEntryWorkers({ qty: 0.5 });
       continue;
     }
 
@@ -414,6 +425,7 @@ function parseByRules(text, messageId, receivedAt) {
         newRows[i][8] = 1.0;
         newRows[i][5] = buildWorkStyleLabel({ workShift: newRows[i][5], qty: 1.0, ot: newRows[i][9] });
       }
+      syncCurrentEntryWorkers({ qty: 1.0 });
       continue;
     }
 
@@ -425,6 +437,7 @@ function parseByRules(text, messageId, receivedAt) {
           newRows[i][9] = ot;
           newRows[i][5] = buildWorkStyleLabel({ workShift: newRows[i][5], qty: newRows[i][8], ot });
         }
+        syncCurrentEntryWorkers({ ot });
       }
       continue;
     }

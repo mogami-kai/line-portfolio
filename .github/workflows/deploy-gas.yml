@@ -1,0 +1,59 @@
+name: Deploy to Apps Script (line-daily-report)
+
+# GitHub に push したら clasp で GAS にコードを反映（＋任意で既存デプロイを更新）。
+#
+# 必要なリポジトリ Secrets（Settings → Secrets and variables → Actions）:
+#   CLASPRC_JSON  … ローカルで `clasp login` 後の ~/.clasprc.json の中身を丸ごと
+#   SCRIPT_ID     … 対象GASのスクリプトID
+#   DEPLOYMENT_ID … (任意) 既存Webアプリのデプロイ ID。設定すると同じ /exec URL の
+#                   まま最新コードに更新する（未設定なら push のみ）
+#
+# 事前準備:
+#   - https://script.google.com/home/usersettings で「Apps Script API」をON
+#   - ローカルで `npm i -g @google/clasp@2.4.2 && clasp login` → ~/.clasprc.json を取得
+#   - `clasp deployments` で既存デプロイIDを確認（/exec を保ちたい場合）
+
+on:
+  push:
+    branches: [ main ]
+    paths: [ 'line-daily-report/**' ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: line-daily-report
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install clasp
+        run: npm install -g @google/clasp@2.4.2
+
+      - name: Authenticate clasp
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: printf '%s' "$CLASPRC_JSON" > "$HOME/.clasprc.json"
+
+      - name: Configure .clasp.json
+        env:
+          SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+        run: printf '{"scriptId":"%s","rootDir":"."}' "$SCRIPT_ID" > .clasp.json
+
+      - name: Push code to Apps Script
+        run: clasp push -f
+
+      - name: Update existing deployment (optional)
+        env:
+          DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
+        run: |
+          if [ -n "$DEPLOYMENT_ID" ]; then
+            clasp deploy -i "$DEPLOYMENT_ID" -d "CI ${GITHUB_SHA::7}"
+          else
+            echo "DEPLOYMENT_ID 未設定: push のみ（/exec を更新したい場合は Secret を設定してください）"
+          fi
