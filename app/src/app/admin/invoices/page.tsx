@@ -1,15 +1,15 @@
 // ============================================================
 // /admin/invoices — 請求書 一覧 / 生成（Server Component ＋ Server Action）
+//   モバイルファースト。サーバ側ロジック（ガード・集計・生成）は従来どおり。
 //
 //   ガード: getAdminContext()。
-//   - 月選択（?ym=YYYY-MM、既定=当月）。
+//   - 月選択（?ym=YYYY-MM、既定=当月）＋ 月スイッチャー。
 //   - その月に出面のある取引先を一覧し、各取引先の概算（@/lib/invoice 経由）を表示。
-//   - 「生成/再生成」ボタン（Server Action generateInvoiceAction）で
+//   - 「請求書を作成 / 再作成」（Server Action generateInvoiceAction）で
 //     Invoice + InvoiceLine をスナップショット保存。
 //   - 既存 Invoice には CSV / xlsx ダウンロードリンク（/api/invoices/[id]/export）。
 // ============================================================
 
-import type { CSSProperties } from "react";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
@@ -27,27 +27,8 @@ import { summarize } from "@/lib/invoice.js";
 export const dynamic = "force-dynamic";
 
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
-
-const wrap: CSSProperties = {
-  maxWidth: 980,
-  margin: "0 auto",
-  padding: 24,
-  fontFamily:
-    "system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif",
-  color: "#1a1a1a",
-};
-const th: CSSProperties = {
-  textAlign: "left",
-  borderBottom: "2px solid #ddd",
-  padding: "6px 10px",
-  fontSize: 13,
-};
-const td: CSSProperties = {
-  borderBottom: "1px solid #eee",
-  padding: "6px 10px",
-  fontSize: 14,
-};
-const tdNum: CSSProperties = { ...td, textAlign: "right" };
+const ymStr = (d: Date) =>
+  `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 
 // ── Server Action: 請求書生成/再生成 ──
 async function generateInvoiceAction(formData: FormData) {
@@ -69,11 +50,14 @@ export default async function InvoicesPage({
   const admin = await getAdminContext();
   if (!admin) {
     return (
-      <main style={wrap}>
-        <h1 style={{ fontSize: 20 }}>請求書</h1>
-        <p style={{ color: "#b00020" }}>
-          管理者が未設定/未承認です（<code>ADMIN_LINE_USER_IDS</code> を設定してください）。
-        </p>
+      <main className="container">
+        <h1 className="page-title" style={{ marginTop: 12 }}>
+          請求書
+        </h1>
+        <div className="notice notice--error" style={{ marginTop: 12 }}>
+          管理者が未設定/未承認です（<code>ADMIN_LINE_USER_IDS</code>{" "}
+          を設定してください）。
+        </div>
       </main>
     );
   }
@@ -110,89 +94,112 @@ export default async function InvoicesPage({
   );
   summaries.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 
+  const grandTotal = summaries.reduce((a, s) => a + s.total, 0);
+
   // 月ナビ。
   const { from } = monthRange(ym);
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
   const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
-  const ymStr = (d: Date) =>
-    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 
   return (
-    <main style={wrap}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-        }}
-      >
-        <h1 style={{ fontSize: 20, margin: 0 }}>請求書（{ym}）</h1>
-        <nav style={{ fontSize: 14 }}>
-          <a href="/admin">← 集計に戻る</a>
-        </nav>
+    <main className="container">
+      <div className="page-head">
+        <h1 className="page-title">請求書</h1>
+        <a href={`/admin?ym=${ym}`} className="badge">
+          ← 集計
+        </a>
       </div>
 
-      <p style={{ fontSize: 14, margin: "8px 0 16px" }}>
-        <a href={`/admin/invoices?ym=${ymStr(prev)}`}>← {ymStr(prev)}</a>
-        <span style={{ margin: "0 12px", color: "#999" }}>|</span>
-        <a href={`/admin/invoices?ym=${ymStr(next)}`}>{ymStr(next)} →</a>
-      </p>
+      {/* 月スイッチャー */}
+      <div className="month-switch">
+        <a
+          className="month-nav"
+          href={`/admin/invoices?ym=${ymStr(prev)}`}
+          aria-label="前月"
+        >
+          ◀
+        </a>
+        <span className="ym">{ym}</span>
+        <a
+          className="month-nav"
+          href={`/admin/invoices?ym=${ymStr(next)}`}
+          aria-label="翌月"
+        >
+          ▶
+        </a>
+      </div>
+
+      {/* 当月合計 */}
+      <div className="stat-grid">
+        <div className="stat stat--accent stat--wide">
+          <div className="stat-k">当月 請求 概算合計（税込）</div>
+          <div className="stat-v">{yen(grandTotal)}</div>
+        </div>
+      </div>
 
       {summaries.length === 0 ? (
-        <p style={{ color: "#888" }}>この月に出面データのある取引先はありません。</p>
+        <p className="muted">この月に出面データのある取引先はありません。</p>
       ) : (
-        <table style={{ borderCollapse: "collapse", width: "100%" }}>
-          <thead>
-            <tr>
-              <th style={th}>取引先</th>
-              <th style={{ ...th, textAlign: "right" }}>概算（税込）</th>
-              <th style={th}>請求書</th>
-              <th style={th}>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summaries.map((s) => {
-              const iv = invoiceByClient.get(s.clientId);
-              return (
-                <tr key={s.clientId}>
-                  <td style={td}>{s.name}</td>
-                  <td style={tdNum}>{yen(s.total)}</td>
-                  <td style={td}>
-                    {iv ? (
-                      <>
-                        <span style={{ fontWeight: 600 }}>{iv.invoiceNo}</span>{" "}
-                        <span style={{ color: "#999", fontSize: 12 }}>
-                          ({iv.status})
-                        </span>
-                        <div style={{ marginTop: 4, fontSize: 13 }}>
-                          <a href={`/api/invoices/${iv.id}/export?format=csv`}>
-                            CSV
-                          </a>
-                          <span style={{ margin: "0 8px", color: "#ccc" }}>/</span>
-                          <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
-                            xlsx
-                          </a>
-                        </div>
-                      </>
-                    ) : (
-                      <span style={{ color: "#999" }}>未生成</span>
-                    )}
-                  </td>
-                  <td style={td}>
-                    <form action={generateInvoiceAction}>
-                      <input type="hidden" name="clientId" value={s.clientId} />
-                      <input type="hidden" name="ym" value={ym} />
-                      <button type="submit">{iv ? "再生成" : "生成"}</button>
-                    </form>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        summaries.map((s) => {
+          const iv = invoiceByClient.get(s.clientId);
+          return (
+            <div className="card" key={s.clientId}>
+              <div className="list-row" style={{ padding: 0, border: "none" }}>
+                <div className="list-main">
+                  <div className="list-title">{s.name}</div>
+                  <div className="list-meta">
+                    概算（税込）{" "}
+                    <strong style={{ color: "var(--ink)" }}>
+                      {yen(s.total)}
+                    </strong>
+                  </div>
+                </div>
+                <div>
+                  {iv ? (
+                    <span className="badge badge--self">{iv.status}</span>
+                  ) : (
+                    <span className="badge">未作成</span>
+                  )}
+                </div>
+              </div>
+
+              {iv && (
+                <div
+                  className="list-meta"
+                  style={{ marginTop: 10, marginBottom: 4 }}
+                >
+                  請求書番号 <strong>{iv.invoiceNo}</strong>
+                  <span style={{ margin: "0 10px", color: "var(--line)" }}>
+                    |
+                  </span>
+                  <a href={`/api/invoices/${iv.id}/export?format=csv`}>
+                    CSV
+                  </a>
+                  <span style={{ margin: "0 8px", color: "var(--ink-3)" }}>
+                    /
+                  </span>
+                  <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
+                    xlsx
+                  </a>
+                </div>
+              )}
+
+              <form action={generateInvoiceAction} style={{ marginTop: 12 }}>
+                <input type="hidden" name="clientId" value={s.clientId} />
+                <input type="hidden" name="ym" value={ym} />
+                <button
+                  type="submit"
+                  className={`btn ${iv ? "btn--ghost" : "btn--primary"}`}
+                >
+                  {iv ? "請求書を再作成" : "請求書を作成"}
+                </button>
+              </form>
+            </div>
+          );
+        })
       )}
 
-      <p style={{ color: "#888", fontSize: 12, marginTop: 16 }}>
+      <p className="muted" style={{ marginTop: 16 }}>
         ※ 概算・明細は RateCard（取引先×現場×種別）から算出。請負（UKEOI）金額は
         マスタに持たないため本フェーズでは 0 とし、必要に応じ管理者が後入力します。
       </p>
