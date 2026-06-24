@@ -27,9 +27,11 @@ const INVOICE = {
 const HEADERS_INVOICE_SETTINGS = ["設定キー", "値", "説明"];
 
 const INVOICE_SETTING_DEFAULTS = [
-  ["発行元名",      "", "請求書に載せる自社名"],
-  ["発行元住所",    "", ""],
+  ["発行元名",      "", "請求書に載せる自社名／屋号"],
+  ["発行元住所",    "", "〒含む住所"],
   ["発行元TEL",     "", ""],
+  ["発行元Email",   "", ""],
+  ["担当者",        "", "請求書に載せる担当者名"],
   ["登録番号",      "", "インボイス制度の適格請求書発行事業者番号（T+13桁）"],
   ["振込先",        "", "例: ○○銀行 △△支店 普通 1234567 ﾔﾏﾀﾞﾀﾛｳ"],
   ["消費税率",      "0.10", "0.10=10%。単価が税込なら 0 を設定"],
@@ -134,49 +136,95 @@ function invoiceTabName_(client, i) {
 function writeInvoiceTab_(sheet, ym, client, data, settings, index) {
   const rawRate = settings["消費税率"];
   const taxRate = (rawRate === "" || rawRate == null) ? INVOICE.defaultTaxRate : Number(rawRate);
-  const pct     = Math.round((isNaN(taxRate) ? 0 : taxRate) * 100);
+  const rate10  = isNaN(taxRate) ? 0 : taxRate;
+  const pct     = Math.round(rate10 * 100);
 
   const cm        = (typeof clientMasterMap_ === "function") ? (clientMasterMap_()[client] || {}) : {};
   const addr      = String(cm["住所"] ?? "").trim();
-  const invoiceNo = `${String(ym).replace("-", "")}-${String(index + 1).padStart(2, "0")}`;
-  const issueDate = invoiceMonthEnd_(ym);
-  const issuer    = [settings["発行元名"], settings["発行元住所"],
-                     settings["登録番号"] ? "登録番号 " + settings["登録番号"] : ""]
-                      .map((v) => String(v ?? "").trim()).filter(Boolean).join("　");
+  const invoiceNo = `${String(ym).slice(0, 4)}-${String(index + 1).padStart(3, "0")}`; // 例 2026-001
+  const issueDate = invoiceMonthEnd_(ym); // 末締め：請求日＝支払期限（同日）
 
+  // 明細は 7列: No | 品目・内容 | 数量 | 単位 | 単価(入力) | 金額 | 税率
+  const COLS = 7;
   const vals = [];
-  const push = (a, b, c, d, e) => { vals.push([a ?? "", b ?? "", c ?? "", d ?? "", e ?? ""]); return vals.length; };
+  const row = (a, b, c, d, e, f, g) =>
+    (vals.push([a ?? "", b ?? "", c ?? "", d ?? "", e ?? "", f ?? "", g ?? ""]), vals.length);
 
-  push("請求書", "", "", "", "");
-  push(client + " 御中", "", "", "", "");
-  if (addr) push(addr, "", "", "", "");
-  push("請求書番号 " + invoiceNo, "", "発行日 " + issueDate, "", "");
-  if (issuer) push("発行元 " + issuer, "", "", "", "");
-  push("", "", "", "", "");
-  push("現場", "人工", "残業h", "単価(入力)", "金額");
+  // ── ヘッダ ──
+  row("請求書");
+  row("請求書番号", invoiceNo, "", "", "請求日", issueDate);
+  row("");
 
-  const firstDetail = vals.length + 1;
-  for (const site of Object.keys(data.sites).sort()) {
-    const s    = data.sites[site];
-    const r    = vals.length + 1;
-    const rate = (typeof lookupRate_ === "function") ? lookupRate_(client, site, "常用", null) : null;
-    const unit = rate && rate.unit > 0 ? rate.unit : ""; // 単価マスタからプリフィル（無ければ入力待ち）
-    push(site, s.manDays, s.otHours, unit, `=IF($D${r}="","",$D${r}*$B${r}+$C${r}*$D${r}/8*1.25)`);
+  // ── 発行元（請求書設定シート）──
+  if (String(settings["発行元名"] ?? "").trim())   row(String(settings["発行元名"]));
+  if (String(settings["発行元住所"] ?? "").trim()) row(String(settings["発行元住所"]));
+  {
+    const tel  = String(settings["発行元TEL"] ?? "").trim();
+    const mail = String(settings["発行元Email"] ?? "").trim();
+    const ln   = [tel ? "TEL: " + tel : "", mail ? "Email: " + mail : ""].filter(Boolean).join("　");
+    if (ln) row(ln);
   }
-  if (data.lump > 0) push("(請負) 一式", "", "", "", data.lump);
-  const lastDetail = vals.length;
+  if (String(settings["登録番号"] ?? "").trim()) row("登録番号　" + String(settings["登録番号"]));
+  if (String(settings["担当者"] ?? "").trim())   row("担当：" + String(settings["担当者"]));
+  row("");
 
-  const subtotalRow = push("小計(税抜)", "", "", "", `=SUM(E${firstDetail}:E${lastDetail})`);
-  const taxRow      = push(`消費税(${pct}%)`, "", "", "", `=ROUND(E${subtotalRow}*${isNaN(taxRate) ? 0 : taxRate},0)`);
-  let   expenseRow  = 0;
-  if (data.expense > 0) expenseRow = push("立替経費(非課税)", "", "", "", data.expense);
-  push("合計", "", "", "",
-    expenseRow ? `=E${subtotalRow}+E${taxRow}+E${expenseRow}` : `=E${subtotalRow}+E${taxRow}`);
-  push("", "", "", "", "");
-  push("お振込先 " + String(settings["振込先"] ?? "").trim(), "", "", "", "");
+  // ── 宛先（取引先マスタ）──
+  row(client + "　御中");
+  if (addr) row(addr);
+  row("");
 
-  sheet.getRange(1, 1, vals.length, 5).setValues(vals);
-  sheet.setFrozenRows(7);
+  // ── 明細（単価=入力、金額/小計/消費税/合計=数式で自動）──
+  row("No", "品目・内容", "数量", "単位", "単価", "金額", "税率");
+  let no = 0;
+  const taxable = []; // 課税対象（常用/残業/請負）の金額セル行
+  const exempt  = []; // 対象外（立替経費）の金額セル行
+  for (const site of Object.keys(data.sites).sort()) {
+    const s  = data.sites[site];
+    const md = toNumber(s.manDays, 0);
+    if (md <= 0) continue;
+    const rate = (typeof lookupRate_ === "function") ? (lookupRate_(client, site, "常用", null) || {}) : {};
+    const unit = rate.unit > 0 ? rate.unit : ""; // 取引先マスタからプリフィル（無ければ入力待ち）
+    const rJoyo = vals.length + 1;
+    row(++no, `${site}　常用`, md, "人工", unit, `=IF($E${rJoyo}="","",$C${rJoyo}*$E${rJoyo})`, `${pct}%`);
+    taxable.push(rJoyo);
+    const ot = toNumber(s.otHours, 0);
+    if (ot > 0) {
+      const rOt = vals.length + 1;
+      // 残業単価＝常用単価 ÷ 8 × 1.25（常用行の単価入力から自動）
+      row(++no, `${site}　残業`, ot, "時間", `=IF($E${rJoyo}="","",ROUND($E${rJoyo}/8*1.25,0))`,
+          `=IF($E${rOt}="","",$C${rOt}*$E${rOt})`, `${pct}%`);
+      taxable.push(rOt);
+    }
+  }
+  if (toNumber(data.lump, 0) > 0) {
+    const r = vals.length + 1;
+    row(++no, "請負工事一式", 1, "式", data.lump, `=$C${r}*$E${r}`, `${pct}%`);
+    taxable.push(r);
+  }
+  if (toNumber(data.expense, 0) > 0) {
+    const r = vals.length + 1;
+    row(++no, "立替経費（駐車/燃料等）", 1, "式", data.expense, `=$C${r}*$E${r}`, "対象外");
+    exempt.push(r);
+  }
+
+  // ── サマリ（小計→消費税→合計→支払期限）──
+  row("");
+  const sumExpr = (arr) => (arr.length ? "=" + arr.map((r) => `F${r}`).join("+") : "=0");
+  const rSub = row("", "", "", "", "小計（税抜）", sumExpr(taxable));
+  const rTax = row("", "", "", "", `消費税（${pct}%）`, `=ROUND(F${rSub}*${rate10},0)`);
+  let rExe = 0;
+  if (exempt.length) rExe = row("", "", "", "", "対象外（立替）", sumExpr(exempt));
+  row("", "", "", "", "合計（税込）",
+      rExe ? `=F${rSub}+F${rTax}+F${rExe}` : `=F${rSub}+F${rTax}`);
+  row("", "", "", "", "お支払期限", issueDate);
+
+  // ── フッタ ──
+  row("");
+  if (String(settings["振込先"] ?? "").trim()) row("お振込先　" + String(settings["振込先"]));
+  row("備考　※お振込手数料は御社にてご負担をお願いいたします。");
+
+  sheet.getRange(1, 1, vals.length, COLS).setValues(vals);
+  sheet.setFrozenRows(1);
 }
 
 // ============================================================
