@@ -119,16 +119,19 @@ function billingSheet_(name, headers, fillSamples) {
 // ============================================================
 
 function addBillingMenu_(ui) {
-  ui.createMenu("請求・経費")
+  const menu = ui.createMenu("請求・経費")
     .addItem("請求サマリを作成（今月）", "createBillingSummaryThisMonth")
     .addItem("請求サマリを作成（先月）", "createBillingSummaryPrevMonth")
     .addSeparator()
     .addItem("請求書PDFを発行（今月）", "issueInvoicesThisMonth")
-    .addItem("請求書PDFを発行（先月）", "issueInvoicesPrevMonth")
-    .addSeparator()
-    .addItem("freee取込データを作成（今月）", "exportFreeeThisMonth")
-    .addItem("freee取込データを作成（先月）", "exportFreeePrevMonth")
-    .addToUi();
+    .addItem("請求書PDFを発行（先月）", "issueInvoicesPrevMonth");
+  // freee連携を使うときだけ（FREEE_ENABLED=TRUE）freeeメニューを表示
+  if (freeeEnabled_()) {
+    menu.addSeparator()
+      .addItem("freee取込データを作成（今月）", "exportFreeeThisMonth")
+      .addItem("freee取込データを作成（先月）", "exportFreeePrevMonth");
+  }
+  menu.addToUi();
 }
 
 function createBillingSummaryThisMonth() { runBillingSummaryForOffset_(0); }
@@ -624,17 +627,26 @@ function purgeBillingMonth_(ym) {
 // ============================================================
 // MVP-3: 月末締めへの組み込み
 // management（ファイル2）の closeMonthAtEnd_ から、アーカイブ前に呼ばれる。
-// 当月の請求サマリ・freee取込を確定生成し、freee API は設定時のみ実行する。
+// 当月の請求サマリと請求書PDFを確定生成する（freee連携は任意・既定OFF）。
 // 請求の失敗は月末アーカイブを止めないよう、ここで握りつぶしてログに残す。
 // ============================================================
+
+// freee連携の有効/無効（既定OFF）。スクリプトプロパティ FREEE_ENABLED=TRUE で有効化。
+// OFFのときは freee取込の生成もAPIも一切行わない（LINE→集計→請求書PDFだけで完結）。
+function freeeEnabled_() {
+  return String(prop_("FREEE_ENABLED") ?? "").toUpperCase() === "TRUE";
+}
 
 function finalizeBillingForMonth_(ym) {
   try {
     buildBillingSummary_(ym);
-    exportFreee_(ym);
     // 請求書PDFの自動発行（freee非依存・invoice_doc.js 導入時のみ）
     if (typeof issueInvoicesForMonth_ === "function") issueInvoicesForMonth_(ym);
-    if (typeof freeeCreateInvoices_ === "function") freeeCreateInvoices_(ym);
+    // freee連携は任意（既定OFF）。FREEE_ENABLED=TRUE のときだけ実行
+    if (freeeEnabled_()) {
+      exportFreee_(ym);
+      if (typeof freeeCreateInvoices_ === "function") freeeCreateInvoices_(ym);
+    }
     appendProcessLog_(new Date(), "", "", "", `[BILLING_CLOSE] ${ym}`, "INFO", "billing finalized");
   } catch (err) {
     appendProcessLog_(
