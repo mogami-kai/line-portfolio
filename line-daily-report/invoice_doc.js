@@ -140,7 +140,7 @@ const escapeHtml_ = (s) => String(s ?? "")
 
 const yen_ = (n) => "¥" + Math.round(Number(n) || 0).toLocaleString("ja-JP");
 
-function buildInvoiceHtml_(model, settings) {
+function buildInvoiceHtml_(model, settings, clientAddr) {
   const issuer = {
     name: escapeHtml_(settings["発行元名"] || ""),
     addr: escapeHtml_(settings["発行元住所"] || ""),
@@ -178,6 +178,7 @@ function buildInvoiceHtml_(model, settings) {
       <div>
         <h1>請求書</h1>
         <div class="to"><b>${escapeHtml_(model.client)}</b> 御中</div>
+        ${clientAddr ? `<div class="muted">${escapeHtml_(clientAddr)}</div>` : ""}
       </div>
       <div class="muted">
         請求書番号: ${escapeHtml_(model.invoiceNo)}<br>
@@ -231,7 +232,8 @@ function issueInvoicesForMonth_(ym) {
   const created = [];
   summary.forEach((s, i) => {
     const model = buildInvoiceModel_(ym, s, settings, i);
-    const html  = buildInvoiceHtml_(model, settings);
+    const addr  = (typeof clientMasterMap_ === "function" ? (clientMasterMap_()[model.client] || {})["住所"] : "") || "";
+    const html  = buildInvoiceHtml_(model, settings, addr);
     const name  = `請求書_${model.client}_${ym}.pdf`;
     const pdf   = Utilities.newBlob(html, "text/html", name.replace(/\.pdf$/, ".html"))
       .getAs("application/pdf")

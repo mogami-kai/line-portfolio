@@ -33,7 +33,7 @@ const BILLING = {
 };
 
 const HEADERS_CLIENT_MASTER = [
-  "取引先", "別名", "締め日", "請求日ルール", "freee取引先ID", "振込先メモ", "備考",
+  "取引先", "別名", "締め日", "請求日ルール", "freee取引先ID", "振込先メモ", "備考", "住所",
 ];
 
 const HEADERS_RATE_MASTER = [
@@ -81,18 +81,23 @@ function setupBillingSheets() {
   billingSheet_(BILLING.sheetSummary, HEADERS_BILLING_SUMMARY, null);
   billingSheet_(BILLING.sheetFreee,   HEADERS_FREEE, null);
 
+  // 作業日報に「請求単価(自動)」「請求額(自動)」の数式列を設置（単価マスタ参照）
+  const calcReady = setupDailyReportCalcColumns_();
+
   SpreadsheetApp.getUi().alert(
     "✅ 請求・経費シートを準備しました\n\n" +
     "作成/確認したシート:\n" +
-    "  ・取引先マスタ（別名で名寄せ／請求日ルール）\n" +
-    "  ・単価マスタ（取引先×現場×契約種別の請求単価）\n" +
+    "  ・取引先マスタ（別名で名寄せ／請求日ルール／住所）\n" +
+    "  ・単価マスタ（取引先×現場ごとの請求単価をセルに入力するだけ）\n" +
     "  ・請負案件マスタ（請負＝契約金額で請求）\n" +
     "  ・経費（パーキング/ガソリン等。請求対象フラグ付き）\n" +
-    "  ・請求サマリ（自動生成）\n" +
-    "  ・freee取込（自動生成）\n\n" +
+    "  ・請求サマリ／freee取込（自動生成）\n\n" +
+    (calcReady
+      ? "作業日報に『請求単価(自動)』『請求額(自動)』列を数式で設置しました。\n単価マスタに単価を入れると請求額が自動計算されます。\n\n"
+      : "※作業日報シートが見つからないため数式列は未設置。\n  作業日報を作ってから setupDailyReportCalcColumns_ を実行してください。\n\n") +
     "次の手順:\n" +
-    "  1) 単価マスタのサンプル行を消して実単価を入力\n" +
-    "  2) メニュー『請求・経費』→『請求サマリを作成』\n\n" +
+    "  1) 単価マスタに現場ごとの単価を入力\n" +
+    "  2) メニュー『請求・経費』→『請求サマリ／請求書PDF』\n\n" +
     "※メニューを出すには、既存 onOpen の末尾に\n" +
     "    addBillingMenu_(SpreadsheetApp.getUi());\n" +
     "  を1行追加してください。"
@@ -111,6 +116,51 @@ function billingSheet_(name, headers, fillSamples) {
     if (fillSamples) fillSamples(sheet);
   }
   return sheet;
+}
+
+// 列番号 → 列文字（16→P, 17→Q）
+function colLetter_(n) {
+  let s = "";
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
+// 作業日報に「請求単価(自動)」「請求額(自動)」の数式列を1回だけ設置する。
+// 単価は『単価マスタ』(取引先×現場)から VLOOKUP。後藤さんは単価マスタのセルに
+// 現場ごとの単価を入れるだけで、請求額が関数で自動計算される。
+//   常用 = 単価×人工 + 残業×単価/8×1.25 ／ 請負 = 案件別（案件マスタで計上）
+function setupDailyReportCalcColumns_() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.sheetReport);
+  if (!sheet) return false; // 作業日報がまだ無い（先に setupSheets）
+
+  const cUnit = HEADERS_DAILY_REPORT.length + 1; // 16
+  const cAmt  = HEADERS_DAILY_REPORT.length + 2; // 17
+  const U = colLetter_(cUnit); // "P"
+
+  sheet.getRange(1, cUnit).setValue("請求単価(自動)");
+  sheet.getRange(1, cAmt).setValue("請求額(自動)");
+
+  // 取引先(D)×現場(G) で単価マスタ(D列=請求単価)を引く。無ければ空欄。
+  sheet.getRange(2, cUnit).setFormula(
+    '=ARRAYFORMULA(IF($D$2:$D="","",' +
+    'IFERROR(VLOOKUP($D$2:$D&"｜"&$G$2:$G,' +
+    '{単価マスタ!$A$2:$A&"｜"&単価マスタ!$B$2:$B,単価マスタ!$D$2:$D},2,0),"")))'
+  );
+
+  // 請負(E="請負")は案件別。常用は 単価×人工(I) + 残業(J)×単価/8×1.25。
+  sheet.getRange(2, cAmt).setFormula(
+    '=ARRAYFORMULA(IF($D$2:$D="","",' +
+    'IF($E$2:$E="請負","請負(案件別)",' +
+    'IF(' + U + '$2:' + U + '="","要単価設定",' +
+    'ROUND(' + U + '$2:' + U + '*$I$2:$I+$J$2:$J*' + U + '$2:' + U + '/8*1.25)))))'
+  );
+
+  return true;
 }
 
 // ============================================================

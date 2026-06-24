@@ -131,6 +131,11 @@ class MockSheet {
         sheet.cells[r0][c0] = v;
         return this;
       },
+      setFormula(f) {
+        sheet._ensureCell(r0, c0);
+        sheet.cells[r0][c0] = f; // store the formula text so tests can inspect it
+        return this;
+      },
       clearContent() {
         for (let i = 0; i < numRows; i++) {
           if (!sheet.cells[r0 + i]) continue;
