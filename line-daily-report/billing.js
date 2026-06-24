@@ -1,6 +1,6 @@
 // ============================================================
 // 【ファイル4】請求・経費 自動化（MVP）
-// 元請けごとの請求集計・単価マスタ・経費・freee取込データ生成
+// 元請けごとの請求集計（取引先マスタ1枚）・経費・請求書(xlsx)・freee(任意)
 // ============================================================
 // 既存の webhook（ファイル1）・management（ファイル2）には手を入れず、
 // このファイルを追加するだけで動きます。
@@ -12,9 +12,9 @@
 //
 // セットアップ手順:
 //   1) このファイルを Apps Script プロジェクトに追加
-//   2) setupBillingSheets を1回実行（マスタ／サマリのシートを作成）
-//   3) 単価マスタにサンプル行を消して実単価を入力
-//   4) メニュー「請求・経費」→「請求サマリを作成」
+//   2) setupBillingSheets を1回実行（取引先マスタ／経費を作成＋作業日報に数式列）
+//   3) 取引先マスタに 取引先×現場ごとの単価・住所 を入力
+//   4) メニュー「請求・経費」→「請求書(xlsx)を作成」
 //      ※メニューを出すには、既存 onOpen（ファイル2）の末尾に1行だけ追加:
 //          addBillingMenu_(SpreadsheetApp.getUi());
 //      （メニューを使わず Apps Script エディタの実行ボタンから動かしてもOK）
@@ -22,7 +22,6 @@
 
 const BILLING = {
   sheetClientMaster: "取引先マスタ",
-  sheetRateMaster:   "単価マスタ",
   sheetLumpSum:      "請負案件マスタ",
   sheetExpense:      "経費",
   sheetSummary:      "請求サマリ",
@@ -32,12 +31,10 @@ const BILLING = {
   defaultHoursPerDay: 8,
 };
 
+// 取引先マスタ＝請求の唯一のマスタ。1行＝取引先×現場×単価。
+// 住所・請求日ルール・別名・freee取引先ID は取引先ごとに（どこかの行に）入れればOK。
 const HEADERS_CLIENT_MASTER = [
-  "取引先", "別名", "締め日", "請求日ルール", "freee取引先ID", "振込先メモ", "備考", "住所",
-];
-
-const HEADERS_RATE_MASTER = [
-  "取引先", "現場", "契約種別", "請求単価", "残業係数", "夜勤割増", "適用開始日", "備考",
+  "取引先", "現場", "単価", "住所", "請求日ルール", "別名", "freee取引先ID", "備考",
 ];
 
 const HEADERS_LUMPSUM = [
@@ -64,43 +61,24 @@ const HEADERS_FREEE = [
 
 function setupBillingSheets() {
   billingSheet_(BILLING.sheetClientMaster, HEADERS_CLIENT_MASTER, (s) => {
-    s.appendRow(["サンプル取引先", "サンプル商事,サンプル建設", "末", "末日", "", "", "← この行は削除して実データを入れてください"]);
-  });
-
-  billingSheet_(BILLING.sheetRateMaster, HEADERS_RATE_MASTER, (s) => {
-    s.appendRow(["サンプル取引先", "",          "常用", 20000, BILLING.defaultOtFactor, 0, "", "現場空欄＝取引先の既定単価"]);
-    s.appendRow(["サンプル取引先", "サンプル現場", "常用", 22000, BILLING.defaultOtFactor, 0, "", "現場ごとに上書きできる"]);
-  });
-
-  billingSheet_(BILLING.sheetLumpSum, HEADERS_LUMPSUM, (s) => {
-    const ym = Utilities.formatDate(new Date(), TZ, "yyyy-MM");
-    s.appendRow(["サンプル取引先", "サンプル案件", 500000, ym, "未請求", "請負は人工ではなく契約金額で請求"]);
+    s.appendRow(["サンプル取引先", "サンプル現場", 20000, "横浜市〇〇1-2-3", "末日", "別名1,別名2", "", "← この行を消して実データを"]);
+    s.appendRow(["サンプル取引先", "", 18000, "", "", "", "", "現場空欄＝取引先の既定単価"]);
   });
 
   billingSheet_(BILLING.sheetExpense, HEADERS_EXPENSE, null);
-  billingSheet_(BILLING.sheetSummary, HEADERS_BILLING_SUMMARY, null);
-  billingSheet_(BILLING.sheetFreee,   HEADERS_FREEE, null);
 
-  // 作業日報に「請求単価(自動)」「請求額(自動)」の数式列を設置（単価マスタ参照）
+  // 作業日報に「請求単価(自動)」「請求額(自動)」の数式列を設置（取引先マスタ参照）
   const calcReady = setupDailyReportCalcColumns_();
 
   SpreadsheetApp.getUi().alert(
-    "✅ 請求・経費シートを準備しました\n\n" +
-    "作成/確認したシート:\n" +
-    "  ・取引先マスタ（別名で名寄せ／請求日ルール／住所）\n" +
-    "  ・単価マスタ（取引先×現場ごとの請求単価をセルに入力するだけ）\n" +
-    "  ・請負案件マスタ（請負＝契約金額で請求）\n" +
-    "  ・経費（パーキング/ガソリン等。請求対象フラグ付き）\n" +
-    "  ・請求サマリ／freee取込（自動生成）\n\n" +
+    "✅ 請求まわりを準備しました（管理シートは2枚）\n\n" +
+    "  ・取引先マスタ … 取引先×現場ごとの【単価】＋住所・請求日ルール・別名を入力\n" +
+    "  ・経費 … LINEから自動で入る（基本さわらない）\n\n" +
+    "発行元情報は『請求書設定』（setupInvoiceSheet）に入力してください。\n\n" +
     (calcReady
-      ? "作業日報に『請求単価(自動)』『請求額(自動)』列を数式で設置しました。\n単価マスタに単価を入れると請求額が自動計算されます。\n\n"
-      : "※作業日報シートが見つからないため数式列は未設置。\n  作業日報を作ってから setupDailyReportCalcColumns_ を実行してください。\n\n") +
-    "次の手順:\n" +
-    "  1) 単価マスタに現場ごとの単価を入力\n" +
-    "  2) メニュー『請求・経費』→『請求サマリ／請求書PDF』\n\n" +
-    "※メニューを出すには、既存 onOpen の末尾に\n" +
-    "    addBillingMenu_(SpreadsheetApp.getUi());\n" +
-    "  を1行追加してください。"
+      ? "作業日報に『請求単価(自動)』『請求額(自動)』列を設置しました。\n取引先マスタに単価を入れると請求額が自動計算されます。\n\n"
+      : "※作業日報が無いため数式列は未設置。作業日報作成後に setupDailyReportCalcColumns_ を実行。\n\n") +
+    "メニューを出すには 既存 onOpen の末尾に\n  addBillingMenu_(SpreadsheetApp.getUi());\n を1行追加してください。"
   );
 }
 
@@ -130,9 +108,9 @@ function colLetter_(n) {
 }
 
 // 作業日報に「請求単価(自動)」「請求額(自動)」の数式列を1回だけ設置する。
-// 単価は『単価マスタ』(取引先×現場)から VLOOKUP。後藤さんは単価マスタのセルに
+// 単価は『取引先マスタ』(取引先×現場)から VLOOKUP。取引先マスタのセルに
 // 現場ごとの単価を入れるだけで、請求額が関数で自動計算される。
-//   常用 = 単価×人工 + 残業×単価/8×1.25 ／ 請負 = 案件別（案件マスタで計上）
+//   常用 = 単価×人工 + 残業×単価/8×1.25 ／ 請負 = 案件別
 function setupDailyReportCalcColumns_() {
   const ss    = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(CONFIG.sheetReport);
@@ -145,11 +123,11 @@ function setupDailyReportCalcColumns_() {
   sheet.getRange(1, cUnit).setValue("請求単価(自動)");
   sheet.getRange(1, cAmt).setValue("請求額(自動)");
 
-  // 取引先(D)×現場(G) で単価マスタ(D列=請求単価)を引く。無ければ空欄。
+  // 取引先(D)×現場(G) で取引先マスタ(C列=単価)を引く。無ければ空欄。
   sheet.getRange(2, cUnit).setFormula(
     '=ARRAYFORMULA(IF($D$2:$D="","",' +
     'IFERROR(VLOOKUP($D$2:$D&"｜"&$G$2:$G,' +
-    '{単価マスタ!$A$2:$A&"｜"&単価マスタ!$B$2:$B,単価マスタ!$D$2:$D},2,0),"")))'
+    '{取引先マスタ!$A$2:$A&"｜"&取引先マスタ!$B$2:$B,取引先マスタ!$C$2:$C},2,0),"")))'
   );
 
   // 請負(E="請負")は案件別。常用は 単価×人工(I) + 残業(J)×単価/8×1.25。
@@ -174,7 +152,10 @@ function addBillingMenu_(ui) {
     .addItem("請求サマリを作成（先月）", "createBillingSummaryPrevMonth")
     .addSeparator()
     .addItem("請求書(xlsx)を作成（今月）", "issueInvoicesThisMonth")
-    .addItem("請求書(xlsx)を作成（先月）", "issueInvoicesPrevMonth");
+    .addItem("請求書(xlsx)を作成（先月）", "issueInvoicesPrevMonth")
+    .addSeparator()
+    .addItem("請求書を.xlsxで保存（今月）", "exportInvoiceXlsxThisMonth")
+    .addItem("請求書を.xlsxで保存（先月）", "exportInvoiceXlsxPrevMonth");
   // freee連携を使うときだけ（FREEE_ENABLED=TRUE）freeeメニューを表示
   if (freeeEnabled_()) {
     menu.addSeparator()
@@ -275,12 +256,18 @@ function clientAliasMap_() {
   return map;
 }
 
+// 取引先ごとの情報（住所・請求日ルール等）を1取引先=1オブジェクトに集約。
+// 1取引先が複数行（現場ごと）あるため、各フィールドは最初の非空を採用する。
 function clientMasterMap_() {
   if (_clientMasterMap) return _clientMasterMap;
   const map = {};
   for (const c of readSheetObjects_(BILLING.sheetClientMaster, HEADERS_CLIENT_MASTER)) {
     const canonical = String(c["取引先"] ?? "").trim();
-    if (canonical) map[canonical] = c;
+    if (!canonical) continue;
+    const cur = map[canonical] || (map[canonical] = { "取引先": canonical });
+    ["住所", "請求日ルール", "別名", "freee取引先ID", "備考"].forEach((k) => {
+      if (!String(cur[k] ?? "").trim() && String(c[k] ?? "").trim()) cur[k] = c[k];
+    });
   }
   _clientMasterMap = map;
   return map;
@@ -300,17 +287,21 @@ function parseMasterDate_(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// 取引先マスタ（取引先×現場×単価）から単価ルックアップ用の行を作る。
+// 残業係数=1.25 / 夜勤割増=0 は固定（マスタを単価1列に簡素化したため）。
 function rateRows_() {
   if (_rateRows) return _rateRows;
-  _rateRows = readSheetObjects_(BILLING.sheetRateMaster, HEADERS_RATE_MASTER).map((r) => ({
-    client:   canonicalClient_(r["取引先"]),
-    site:     String(r["現場"] ?? "").trim(),
-    type:     normalizeContractType(r["契約種別"], "常用"),
-    unit:     toNumber(r["請求単価"], 0),
-    otFactor: toNumber(r["残業係数"], BILLING.defaultOtFactor),
-    nightAdd: toNumber(r["夜勤割増"], 0),
-    from:     parseMasterDate_(r["適用開始日"]),
-  }));
+  _rateRows = readSheetObjects_(BILLING.sheetClientMaster, HEADERS_CLIENT_MASTER)
+    .filter((r) => toNumber(r["単価"], 0) > 0)
+    .map((r) => ({
+      client:   canonicalClient_(r["取引先"]),
+      site:     String(r["現場"] ?? "").trim(),
+      type:     "常用",
+      unit:     toNumber(r["単価"], 0),
+      otFactor: BILLING.defaultOtFactor,
+      nightAdd: 0,
+      from:     null,
+    }));
   return _rateRows;
 }
 

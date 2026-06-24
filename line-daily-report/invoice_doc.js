@@ -257,3 +257,47 @@ function runIssueInvoicesForOffset_(offset) {
     ui.alert(`❌ 請求書(xlsx)作成でエラー\n\n${err && err.stack ? err.stack : err}`);
   }
 }
+
+// ============================================================
+// .xlsx 書き出し（単価を入れ終えた請求書ブックをExcel形式で保存）
+// ============================================================
+// 「請求書(xlsx)を作成」で出来た Googleスプレッドシートのブックに単価を入れたあと、
+// これを実行すると同じフォルダに 請求書_YYYY-MM.xlsx を書き出す。
+// （ブック自体も File → ダウンロード → Excel で個別にxlsx化できます）
+
+function exportInvoiceXlsxForMonth_(ym) {
+  const folder = resolveInvoiceFolder_(loadInvoiceSettings_());
+  const it = folder.getFilesByName(`請求書_${ym}`);
+  if (!it.hasNext()) return null; // ブック未作成
+
+  const file = it.next();
+  const url = "https://www.googleapis.com/drive/v3/files/" + file.getId() +
+    "/export?mimeType=application%2Fvnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  const res = UrlFetchApp.fetch(url, {
+    headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() },
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 200) {
+    throw new Error("xlsx変換に失敗: HTTP " + res.getResponseCode());
+  }
+  const xlsx = folder.createFile(res.getBlob().setName(`請求書_${ym}.xlsx`));
+  return xlsx.getUrl();
+}
+
+function exportInvoiceXlsxThisMonth() { runExportXlsxForOffset_(0); }
+function exportInvoiceXlsxPrevMonth() { runExportXlsxForOffset_(-1); }
+
+function runExportXlsxForOffset_(offset) {
+  const ui = SpreadsheetApp.getUi();
+  const ym = ymForMonthOffset_(offset);
+  try {
+    const url = exportInvoiceXlsxForMonth_(ym);
+    if (!url) {
+      ui.alert(`ℹ️ ${ym} の請求書ブックが見つかりません\n先に「請求書(xlsx)を作成」を実行してください。`);
+      return;
+    }
+    ui.alert(`✅ ${ym} の請求書を .xlsx で保存しました\n\n${url}`);
+  } catch (err) {
+    ui.alert(`❌ xlsx書き出しでエラー\n\n${err && err.stack ? err.stack : err}`);
+  }
+}
