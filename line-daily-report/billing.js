@@ -123,6 +123,9 @@ function addBillingMenu_(ui) {
     .addItem("請求サマリを作成（今月）", "createBillingSummaryThisMonth")
     .addItem("請求サマリを作成（先月）", "createBillingSummaryPrevMonth")
     .addSeparator()
+    .addItem("請求書PDFを発行（今月）", "issueInvoicesThisMonth")
+    .addItem("請求書PDFを発行（先月）", "issueInvoicesPrevMonth")
+    .addSeparator()
     .addItem("freee取込データを作成（今月）", "exportFreeeThisMonth")
     .addItem("freee取込データを作成（先月）", "exportFreeePrevMonth")
     .addToUi();
@@ -629,6 +632,8 @@ function finalizeBillingForMonth_(ym) {
   try {
     buildBillingSummary_(ym);
     exportFreee_(ym);
+    // 請求書PDFの自動発行（freee非依存・invoice_doc.js 導入時のみ）
+    if (typeof issueInvoicesForMonth_ === "function") issueInvoicesForMonth_(ym);
     if (typeof freeeCreateInvoices_ === "function") freeeCreateInvoices_(ym);
     appendProcessLog_(new Date(), "", "", "", `[BILLING_CLOSE] ${ym}`, "INFO", "billing finalized");
   } catch (err) {

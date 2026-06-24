@@ -275,6 +275,7 @@ function loadGas(filePaths, options = {}) {
     formatDate,
     parseDate,
     sleep: () => {},
+    newBlob: (content, type, name) => makeBlob(content, type, name),
   };
 
   const PropertiesService = {
@@ -309,9 +310,66 @@ function loadGas(filePaths, options = {}) {
     MimeType: { TEXT: "TEXT", JSON: "JSON" },
   };
 
+  // ---- Drive / Blob / Mail mocks (for invoice PDF generation) ----
+  const driveFiles = [];
+  const mailbox = [];
+  const folderRegistry = {};
+  let _fileSeq = 0;
+
+  function makeBlob(content, type, name) {
+    let _name = name || "blob";
+    const blob = {
+      getName: () => _name,
+      setName: (n) => { _name = n; return blob; },
+      getContentType: () => type,
+      getDataAsString: () => String(content),
+      getBytes: () => (typeof content === "string" ? Array.from(Buffer.from(content)) : []),
+      getAs: (t) => makeBlob(content, t, _name),
+    };
+    return blob;
+  }
+
+  function makeFile(blob) {
+    _fileSeq++;
+    const id = "file-" + _fileSeq;
+    const file = {
+      _blob: blob,
+      getId: () => id,
+      getName: () => (blob && blob.getName ? blob.getName() : "file"),
+      getUrl: () => "https://drive.google.com/file/d/" + id + "/view",
+    };
+    driveFiles.push(file);
+    return file;
+  }
+
+  function makeFolder(name, id) {
+    return {
+      getId: () => id,
+      getName: () => name,
+      getUrl: () => "https://drive.google.com/drive/folders/" + id,
+      createFile: (blob) => makeFile(blob),
+    };
+  }
+
   const DriveApp = {
-    getFileById: () => ({ getBlob: () => ({ getBytes: () => [] }) }),
-    getRootFolder: () => ({}),
+    getFileById: () => ({ getBlob: () => makeBlob("", "application/octet-stream", "f"), makeCopy: () => ({ getId: () => "copy" }) }),
+    getRootFolder: () => makeFolder("root", "root"),
+    getFolderById: (id) => makeFolder("folder-" + id, id),
+    getFoldersByName: (name) => {
+      const existing = folderRegistry[name];
+      let used = false;
+      return { hasNext: () => !!existing && !used, next: () => { used = true; return existing; } };
+    },
+    createFolder: (name) => {
+      const id = "folder-new-" + name;
+      const f = makeFolder(name, id);
+      folderRegistry[name] = f;
+      return f;
+    },
+  };
+
+  const MailApp = {
+    sendEmail: (a, b, c, d) => { mailbox.push(typeof a === "object" ? a : { to: a, subject: b, body: c, options: d }); },
   };
 
   const ScriptApp = {
@@ -335,6 +393,7 @@ function loadGas(filePaths, options = {}) {
     UrlFetchApp,
     ContentService,
     DriveApp,
+    MailApp,
     ScriptApp,
     console,
   };
@@ -346,7 +405,7 @@ function loadGas(filePaths, options = {}) {
   const code = paths.map((p) => fs.readFileSync(p, "utf8")).join("\n;\n");
   vm.runInContext(code, ctx, { filename: "gas-bundle.js" });
 
-  return { ctx, ss, props };
+  return { ctx, ss, props, driveFiles, mailbox };
 }
 
 module.exports = { loadGas, formatDate, parseDate, MockSheet, MockSpreadsheet };
