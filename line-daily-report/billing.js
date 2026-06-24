@@ -488,6 +488,12 @@ const EXPENSE_PATTERNS = [
   { 種別: "高速",       re: new RegExp(`(?:高速|有料道路|ETC)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
 ];
 
+// 経費行に「自社/自腹/自費」等があれば自社負担、無ければ請求対象（既定）。
+// freeeへの請求水増しを避けつつ、現場の書き方で請求/自社を切り替えられる。
+const SELF_BORNE_MARKERS = ["自社", "自腹", "自費", "請求しない", "請求不要", "経費なし"];
+const isSelfBorneExpenseLine_ = (line) =>
+  SELF_BORNE_MARKERS.some((k) => String(line ?? "").includes(k));
+
 function extractExpensesFromText_(text) {
   const out = [];
   for (const line of String(text ?? "").split(/\r\n|\r|\n/)) {
@@ -545,10 +551,11 @@ function captureExpensesFromText_(text, messageId, ts) {
     if (exps.length > 0) {
       // 取引先が未確定（ブロック先頭前）の経費は帰属できないため記録しない
       if (!curClient) continue;
-      const dateStr = Utilities.formatDate(curDate || base, TZ, "yyyy/MM/dd");
+      const dateStr  = Utilities.formatDate(curDate || base, TZ, "yyyy/MM/dd");
+      // 既定は「請求」（立替を元請けに請求）。行に自社/自腹/自費があれば自社負担
+      const billable = !isSelfBorneExpenseLine_(line);
       for (const e of exps) {
-        // 既定は「請求」（立替を元請けに請求）。自社負担なら経費シートで切替
-        addExpenseRow_(dateStr, curClient, curSite, "", e["種別"], e["金額"], true, messageId, "LINE");
+        addExpenseRow_(dateStr, curClient, curSite, "", e["種別"], e["金額"], billable, messageId, "LINE");
         count++;
       }
       continue;

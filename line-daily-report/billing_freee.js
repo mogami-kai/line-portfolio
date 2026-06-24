@@ -10,34 +10,38 @@
 //   readSheetObjects_ / clientMasterMap_ / ymForMonthOffset_ /
 //   toNumber / prop_ / appendProcessLog_ / SpreadsheetApp / UrlFetchApp
 //
-// 使用するfreeeエンドポイント（※下の⚠注意を必ず参照）:
-//   請求書作成: POST https://api.freee.co.jp/api/1/invoices
+// 使用するfreeeエンドポイント（2026-06 時点の確認結果。詳細は下の⚠注意）:
+//   請求書作成: POST https://api.freee.co.jp/iv/invoices  （freee請求書 API）
 //   トークン更新: POST https://accounts.secure.freee.co.jp/public_api/token
-//   ※請求書ペイロードには company_id を含めます。
+//   ※ freee会計の POST /api/1/invoices（請求書作成）は 2023-10 に廃止されたため
+//     freee請求書 API を使う（会計→請求書の移行ガイドにパラメータ差分表あり）。
+//   ※ issue_date(発行日) / due_date(支払期日) / partner_id / company_id は引き継ぎ。
+//   ※ 既定は下書き(draft)で作成し、会計取引の自動生成を避ける（status は設定で変更可）。
 //
 // セットアップ（スクリプトプロパティに設定する値）:
-//   FREEE_ACCESS_TOKEN   … freeeのアクセストークン
-//   FREEE_REFRESH_TOKEN  … リフレッシュトークン（401時の自動更新に使用）
-//   FREEE_CLIENT_ID      … OAuthアプリのクライアントID
-//   FREEE_CLIENT_SECRET  … OAuthアプリのクライアントシークレット
-//   FREEE_COMPANY_ID     … 事業所ID（company_id）
+//   FREEE_ACCESS_TOKEN    … freeeのアクセストークン
+//   FREEE_REFRESH_TOKEN   … リフレッシュトークン（401時の自動更新に使用）
+//   FREEE_CLIENT_ID       … OAuthアプリのクライアントID
+//   FREEE_CLIENT_SECRET   … OAuthアプリのクライアントシークレット
+//   FREEE_COMPANY_ID      … 事業所ID（company_id・整数）
+//   FREEE_INVOICES_URL    … （任意）請求書作成エンドポイントの上書き
+//   FREEE_INVOICE_STATUS  … （任意）"draft"（既定）/ "issue" 等
 //   ※未設定でも安全に no-op（月末ジョブを止めません）。
 //
-// OAuthスコープ（freeeアプリ側で許可が必要）:
-//   read  … 取引先・請求書の参照
-//   write … 請求書の作成
-//   （freeeでは "read write" のように半角スペース区切りで指定）
+// OAuthスコープ（freeeアプリ側で許可が必要）: "read write"
 //
 // ⚠ 重要な注意:
-//   実APIをここから呼べないため、エンドポイントのパス（/api/1/invoices 等）と
-//   JSONペイロードのフィールド名（invoice_contents / partner_id / issue_date 等）は
-//   本番投入前に「最新のfreee APIドキュメント」と必ず突き合わせて検証すること。
-//   フィールド名やネスト構造が変わると 400/422 で失敗します。
+//   公式リファレンス(developer.freee.co.jp)が bot制限で参照不可だったため、
+//   エンドポイントのホスト（/iv/invoices）と明細(invoice_contents)のフィールド名は、
+//   本番投入前に「freee請求書 帳票API」「会計→請求書 移行ガイド」の差分表と必ず
+//   突き合わせること。そのため URL とステータスは上記プロパティで上書き可能にしてある。
 // ============================================================
 
 const FREEE = {
-  invoicesUrl: "https://api.freee.co.jp/api/1/invoices",
-  tokenUrl:    "https://accounts.secure.freee.co.jp/public_api/token",
+  // freee請求書（帳票）API。freee会計の POST /api/1/invoices は 2023-10 に廃止。
+  defaultInvoicesUrl: "https://api.freee.co.jp/iv/invoices",
+  tokenUrl:           "https://accounts.secure.freee.co.jp/public_api/token",
+  defaultStatus:      "draft", // 下書きで作成（会計取引の自動生成を避ける）
 };
 
 // ============================================================
@@ -45,11 +49,13 @@ const FREEE = {
 // ============================================================
 
 const freeeConfig_ = () => ({
-  accessToken:  prop_("FREEE_ACCESS_TOKEN"),
-  refreshToken: prop_("FREEE_REFRESH_TOKEN"),
-  clientId:     prop_("FREEE_CLIENT_ID"),
-  clientSecret: prop_("FREEE_CLIENT_SECRET"),
-  companyId:    prop_("FREEE_COMPANY_ID"),
+  accessToken:   prop_("FREEE_ACCESS_TOKEN"),
+  refreshToken:  prop_("FREEE_REFRESH_TOKEN"),
+  clientId:      prop_("FREEE_CLIENT_ID"),
+  clientSecret:  prop_("FREEE_CLIENT_SECRET"),
+  companyId:     prop_("FREEE_COMPANY_ID"),
+  invoicesUrl:   prop_("FREEE_INVOICES_URL")   || FREEE.defaultInvoicesUrl,
+  invoiceStatus: prop_("FREEE_INVOICE_STATUS") || FREEE.defaultStatus,
 });
 
 // freeeのID（company_id / partner_id）は整数。数値でなければ 0 を返す。
@@ -121,13 +127,11 @@ function freeeCreateInvoices_(ym) {
       continue;
     }
     const payload = {
-      company_id: companyId,
-      partner_id: partnerId,
-      issue_date: issueDate, // 請求日
-      // 請求日＝期日（同日）。フィールド名はfreeeのバージョンにより
-      // payment_date / due_date のいずれか（⚠ドキュメント要確認）。
-      payment_date: issueDate,
-      due_date:     issueDate,
+      company_id:     companyId,
+      partner_id:     partnerId,
+      invoice_status: cfg.invoiceStatus, // 既定 "draft"（会計取引の自動生成を避ける）
+      issue_date:     issueDate,         // 発行日
+      due_date:       issueDate,         // 支払期日（請求日＝期日で統一）
       invoice_contents: lines.map((l, i) => ({
         order:       i + 1,
         type:        "normal",
@@ -163,13 +167,13 @@ function freeeCreateInvoices_(ym) {
 // 請求書を1件POST。401なら一度だけトークンを更新して再試行する。
 function freeePostInvoice_(payload, cfg) {
   let token = cfg.accessToken;
-  let res   = freeeFetch_(FREEE.invoicesUrl, token, payload);
+  let res   = freeeFetch_(cfg.invoicesUrl, token, payload);
 
   if (res.code === 401) {
     const refreshed = freeeRefreshToken_();
     if (refreshed) {
       token = prop_("FREEE_ACCESS_TOKEN") || token;
-      res   = freeeFetch_(FREEE.invoicesUrl, token, payload);
+      res   = freeeFetch_(cfg.invoicesUrl, token, payload);
     }
   }
 
@@ -284,7 +288,7 @@ function runFreeeCreateInvoicesForOffset_(offset) {
       return;
     }
 
-    let msg = `✅ ${ym} のfreee請求書を作成しました\n\n` +
+    let msg = `✅ ${ym} のfreee請求書（下書き）を作成しました\n\n` +
       `作成: ${res.created}件\n` +
       `スキップ（freee取引先ID未設定）: ${res.skippedClients.length}件`;
     if (res.skippedClients.length > 0) {

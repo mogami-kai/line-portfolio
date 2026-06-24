@@ -283,10 +283,23 @@ test("freeeCreateInvoices_ : 正常設定で請求書POST（company_id/partner_i
   const res = ctx.freeeCreateInvoices_("2026-03");
   A.strictEqual(res.created, 1);
   A.strictEqual(calls.length, 1);
+  A.strictEqual(calls[0].url, "https://api.freee.co.jp/iv/invoices"); // 廃止された /api/1/invoices ではない
   A.strictEqual(calls[0].body.company_id, 123); // 文字列ではなく整数
   A.strictEqual(calls[0].body.partner_id, 456);
+  A.strictEqual(calls[0].body.invoice_status, "draft"); // 既定は下書き
   A.strictEqual(calls[0].body.issue_date, "2026-03-31"); // 当日ではなく請求日
-  A.strictEqual(calls[0].body.payment_date, "2026-03-31");
+  A.strictEqual(calls[0].body.due_date, "2026-03-31");
+});
+
+test("captureExpensesFromText_ : 自社/自腹マーカーは自社負担、無印は請求", () => {
+  const { ctx, ss } = loadGas([webhookPath, billingPath], { props: {} });
+  ss.__seed("経費", [HEADERS_EXPENSE]);
+  const text = ["3月18日(水)", "サンプル取引先", "サンプル現場", "田中 1", "ガソリン4000 自社", "パーキング1200"].join("\n");
+  const n = ctx.captureExpensesFromText_(text, "MSGSB", new Date(2026, 2, 18, 12));
+  A.strictEqual(n, 2);
+  const rows = body(ss, "経費");
+  A.strictEqual(rows.find((r) => r[4] === "ガソリン")[6], "自社負担"); // 請求対象 列
+  A.strictEqual(rows.find((r) => r[4] === "パーキング")[6], "請求");
 });
 
 // ------------------------------------------------------------
