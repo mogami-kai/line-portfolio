@@ -884,10 +884,13 @@ function notifyAdmins(text, messageId, receivedAt, result) {
     `受信: ${dateStr}（${modeLabel}）`,
     `登録件数: ${result.rows}件`,
     "",
-    "━━━━━━━━━━━━━━",
+    "【元メッセージ】",
+    String(text || "").trim(),
+    "",
+    "【集計結果】",
     detailText,
     "━━━━━━━━━━━━━━",
-    "誤りがあればシートで修正してください。",
+    "元メッセージと集計が一致しているか確認してください。",
   ].join("\n");
 
   for (const uid of adminIds) {
