@@ -61,14 +61,23 @@ LINEからの出面入力 → DB保存 → 集計 → **取引先ごとの請求
 
 ## 5. ルーティング（二系統・最重要）
 
+> **制約**: 自社にパートナーの存在をできるだけ意識させない。自社のUI・グループにパートナーは一切出さず、合流は管理ダッシュボードだけ。
+
+設計の核 = **マルチテナント（org単位）＋入口（エントリ面）の分離＋合流は管理画面のみ**。ルーティングは「ユーザーの所属org」で**サーバ側が自動判定**（本人が自社/パートナーを選ばない）。
+
 ```
-LIFF送信
-  ├ source=SELF（自社）   → DB保存 ＋ Messaging API push で出面グループへ整形ログ
-  └ source=PARTNER（協力） → DB保存のみ（グループ非投稿）
-                              → 管理ダッシュボードでのみ可視（管理者）
+[識別] LINE Login → User(lineUserId → orgId, role)   ※本人は org/source を選ばない
+[入口] 自社      : 出面グループ＋自社リッチメニュー/LIFF（パートナー概念なし）
+       パートナー: 別エントリ（パートナー専用LIFFリンク）。自社グループ/メニューに出ない
+[判定] 送信時に org.kind で分岐（1箇所）
+        SELF    → DB保存 ＋ Messaging API push で出面グループへ整形ログ
+        PARTNER → DB保存のみ（グループ非投稿・postedToGroup=false）
+[合流] 管理ダッシュボードのみ全org集約（パートナーが見えるのはここだけ）
 ```
 
-- ログ投稿文は v1 のbot受信確認フォーマットを踏襲（日付・取引先・現場・人別の人工/残業）。
+- **不可視性は構造で担保**: ①自社グループにbotはSELFのみ投稿 ②自社の入力UIにパートナー概念なし ③パートナーは別入口で自社面に現れない ④orgId/RLSでデータ分離。
+- **拡張性**: パートナー追加＝`Organization(kind=PARTNER)` を足してエントリリンクを渡すだけ（コード変更なし）。初回ユーザーは未承認→管理者がorg/role割当。
+- 当面パートナーは**入力専用**（自分用の閲覧は後付け可）。ログ投稿文は v1 のbot受信確認フォーマットを踏襲。
 
 ## 6. データモデル（Prisma スケッチ）
 
@@ -171,7 +180,7 @@ model InvoiceLine { id String @id @default(cuid()) invoiceId String itemName Str
 お振込先（InvoiceSetting.bankInfo）/ 備考: ※お振込手数料は御社にてご負担…
 ```
 
-- 出力: **PDF**（アプリ生成。例 @react-pdf/renderer 等）。xlsx は任意。freee取込CSVは将来オプション。
+- 出力: **xlsx（テンプレ体裁）＋ CSV（明細フラット・会計/freee取込用）**。テンプレ自体は v1 設計で確定。PDFは将来オプション。
 - 末締め・請求日＝支払期限（同日）。請求金額はDBにスナップショット保存。
 
 ## 11. LINE連携
@@ -190,6 +199,7 @@ model InvoiceLine { id String @id @default(cuid()) invoiceId String itemName Str
 ## 13. 非機能・運用
 
 - ホスティング: Vercel（Next.js）／ Supabase（Postgres＋Auth＋RLS）／ Prisma migrate。
+- リポジトリ: `line-portfolio/app/`（Next.js, Prisma `app/prisma/schema.prisma`）。GAS資産は `line-daily-report/` に残置（移植元）。
 - 環境変数: `DATABASE_URL` `DIRECT_URL` `LINE_CHANNEL_ID/SECRET` `LINE_CHANNEL_ACCESS_TOKEN` `LIFF_ID` `LINE_GROUP_ID`。
 - セキュリティ: 口座/住所/個人名は DB のみ（リポジトリ・クライアントに焼き込まない）。Webhook 署名検証。
 - バックアップ: Supabase 自動＋月次エクスポート。
@@ -217,8 +227,11 @@ model InvoiceLine { id String @id @default(cuid()) invoiceId String itemName Str
 - スタック: Next.js / Vercel / Supabase / Prisma / LINE(LIFF・Login・Messaging API)。
 - 自社日報は LIFF 入力後も bot が出面グループへログ投稿（**維持**）。
 - パートナー入力はグループ非投稿・管理者のみ集約閲覧。
+- **自社にパートナーを意識させない**（入口分離＋自社面に非表示、合流は管理画面のみ。source は所属orgから自動判定）。
+- リポジトリ: 本 `line-portfolio` 内に `app/` を新設（モノレポ）。
+- パートナー規模: 当面少数・拡張性込み（org単位マルチテナントで対応）。
+- 請求書出力: **xlsx＋CSV**（テンプレデザインで確定）。
 
-### 次に決めたい点（実装前）
-- パートナーの規模（社数・人数）と本人識別（LINE Login で確定の想定）。
-- 請求書PDFの最終デザイン（v1テンプレで確定なら即進行）。
-- リポジトリ構成（このリポジトリ内に `app/` を新設するか、別リポジトリにするか）。
+### 次に決めたい点（実装中に詰める）
+- パートナーのエントリ方式（専用LIFFリンク／パートナー用リッチメニュー）と初回承認フロー。
+- Supabase RLS をどこまで効かせるか（最低限はアプリ層ガードで担保）。

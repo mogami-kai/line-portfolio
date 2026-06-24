@@ -1,0 +1,237 @@
+// ============================================================
+// 出面管理 → 集計 → 請求書 一貫システム / Prisma schema (P1)
+// スタック: Next.js + Vercel + Supabase(Postgres) + Prisma
+// 設計: 要件定義 v2（リポジトリ直下 REQUIREMENTS.md）に準拠。
+//
+// 2系統ルーティングの核 = マルチテナント（Organization 単位）。
+//   ・User.org で所属を持ち、source はサーバ側が org.kind から自動判定
+//   ・SELF    → 保存 ＋ 出面グループへ bot ログ投稿
+//   ・PARTNER → 保存のみ（グループ非投稿）／管理ダッシュボードのみ集約閲覧
+//   ・パートナー追加 = Organization(kind=PARTNER) を足すだけ（拡張性）
+// 例はダミー。実名・住所・口座は DB / 環境変数に保持（リポジトリに焼かない）。
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")  // Supabase（pooler 経由）
+  directUrl = env("DIRECT_URL")    // migrate 用の直結
+}
+
+// ── 組織（自社 or パートナー）＝マルチテナントの単位 ──
+enum OrgKind {
+  SELF
+  PARTNER
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  kind      OrgKind
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users   User[]
+  workers Worker[]
+  reports Report[]
+
+  @@index([kind])
+}
+
+// ── 利用者（LINEアカウント）──
+enum Role {
+  ADMIN // 管理者（全org集約・マスタ・請求）
+  OWNER // 自社代表（自社入力→グループログ）
+  VIEWER // 自社メンバー（閲覧のみ）
+  PARTNER // 協力会社（自組織の入力のみ）
+}
+
+model User {
+  id          String   @id @default(cuid())
+  lineUserId  String   @unique
+  displayName String
+  role        Role     @default(PARTNER)
+  approved    Boolean  @default(false) // 初回 false → 管理者が org/role を承認
+  orgId       String
+  org         Organization @relation(fields: [orgId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+}
+
+// ── 職人 ──
+model Worker {
+  id      String   @id @default(cuid())
+  name    String
+  aliases String[] @default([]) // 表記揺れ吸収
+  active  Boolean  @default(true)
+  orgId   String
+  org     Organization @relation(fields: [orgId], references: [id])
+
+  entries ReportEntry[]
+
+  @@index([orgId])
+}
+
+// ── 取引先（請求先）──
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  honorific String   @default("御中") // 御中 / 様
+  address   String?
+  aliases   String[] @default([]) // 名寄せ（工/興・L/R 等）
+  active    Boolean  @default(true)
+
+  sites    Site[]
+  rates    RateCard[]
+  reports  Report[]
+  invoices Invoice[]
+}
+
+model Site {
+  id       String @id @default(cuid())
+  name     String
+  clientId String
+  client   Client @relation(fields: [clientId], references: [id])
+
+  rates   RateCard[]
+  reports Report[]
+
+  @@index([clientId])
+}
+
+enum ContractType {
+  JOYO // 常用
+  UKEOI // 請負
+}
+
+// ── 単価（取引先×現場×種別、改定履歴可）──
+model RateCard {
+  id            String       @id @default(cuid())
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id])
+  siteId        String? // null = 取引先の既定単価
+  site          Site?        @relation(fields: [siteId], references: [id])
+  contractType  ContractType @default(JOYO)
+  unitPrice     Int
+  effectiveFrom DateTime     @default(now())
+
+  @@index([clientId, siteId, contractType])
+}
+
+enum Shift {
+  DAY // 日勤（1.0）
+  HALF // 半日（0.5）
+  NIGHT // 夜勤（1.0）
+}
+
+enum ReportStatus {
+  CONFIRMED
+  NEEDS_REVIEW // 新規取引先/現場・要確認はここに載せて管理者承認
+}
+
+// ── 出面（1日・1取引先・1現場の報告）──
+model Report {
+  id            String       @id @default(cuid())
+  workDate      DateTime     @db.Date
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id])
+  siteId        String?
+  site          Site?        @relation(fields: [siteId], references: [id])
+  contractType  ContractType @default(JOYO)
+  source        OrgKind // ルーティング: SELF→グループ投稿 / PARTNER→管理者のみ
+  orgId         String
+  org           Organization @relation(fields: [orgId], references: [id])
+  createdById   String
+  status        ReportStatus @default(CONFIRMED)
+  postedToGroup Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+
+  entries  ReportEntry[]
+  expenses Expense[]
+
+  @@index([orgId, workDate])
+  @@index([clientId, workDate])
+}
+
+model ReportEntry {
+  id       String @id @default(cuid())
+  reportId String
+  report   Report @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  workerId String
+  worker   Worker @relation(fields: [workerId], references: [id])
+  shift    Shift  @default(DAY)
+  manDays  Float  @default(1) // 1 / 0.5 / 0.75
+  otHours  Float  @default(0)
+
+  @@index([reportId])
+}
+
+// ── 経費（立替）──
+model Expense {
+  id       String   @id @default(cuid())
+  workDate DateTime @db.Date
+  clientId String?
+  siteId   String?
+  kind     String // パーキング / ガソリン / 弁当 …
+  amount   Int
+  billable Boolean  @default(true) // true=請求 / false=自社負担
+  reportId String?
+  report   Report?  @relation(fields: [reportId], references: [id])
+
+  @@index([clientId, workDate])
+}
+
+// ── 自社（発行元）情報 ──
+model InvoiceSetting {
+  id          String  @id @default(cuid())
+  issuerName  String
+  address     String?
+  tel         String?
+  email       String?
+  regNumber   String? // 登録番号 T...
+  bankInfo    String? // 振込先
+  taxRate     Float   @default(0.10)
+  contactName String?
+}
+
+// ── 請求書（取引先×月、発行時スナップショット）──
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+}
+
+model Invoice {
+  id        String        @id @default(cuid())
+  clientId  String
+  client    Client        @relation(fields: [clientId], references: [id])
+  yearMonth String // "2026-06"
+  invoiceNo String        @unique // "2026-001"
+  issueDate DateTime      @db.Date // 末締め＝支払期限
+  status    InvoiceStatus @default(DRAFT)
+  createdAt DateTime      @default(now())
+
+  lines InvoiceLine[]
+
+  @@unique([clientId, yearMonth])
+  @@index([yearMonth])
+}
+
+model InvoiceLine {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sortNo    Int
+  itemName  String // "{現場} 常用" / "{現場} 残業" / "請負工事一式" / "立替経費"
+  qty       Float
+  unitLabel String // 人工 / 時間 / 式
+  unitPrice Int
+  amount    Int
+  taxRate   Float // 0.10 / 0（対象外）
+
+  @@index([invoiceId])
+}
