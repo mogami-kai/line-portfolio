@@ -1,5 +1,5 @@
 // ============================================================
-// invoice_doc.js（請求書xlsxブック・freee非依存・単価は管理者入力）の単体テスト
+// invoice_doc.js（請求書xlsxブック・単価は管理者入力）の単体テスト
 //   node test/invoice.test.js
 // ============================================================
 
@@ -18,7 +18,7 @@ const HEADERS_DAILY_REPORT = [
 ];
 const HEADERS_LUMPSUM          = ["取引先", "案件名", "契約金額", "計上月", "ステータス", "備考"];
 const HEADERS_EXPENSE          = ["日付", "取引先", "現場", "職人名", "種別", "金額", "請求対象", "元メッセージID", "登録方法", "備考"];
-const HEADERS_CLIENT_MASTER    = ["取引先", "現場", "単価", "住所", "請求日ルール", "別名", "freee取引先ID", "備考"];
+const HEADERS_CLIENT_MASTER    = ["取引先", "現場", "単価", "住所", "請求日ルール", "別名", "備考"];
 const HEADERS_INVOICE_SETTINGS = ["設定キー", "値", "説明"];
 
 let passed = 0, failed = 0, assertionCount = 0;
@@ -36,7 +36,7 @@ function seedCommon(ss) {
   ]);
   ss.__seed("取引先マスタ", [
     HEADERS_CLIENT_MASTER,
-    ["A", "現場1", 20000, "横浜市金沢区六浦3-36-9", "末日", "", "", ""],
+    ["A", "現場1", 20000, "横浜市金沢区六浦3-36-9", "末日", "", ""],
   ]);
   ss.__seed("請負案件マスタ", [HEADERS_LUMPSUM, ["A", "ビル改修", 500000, "2026-03", "未請求", ""]]);
   ss.__seed("経費", [HEADERS_EXPENSE, ["2026/03/20", "A", "現場1", "", "パーキング", 8000, "請求", "M3", "LINE", ""]]);

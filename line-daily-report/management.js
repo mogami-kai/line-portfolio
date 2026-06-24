@@ -137,7 +137,7 @@ function closeCheckDailyTrigger() {
 
 function closeMonthAtEnd_(ym) {
   try {
-    // 月末確定: アーカイブ前に請求サマリ・freee取込を生成（billing.js 導入時のみ）
+    // 月末確定: アーカイブ前に請求サマリ・請求書を生成（billing.js 導入時のみ）
     if (typeof finalizeBillingForMonth_ === "function") finalizeBillingForMonth_(ym);
 
     const archiveId = archiveMonthToFolder_(ym);
@@ -296,6 +296,6 @@ function purgeReportData_(ym) {
     logSheet.getRange(2, 1, logLastRow - 1, HEADERS_PROCESS_LOG.length).clearContent();
   }
 
-  // ── 経費・請求サマリ・freee取込: 対象月をリセット（billing.js 導入時のみ）──
+  // ── 経費・請求サマリ: 対象月をリセット（billing.js 導入時のみ）──
   if (typeof purgeBillingMonth_ === "function") purgeBillingMonth_(ym);
 }

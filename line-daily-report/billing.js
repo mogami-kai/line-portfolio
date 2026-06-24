@@ -1,6 +1,6 @@
 // ============================================================
 // 【ファイル4】請求・経費 自動化（MVP）
-// 元請けごとの請求集計（取引先マスタ1枚）・経費・請求書(xlsx)・freee(任意)
+// 元請けごとの請求集計（取引先マスタ1枚）・経費・請求書(xlsx)
 // ============================================================
 // 既存の webhook（ファイル1）・management（ファイル2）には手を入れず、
 // このファイルを追加するだけで動きます。
@@ -25,16 +25,15 @@ const BILLING = {
   sheetLumpSum:      "請負案件マスタ",
   sheetExpense:      "経費",
   sheetSummary:      "請求サマリ",
-  sheetFreee:        "freee取込",
 
   defaultOtFactor:    1.25, // 残業係数（請求単価 ÷ 8 × 係数 / h）
   defaultHoursPerDay: 8,
 };
 
 // 取引先マスタ＝請求の唯一のマスタ。1行＝取引先×現場×単価。
-// 住所・請求日ルール・別名・freee取引先ID は取引先ごとに（どこかの行に）入れればOK。
+// 住所・請求日ルール・別名 は取引先ごとに（どこかの行に）入れればOK。
 const HEADERS_CLIENT_MASTER = [
-  "取引先", "現場", "単価", "住所", "請求日ルール", "別名", "freee取引先ID", "備考",
+  "取引先", "現場", "単価", "住所", "請求日ルール", "別名", "備考",
 ];
 
 const HEADERS_LUMPSUM = [
@@ -51,18 +50,14 @@ const HEADERS_BILLING_SUMMARY = [
   "請求日", "ステータス", "単価未設定", "生成日時",
 ];
 
-const HEADERS_FREEE = [
-  "対象月", "取引先", "請求日", "期日", "品目", "数量", "単価", "金額", "備考",
-];
-
 // ============================================================
 // 初期セットアップ（導入時に1回だけ実行）
 // ============================================================
 
 function setupBillingSheets() {
   billingSheet_(BILLING.sheetClientMaster, HEADERS_CLIENT_MASTER, (s) => {
-    s.appendRow(["サンプル取引先", "サンプル現場", 20000, "横浜市〇〇1-2-3", "末日", "別名1,別名2", "", "← この行を消して実データを"]);
-    s.appendRow(["サンプル取引先", "", 18000, "", "", "", "", "現場空欄＝取引先の既定単価"]);
+    s.appendRow(["サンプル取引先", "サンプル現場", 20000, "横浜市〇〇1-2-3", "末日", "別名1,別名2", "← この行を消して実データを"]);
+    s.appendRow(["サンプル取引先", "", 18000, "", "", "", "現場空欄＝取引先の既定単価"]);
   });
 
   billingSheet_(BILLING.sheetExpense, HEADERS_EXPENSE, null);
@@ -156,19 +151,11 @@ function addBillingMenu_(ui) {
     .addSeparator()
     .addItem("請求書を.xlsxで保存（今月）", "exportInvoiceXlsxThisMonth")
     .addItem("請求書を.xlsxで保存（先月）", "exportInvoiceXlsxPrevMonth");
-  // freee連携を使うときだけ（FREEE_ENABLED=TRUE）freeeメニューを表示
-  if (freeeEnabled_()) {
-    menu.addSeparator()
-      .addItem("freee取込データを作成（今月）", "exportFreeeThisMonth")
-      .addItem("freee取込データを作成（先月）", "exportFreeePrevMonth");
-  }
   menu.addToUi();
 }
 
 function createBillingSummaryThisMonth() { runBillingSummaryForOffset_(0); }
 function createBillingSummaryPrevMonth() { runBillingSummaryForOffset_(-1); }
-function exportFreeeThisMonth()          { runFreeeExportForOffset_(0); }
-function exportFreeePrevMonth()          { runFreeeExportForOffset_(-1); }
 
 function ymForMonthOffset_(offset) {
   const now = new Date();
@@ -192,22 +179,6 @@ function runBillingSummaryForOffset_(offset) {
     ui.alert(msg);
   } catch (err) {
     ui.alert(`❌ 請求サマリ作成でエラー\n\n${err && err.stack ? err.stack : err}`);
-  }
-}
-
-function runFreeeExportForOffset_(offset) {
-  const ui = SpreadsheetApp.getUi();
-  const ym = ymForMonthOffset_(offset);
-  try {
-    const n = exportFreee_(ym);
-    ui.alert(
-      `✅ ${ym} のfreee取込データを作成しました（${n}品目）\n\n` +
-      `「${BILLING.sheetFreee}」シートを\n` +
-      `ファイル → ダウンロード → CSV で書き出して\n` +
-      `freee請求書にインポートしてください。`
-    );
-  } catch (err) {
-    ui.alert(`❌ freee取込データ作成でエラー\n\n${err && err.stack ? err.stack : err}`);
   }
 }
 
@@ -265,7 +236,7 @@ function clientMasterMap_() {
     const canonical = String(c["取引先"] ?? "").trim();
     if (!canonical) continue;
     const cur = map[canonical] || (map[canonical] = { "取引先": canonical });
-    ["住所", "請求日ルール", "別名", "freee取引先ID", "備考"].forEach((k) => {
+    ["住所", "請求日ルール", "別名", "備考"].forEach((k) => {
       if (!String(cur[k] ?? "").trim() && String(c[k] ?? "").trim()) cur[k] = c[k];
     });
   }
@@ -467,57 +438,6 @@ function replaceMonthRows_(name, headers, ym, newRows) {
 }
 
 // ============================================================
-// freee取込データ生成（請求サマリ → 取引先ごとの品目明細）
-// ============================================================
-
-// セル値を yyyy/MM/dd へ正規化する。
-// スプレッドシートは "2026/03/31" のような文字列を書き込むと自動で Date 値に変換する
-// ことがあり、その場合 String() すると "Tue Mar 31 2026 ..." になってしまう。
-// Date でも文字列でも一貫して yyyy/MM/dd を返す。
-function dateCellToYmd_(v) {
-  if (v instanceof Date) {
-    return isNaN(v.getTime()) ? "" : Utilities.formatDate(v, TZ, "yyyy/MM/dd");
-  }
-  const s = String(v ?? "").trim();
-  if (!s) return "";
-  const d = new Date(s);
-  return isNaN(d.getTime()) ? s : Utilities.formatDate(d, TZ, "yyyy/MM/dd");
-}
-
-function exportFreee_(ym) {
-  const summary = readSheetObjects_(BILLING.sheetSummary, HEADERS_BILLING_SUMMARY)
-    .filter((r) => String(r["対象月"] ?? "").trim() === String(ym).trim());
-  if (summary.length === 0) {
-    throw new Error(`${ym} の請求サマリがありません。先に「請求サマリを作成」を実行してください。`);
-  }
-
-  const rows = [];
-  for (const s of summary) {
-    const client      = String(s["取引先"] ?? "").trim();
-    const billingDate = dateCellToYmd_(s["請求日"]); // Sheetsが日付をDate化しても yyyy/MM/dd に統一
-    const manDays     = toNumber(s["常用_人工合計"], 0);
-    const joyo        = toNumber(s["常用請求額"], 0);
-    const lump        = toNumber(s["請負請求額"], 0);
-    const exp         = toNumber(s["経費請求額"], 0);
-
-    // 請求日＝請求期限（同日）
-    if (joyo > 0) {
-      const unit = manDays > 0 ? Math.round(joyo / manDays) : joyo;
-      rows.push([ym, client, billingDate, billingDate, "出面（常用）", manDays, unit, joyo, "人工合計に基づく請求"]);
-    }
-    if (lump > 0) {
-      rows.push([ym, client, billingDate, billingDate, "請負工事一式", 1, lump, lump, "請負案件"]);
-    }
-    if (exp > 0) {
-      rows.push([ym, client, billingDate, billingDate, "立替経費（駐車/燃料等）", 1, exp, exp, "経費"]);
-    }
-  }
-
-  replaceMonthRows_(BILLING.sheetFreee, HEADERS_FREEE, ym, rows);
-  return rows.length;
-}
-
-// ============================================================
 // 任意（MVP-2）: 経費の手動登録 ＆ LINE本文からの抽出ユーティリティ
 // ・手動登録: addExpenseRow_(...) を実行、または「経費」シートに直接入力
 // ・LINE自動取込にする場合は webhook の processReport 内などから
@@ -537,7 +457,7 @@ const EXPENSE_PATTERNS = [
 ];
 
 // 経費行に「自社/自腹/自費」等があれば自社負担、無ければ請求対象（既定）。
-// freeeへの請求水増しを避けつつ、現場の書き方で請求/自社を切り替えられる。
+// 請求の水増しを避けつつ、現場の書き方で請求/自社を切り替えられる。
 const SELF_BORNE_MARKERS = ["自社", "自腹", "自費", "請求しない", "請求不要", "経費なし"];
 const isSelfBorneExpenseLine_ = (line) =>
   SELF_BORNE_MARKERS.some((k) => String(line ?? "").includes(k));
@@ -642,7 +562,7 @@ function deleteExpensesByMessageId_(messageId) {
   return toDelete.length;
 }
 
-// 月末締めで、対象月の 経費／請求サマリ／freee取込 をリセットする
+// 月末締めで、対象月の 経費／請求サマリ をリセットする
 // （アーカイブ後に呼ばれる前提。他の月は残す）
 function purgeBillingMonth_(ym) {
   const ss  = SpreadsheetApp.getActiveSpreadsheet();
@@ -661,34 +581,22 @@ function purgeBillingMonth_(ym) {
     }
   }
 
-  // 請求サマリ・freee取込は対象月の行を削除（アーカイブ済み）
+  // 請求サマリは対象月の行を削除（アーカイブ済み）
   replaceMonthRows_(BILLING.sheetSummary, HEADERS_BILLING_SUMMARY, ym, []);
-  replaceMonthRows_(BILLING.sheetFreee,   HEADERS_FREEE, ym, []);
 }
 
 // ============================================================
 // MVP-3: 月末締めへの組み込み
 // management（ファイル2）の closeMonthAtEnd_ から、アーカイブ前に呼ばれる。
-// 当月の請求サマリと請求書PDFを確定生成する（freee連携は任意・既定OFF）。
+// 当月の請求サマリと請求書(xlsx)を確定生成する。
 // 請求の失敗は月末アーカイブを止めないよう、ここで握りつぶしてログに残す。
 // ============================================================
-
-// freee連携の有効/無効（既定OFF）。スクリプトプロパティ FREEE_ENABLED=TRUE で有効化。
-// OFFのときは freee取込の生成もAPIも一切行わない（LINE→集計→請求書PDFだけで完結）。
-function freeeEnabled_() {
-  return String(prop_("FREEE_ENABLED") ?? "").toUpperCase() === "TRUE";
-}
 
 function finalizeBillingForMonth_(ym) {
   try {
     buildBillingSummary_(ym);
-    // 請求書(xlsx)の自動作成（freee非依存・invoice_doc.js 導入時のみ）
+    // 請求書(xlsx)の自動作成（invoice_doc.js 導入時のみ）
     if (typeof issueInvoiceBookForMonth_ === "function") issueInvoiceBookForMonth_(ym);
-    // freee連携は任意（既定OFF）。FREEE_ENABLED=TRUE のときだけ実行
-    if (freeeEnabled_()) {
-      exportFreee_(ym);
-      if (typeof freeeCreateInvoices_ === "function") freeeCreateInvoices_(ym);
-    }
     appendProcessLog_(new Date(), "", "", "", `[BILLING_CLOSE] ${ym}`, "INFO", "billing finalized");
   } catch (err) {
     appendProcessLog_(
