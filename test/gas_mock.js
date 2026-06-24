@@ -212,6 +212,11 @@ class MockSpreadsheet {
     return this._sheets.slice();
   }
 
+  getId() { return this._id || "active-book"; }
+  getUrl() { return "https://docs.google.com/spreadsheets/d/" + (this._id || "active") + "/edit"; }
+  getName() { return this._name || "active"; }
+  deleteSheet(sheet) { this._sheets = this._sheets.filter((s) => s !== sheet); }
+
   // ---- test helpers ----
   __seed(name, rows2D) {
     let s = this.getSheetByName(name);
@@ -264,9 +269,19 @@ function loadGas(filePaths, options = {}) {
   const urlFetch = options.urlFetch;
 
   const ss = new MockSpreadsheet();
+  const createdSpreadsheets = [];
+  let _bookSeq = 0;
 
   const SpreadsheetApp = {
     getActiveSpreadsheet: () => ss,
+    create: (name) => {
+      const b = new MockSpreadsheet();
+      b._name = name;
+      b._id = "book-" + (++_bookSeq);
+      b.insertSheet("シート1");
+      createdSpreadsheets.push(b);
+      return b;
+    },
     getUi: () => ({
       alert: () => {},
       prompt: () => ({ getSelectedButton: () => "OK", getResponseText: () => "" }),
@@ -357,7 +372,7 @@ function loadGas(filePaths, options = {}) {
   }
 
   const DriveApp = {
-    getFileById: () => ({ getBlob: () => makeBlob("", "application/octet-stream", "f"), makeCopy: () => ({ getId: () => "copy" }) }),
+    getFileById: () => ({ getBlob: () => makeBlob("", "application/octet-stream", "f"), makeCopy: () => ({ getId: () => "copy" }), moveTo: () => {}, getUrl: () => "https://drive.google.com/file/d/x/view" }),
     getRootFolder: () => makeFolder("root", "root"),
     getFolderById: (id) => makeFolder("folder-" + id, id),
     getFoldersByName: (name) => {
@@ -410,7 +425,7 @@ function loadGas(filePaths, options = {}) {
   const code = paths.map((p) => fs.readFileSync(p, "utf8")).join("\n;\n");
   vm.runInContext(code, ctx, { filename: "gas-bundle.js" });
 
-  return { ctx, ss, props, driveFiles, mailbox };
+  return { ctx, ss, props, driveFiles, mailbox, createdSpreadsheets };
 }
 
 module.exports = { loadGas, formatDate, parseDate, MockSheet, MockSpreadsheet };

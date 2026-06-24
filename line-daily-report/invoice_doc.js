@@ -1,20 +1,21 @@
 // ============================================================
-// 【ファイル6】請求書PDFの自動発行（freee非依存）
-// 請求サマリ → 取引先ごとの請求書PDFを生成し Drive 保存（＋任意でメール）
+// 【ファイル6】請求書の自動作成（freee非依存・編集可能なスプレッドシート/xlsx）
+// 請求サマリの元データから、取引先ごとにタブを分けた請求書ブックを生成する。
 // ============================================================
+// PDFではなく「編集可能なスプレッドシート」で出すのが狙い:
+//   管理者が各タブの「単価(入力)」セルに現場ごとの単価を入れると、
+//   金額・小計・消費税・合計が数式で自動計算される（xlsxとしてDLも可）。
 // 月末締め（billing.js の finalizeBillingForMonth_）から自動で呼ばれる。
-// freee連携が無くても、これだけで「請求書の発行」まで自動化できる。
-// GASの Utilities.newBlob(html).getAs("application/pdf") でHTML→PDF変換するため
-// 追加インフラ・外部APIは不要。
 //
 // 依存（他ファイルの既存グローバル）:
-//   TZ / BILLING / HEADERS_BILLING_SUMMARY / readSheetObjects_ /
-//   toNumber / prop_ / appendProcessLog_ / ymForMonthOffset_ / dateCellToYmd_
+//   TZ / BILLING / CONFIG / HEADERS_DAILY_REPORT / HEADERS_LUMPSUM / HEADERS_EXPENSE /
+//   readSheetObjects_ / ymFromDateCell_ / normalizeContractType / toNumber /
+//   canonicalClient_ / clientMasterMap_ / lookupRate_ / prop_ / appendProcessLog_ /
+//   ymForMonthOffset_
 //
 // 設定（「請求書設定」シートのキー＝値。setupInvoiceSheet で雛形作成）:
-//   発行元名 / 発行元住所 / 発行元TEL / 登録番号(インボイスT+13桁) / 振込先 /
-//   消費税率(既定0.10) / 経費に課税(FALSE) / 端数処理(切り捨て) /
-//   保存フォルダID(空なら「請求書」フォルダを自動作成) / メール送信(FALSE) / メール送信先
+//   発行元名 / 発行元住所 / 発行元TEL / 登録番号 / 振込先 / 消費税率(0.10) /
+//   保存フォルダID(空なら「請求書」フォルダを自動作成)
 // ============================================================
 
 const INVOICE = {
@@ -26,17 +27,13 @@ const INVOICE = {
 const HEADERS_INVOICE_SETTINGS = ["設定キー", "値", "説明"];
 
 const INVOICE_SETTING_DEFAULTS = [
-  ["発行元名",     "", "請求書に載せる自社名"],
-  ["発行元住所",   "", ""],
-  ["発行元TEL",    "", ""],
-  ["登録番号",     "", "インボイス制度の適格請求書発行事業者番号（T+13桁）"],
-  ["振込先",       "", "例: ○○銀行 △△支店 普通 1234567 ﾔﾏﾀﾞﾀﾛｳ"],
-  ["消費税率",     "0.10", "0.10=10%。単価が税込なら 0 を設定"],
-  ["経費に課税",   "FALSE", "立替経費に消費税を載せるか（既定FALSE=非課税の立替扱い）"],
-  ["端数処理",     "切り捨て", "消費税の端数: 切り捨て / 四捨五入 / 切り上げ"],
+  ["発行元名",      "", "請求書に載せる自社名"],
+  ["発行元住所",    "", ""],
+  ["発行元TEL",     "", ""],
+  ["登録番号",      "", "インボイス制度の適格請求書発行事業者番号（T+13桁）"],
+  ["振込先",        "", "例: ○○銀行 △△支店 普通 1234567 ﾔﾏﾀﾞﾀﾛｳ"],
+  ["消費税率",      "0.10", "0.10=10%。単価が税込なら 0 を設定"],
   ["保存フォルダID", "", "空ならマイドライブに「請求書」フォルダを自動作成"],
-  ["メール送信",   "FALSE", "TRUEで発行後にPDFをメール送信"],
-  ["メール送信先", "", "メール送信先（カンマ区切り可）"],
 ];
 
 // ============================================================
@@ -59,7 +56,8 @@ function setupInvoiceSheet() {
     "✅ 「請求書設定」シートを準備しました\n\n" +
     "発行元名・住所・振込先・登録番号 を入力してください。\n" +
     "保存フォルダIDは空でOK（自動で「請求書」フォルダに保存します）。\n\n" +
-    "発行はメニュー『請求・経費』→『請求書PDFを発行』。月末締めでも自動発行されます。"
+    "発行はメニュー『請求・経費』→『請求書(xlsx)を作成』。\n" +
+    "各タブの「単価(入力)」に現場ごとの単価を入れると金額が自動計算されます。"
   );
 }
 
@@ -72,193 +70,154 @@ function loadInvoiceSettings_() {
   return map;
 }
 
-// ============================================================
-// 請求モデル組み立て（純粋関数・テスト対象）
-// ============================================================
-
-const roundTax_ = (v, mode) => {
-  const m = String(mode ?? "").trim();
-  if (m === "四捨五入") return Math.round(v);
-  if (m === "切り上げ") return Math.ceil(v);
-  return Math.floor(v); // 既定: 切り捨て
-};
-
 const invoiceMonthEnd_ = (ym) => {
   const m = String(ym).match(/^(\d{4})-(\d{2})$/);
   if (!m) return "";
   return Utilities.formatDate(new Date(Number(m[1]), Number(m[2]), 0), TZ, "yyyy/MM/dd");
 };
 
-function buildInvoiceModel_(ym, s, settings, index) {
-  const client  = String(s["取引先"] ?? "").trim();
-  const manDays = toNumber(s["常用_人工合計"], 0);
-  const joyo    = toNumber(s["常用請求額"], 0);
-  const lump    = toNumber(s["請負請求額"], 0);
-  const exp     = toNumber(s["経費請求額"], 0);
+// ============================================================
+// 集計（請求書の元データ）: 取引先 → 現場ごとの人工・残業 ＋ 請負 ＋ 立替経費
+// ============================================================
 
-  const lineItems = [];
-  if (joyo > 0) {
-    const unit = manDays > 0 ? Math.round(joyo / manDays) : joyo;
-    lineItems.push({ name: "出面（常用）", qty: manDays || 1, unit, amount: joyo });
+function aggregateForInvoice_(ym) {
+  const ss     = SpreadsheetApp.getActiveSpreadsheet();
+  const report = ss.getSheetByName(CONFIG.sheetReport);
+  const out    = {};
+  const ensure = (c) => out[c] || (out[c] = { sites: {}, lump: 0, expense: 0 });
+
+  // 常用：作業日報を 取引先×現場 で集計
+  if (report && report.getLastRow() >= 2) {
+    const rows = report.getRange(2, 1, report.getLastRow() - 1, HEADERS_DAILY_REPORT.length).getValues();
+    for (const r of rows) {
+      if (!r[1] || ymFromDateCell_(r[1]) !== String(ym).trim()) continue;
+      if (normalizeContractType(r[4], "常用") !== "常用") continue;
+      const client = canonicalClient_(r[3]);
+      if (!client) continue;
+      const site = String(r[6] ?? "").trim() || "(現場未設定)";
+      const sites = ensure(client).sites;
+      const s = sites[site] || (sites[site] = { manDays: 0, otHours: 0 });
+      s.manDays += toNumber(r[8], 0);
+      s.otHours += toNumber(r[9], 0);
+    }
   }
-  if (lump > 0) lineItems.push({ name: "請負工事一式", qty: 1, unit: lump, amount: lump });
 
+  // 請負：案件マスタの契約金額
+  for (const r of readSheetObjects_(BILLING.sheetLumpSum, HEADERS_LUMPSUM)) {
+    if (String(r["計上月"] ?? "").trim() !== String(ym).trim()) continue;
+    const client = canonicalClient_(r["取引先"]);
+    if (!client) continue;
+    ensure(client).lump += toNumber(r["契約金額"], 0);
+  }
+
+  // 立替経費：請求対象のみ
+  for (const e of readSheetObjects_(BILLING.sheetExpense, HEADERS_EXPENSE)) {
+    if (!e["日付"] || ymFromDateCell_(e["日付"]) !== String(ym).trim()) continue;
+    if (!String(e["請求対象"] ?? "").includes("請求")) continue;
+    const client = canonicalClient_(e["取引先"]);
+    if (!client) continue;
+    ensure(client).expense += toNumber(e["金額"], 0);
+  }
+
+  return out;
+}
+
+// ============================================================
+// 1取引先ぶんのタブを書き込む（単価=入力、金額/小計/税/合計=数式）
+// ============================================================
+
+function invoiceTabName_(client, i) {
+  const n = String(client ?? "").replace(/[\[\]\*\/\\?:]/g, "").trim().slice(0, 90);
+  return n || ("取引先" + (i + 1));
+}
+
+function writeInvoiceTab_(sheet, ym, client, data, settings, index) {
   const rawRate = settings["消費税率"];
   const taxRate = (rawRate === "" || rawRate == null) ? INVOICE.defaultTaxRate : Number(rawRate);
-  const taxOnExp = String(settings["経費に課税"] ?? "").toUpperCase() === "TRUE";
+  const pct     = Math.round((isNaN(taxRate) ? 0 : taxRate) * 100);
 
-  let taxable = joyo + lump;
-  let reimburse = 0;
-  if (exp > 0) {
-    if (taxOnExp) taxable += exp;
-    else reimburse = exp; // 立替（非課税）として別計上
+  const cm        = (typeof clientMasterMap_ === "function") ? (clientMasterMap_()[client] || {}) : {};
+  const addr      = String(cm["住所"] ?? "").trim();
+  const invoiceNo = `${String(ym).replace("-", "")}-${String(index + 1).padStart(2, "0")}`;
+  const issueDate = invoiceMonthEnd_(ym);
+  const issuer    = [settings["発行元名"], settings["発行元住所"],
+                     settings["登録番号"] ? "登録番号 " + settings["登録番号"] : ""]
+                      .map((v) => String(v ?? "").trim()).filter(Boolean).join("　");
+
+  const vals = [];
+  const push = (a, b, c, d, e) => { vals.push([a ?? "", b ?? "", c ?? "", d ?? "", e ?? ""]); return vals.length; };
+
+  push("請求書", "", "", "", "");
+  push(client + " 御中", "", "", "", "");
+  if (addr) push(addr, "", "", "", "");
+  push("請求書番号 " + invoiceNo, "", "発行日 " + issueDate, "", "");
+  if (issuer) push("発行元 " + issuer, "", "", "", "");
+  push("", "", "", "", "");
+  push("現場", "人工", "残業h", "単価(入力)", "金額");
+
+  const firstDetail = vals.length + 1;
+  for (const site of Object.keys(data.sites).sort()) {
+    const s    = data.sites[site];
+    const r    = vals.length + 1;
+    const rate = (typeof lookupRate_ === "function") ? lookupRate_(client, site, "常用", null) : null;
+    const unit = rate && rate.unit > 0 ? rate.unit : ""; // 単価マスタからプリフィル（無ければ入力待ち）
+    push(site, s.manDays, s.otHours, unit, `=IF($D${r}="","",$D${r}*$B${r}+$C${r}*$D${r}/8*1.25)`);
   }
+  if (data.lump > 0) push("(請負) 一式", "", "", "", data.lump);
+  const lastDetail = vals.length;
 
-  const tax   = roundTax_(taxable * (isNaN(taxRate) ? 0 : taxRate), settings["端数処理"]);
-  const total = taxable + tax + reimburse;
+  const subtotalRow = push("小計(税抜)", "", "", "", `=SUM(E${firstDetail}:E${lastDetail})`);
+  const taxRow      = push(`消費税(${pct}%)`, "", "", "", `=ROUND(E${subtotalRow}*${isNaN(taxRate) ? 0 : taxRate},0)`);
+  let   expenseRow  = 0;
+  if (data.expense > 0) expenseRow = push("立替経費(非課税)", "", "", "", data.expense);
+  push("合計", "", "", "",
+    expenseRow ? `=E${subtotalRow}+E${taxRow}+E${expenseRow}` : `=E${subtotalRow}+E${taxRow}`);
+  push("", "", "", "", "");
+  push("お振込先 " + String(settings["振込先"] ?? "").trim(), "", "", "", "");
 
-  const issueDate =
-    (typeof dateCellToYmd_ === "function" ? dateCellToYmd_(s["請求日"]) : String(s["請求日"] ?? "")) ||
-    invoiceMonthEnd_(ym);
-  const invoiceNo = `${String(ym).replace("-", "")}-${String((index ?? 0) + 1).padStart(2, "0")}`;
-
-  return {
-    invoiceNo, issueDate, ym, client, manDays,
-    lineItems, taxRate: isNaN(taxRate) ? 0 : taxRate, taxable, tax, reimburse, exp, total,
-  };
+  sheet.getRange(1, 1, vals.length, 5).setValues(vals);
+  sheet.setFrozenRows(7);
 }
 
 // ============================================================
-// HTML生成（純粋関数・テスト対象）
+// 月のブックを作成（取引先ごとに1タブ）→ Drive保存
 // ============================================================
 
-const escapeHtml_ = (s) => String(s ?? "")
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;");
-
-const yen_ = (n) => "¥" + Math.round(Number(n) || 0).toLocaleString("ja-JP");
-
-function buildInvoiceHtml_(model, settings, clientAddr) {
-  const issuer = {
-    name: escapeHtml_(settings["発行元名"] || ""),
-    addr: escapeHtml_(settings["発行元住所"] || ""),
-    tel:  escapeHtml_(settings["発行元TEL"] || ""),
-    reg:  escapeHtml_(settings["登録番号"] || ""),
-    bank: escapeHtml_(settings["振込先"] || ""),
-  };
-
-  const rows = model.lineItems.map((l) => `
-        <tr>
-          <td class="l">${escapeHtml_(l.name)}</td>
-          <td class="r">${(Number(l.qty) || 0).toLocaleString("ja-JP")}</td>
-          <td class="r">${yen_(l.unit)}</td>
-          <td class="r">${yen_(l.amount)}</td>
-        </tr>`).join("");
-
-  const taxPct = Math.round((model.taxRate || 0) * 100);
-  const reimburseRow = model.reimburse > 0
-    ? `<tr><td colspan="3" class="r">立替経費（非課税）</td><td class="r">${yen_(model.reimburse)}</td></tr>`
-    : "";
-
-  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><style>
-    *{box-sizing:border-box} body{font-family:'Noto Sans JP','Hiragino Sans',sans-serif;color:#222;margin:0;padding:32px}
-    .head{display:flex;justify-content:space-between;align-items:flex-start}
-    h1{font-size:28px;letter-spacing:8px;margin:0 0 12px;border-bottom:3px solid #333;padding-bottom:6px}
-    .muted{color:#666;font-size:12px} .to{font-size:18px;margin:16px 0 4px} .to b{font-size:20px}
-    .total{margin:16px 0;padding:10px 14px;background:#f2f5f8;border-left:5px solid #2b6cb0;font-size:20px}
-    table{width:100%;border-collapse:collapse;margin-top:12px;font-size:13px}
-    th,td{border:1px solid #ccc;padding:7px 9px} th{background:#2b6cb0;color:#fff}
-    td.r,th.r{text-align:right} td.l,th.l{text-align:left}
-    tfoot td{font-weight:bold;background:#f7f9fc}
-    .bank{margin-top:18px;font-size:13px;padding:10px;border:1px dashed #999}
-  </style></head><body>
-    <div class="head">
-      <div>
-        <h1>請求書</h1>
-        <div class="to"><b>${escapeHtml_(model.client)}</b> 御中</div>
-        ${clientAddr ? `<div class="muted">${escapeHtml_(clientAddr)}</div>` : ""}
-      </div>
-      <div class="muted">
-        請求書番号: ${escapeHtml_(model.invoiceNo)}<br>
-        発行日: ${escapeHtml_(model.issueDate)}<br>
-        対象月: ${escapeHtml_(model.ym)}
-      </div>
-    </div>
-
-    <div class="total">ご請求金額　<b>${yen_(model.total)}</b>（税込）</div>
-
-    <table>
-      <thead><tr><th class="l">品目</th><th class="r">数量</th><th class="r">単価</th><th class="r">金額</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot>
-        <tr><td colspan="3" class="r">小計（税抜）</td><td class="r">${yen_(model.taxable)}</td></tr>
-        <tr><td colspan="3" class="r">消費税（${taxPct}%）</td><td class="r">${yen_(model.tax)}</td></tr>
-        ${reimburseRow}
-        <tr><td colspan="3" class="r">合計</td><td class="r">${yen_(model.total)}</td></tr>
-      </tfoot>
-    </table>
-
-    <div class="bank">お振込先: ${issuer.bank || "（請求書設定の「振込先」に入力してください）"}</div>
-
-    <div class="muted" style="margin-top:24px">
-      ${issuer.name}${issuer.addr ? "　" + issuer.addr : ""}${issuer.tel ? "　TEL " + issuer.tel : ""}<br>
-      ${issuer.reg ? "登録番号 " + issuer.reg : ""}
-    </div>
-  </body></html>`;
-}
-
-// ============================================================
-// 発行（請求サマリ → 取引先ごとのPDFをDrive保存・任意でメール）
-// ============================================================
-
-function issueInvoicesForMonth_(ym) {
+function issueInvoiceBookForMonth_(ym) {
   const settings = loadInvoiceSettings_();
+  const agg      = aggregateForInvoice_(ym);
 
-  const summary = readSheetObjects_(BILLING.sheetSummary, HEADERS_BILLING_SUMMARY)
-    .filter((r) => String(r["対象月"] ?? "").trim() === String(ym).trim())
-    .filter((r) => toNumber(r["合計請求額"], 0) > 0);
+  const clients = Object.keys(agg)
+    .filter((c) => Object.keys(agg[c].sites).length > 0 || agg[c].lump > 0)
+    .sort();
 
-  if (summary.length === 0) {
-    appendProcessLog_(new Date(), "", "", "", `[INVOICE_PDF] ${ym}`, "INFO", "対象なし（請求額0）");
-    return { count: 0, folderUrl: "", created: [] };
+  if (clients.length === 0) {
+    appendProcessLog_(new Date(), "", "", "", `[INVOICE_XLSX] ${ym}`, "INFO", "対象なし");
+    return { count: 0, fileUrl: "" };
   }
 
-  const folder   = resolveInvoiceFolder_(settings);
-  const sendMail = String(settings["メール送信"] ?? "").toUpperCase() === "TRUE";
-  const mailTo   = String(settings["メール送信先"] ?? "").trim();
-
-  const created = [];
-  summary.forEach((s, i) => {
-    const model = buildInvoiceModel_(ym, s, settings, i);
-    const addr  = (typeof clientMasterMap_ === "function" ? (clientMasterMap_()[model.client] || {})["住所"] : "") || "";
-    const html  = buildInvoiceHtml_(model, settings, addr);
-    const name  = `請求書_${model.client}_${ym}.pdf`;
-    const pdf   = Utilities.newBlob(html, "text/html", name.replace(/\.pdf$/, ".html"))
-      .getAs("application/pdf")
-      .setName(name);
-    const file  = folder.createFile(pdf);
-    created.push({ client: model.client, total: model.total, url: file.getUrl() });
-
-    if (sendMail && mailTo) {
-      MailApp.sendEmail({
-        to: mailTo,
-        subject: `【請求書】${model.client} ${ym}（${model.invoiceNo}）`,
-        body: `${model.client} 御中\n\n${ym}分の請求書を添付します。\n` +
-              `ご請求金額: ${Math.round(model.total).toLocaleString("ja-JP")}円（税込）`,
-        attachments: [pdf],
-      });
-    }
+  const book = SpreadsheetApp.create(`請求書_${ym}`);
+  clients.forEach((client, i) => {
+    const sheet = book.insertSheet(invoiceTabName_(client, i));
+    writeInvoiceTab_(sheet, ym, client, agg[client], settings, i);
   });
+
+  // 自動作成された既定シート（シート1）を削除
+  const sheets = book.getSheets();
+  if (sheets.length > clients.length) book.deleteSheet(sheets[0]);
+
+  // 保存フォルダへ移動
+  try {
+    DriveApp.getFileById(book.getId()).moveTo(resolveInvoiceFolder_(settings));
+  } catch (e) { /* 移動失敗時はマイドライブ直下に残る */ }
 
   appendProcessLog_(
     new Date(), "", "", "",
-    `[INVOICE_PDF] ${ym}`, "SUCCESS_INVOICE",
-    `created=${created.length} folder=${folder.getId()} mail=${sendMail}`
+    `[INVOICE_XLSX] ${ym}`, "SUCCESS_INVOICE",
+    `clients=${clients.length} book=${book.getId()}`
   );
 
-  return { count: created.length, folderUrl: folder.getUrl(), created };
+  return { count: clients.length, fileUrl: book.getUrl() };
 }
 
 // 保存先フォルダを解決（設定 → スクリプトプロパティ → 「請求書」フォルダ自動作成）
@@ -267,10 +226,9 @@ function resolveInvoiceFolder_(settings) {
   if (id) {
     try { return DriveApp.getFolderById(id); } catch (e) { /* フォールバック */ }
   }
-  const name = INVOICE.defaultFolderName;
-  const it = DriveApp.getFoldersByName(name);
+  const it = DriveApp.getFoldersByName(INVOICE.defaultFolderName);
   if (it.hasNext()) return it.next();
-  return DriveApp.createFolder(name);
+  return DriveApp.createFolder(INVOICE.defaultFolderName);
 }
 
 // ============================================================
@@ -284,16 +242,18 @@ function runIssueInvoicesForOffset_(offset) {
   const ui = SpreadsheetApp.getUi();
   const ym = ymForMonthOffset_(offset);
   try {
-    const res = issueInvoicesForMonth_(ym);
+    const res = issueInvoiceBookForMonth_(ym);
     if (res.count === 0) {
-      ui.alert(`ℹ️ ${ym} は請求書の対象がありませんでした\n先に「請求サマリを作成」を実行してください。`);
+      ui.alert(`ℹ️ ${ym} は請求書の対象がありませんでした（先に出面を登録／単価マスタを確認）`);
       return;
     }
     ui.alert(
-      `✅ ${ym} の請求書PDFを ${res.count}件 発行しました\n\n` +
-      `保存先フォルダ:\n${res.folderUrl}`
+      `✅ ${ym} の請求書(xlsx)を作成しました（${res.count}取引先）\n\n` +
+      `編集用スプレッドシート:\n${res.fileUrl}\n\n` +
+      `各タブの「単価(入力)」に現場ごとの単価を入れると金額・合計が自動計算されます。\n` +
+      `（ファイル → ダウンロード → Microsoft Excel(.xlsx) でxlsx化も可）`
     );
   } catch (err) {
-    ui.alert(`❌ 請求書PDF発行でエラー\n\n${err && err.stack ? err.stack : err}`);
+    ui.alert(`❌ 請求書(xlsx)作成でエラー\n\n${err && err.stack ? err.stack : err}`);
   }
 }

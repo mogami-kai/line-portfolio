@@ -336,6 +336,17 @@ test("setupDailyReportCalcColumns_ : 作業日報に単価/請求額の数式列
   A.ok(String(d[1][16]).includes("請負"));          // 請負は案件別
 });
 
+test("captureExpensesFromText_ : 弁当代もパーキング等と同様に経費登録", () => {
+  const { ctx, ss } = loadGas([webhookPath, billingPath], { props: {} });
+  ss.__seed("経費", [HEADERS_EXPENSE]);
+  const text = ["3月18日(水)", "サンプル取引先", "サンプル現場", "田中 1", "弁当代1500"].join("\n");
+  const n = ctx.captureExpensesFromText_(text, "MSGB", new Date(2026, 2, 18, 12));
+  A.strictEqual(n, 1);
+  const row = body(ss, "経費")[0];
+  A.strictEqual(row[4], "弁当"); // 種別
+  A.strictEqual(row[5], 1500);   // 金額
+});
+
 // ------------------------------------------------------------
 console.log(`\nTests: ${passed} passed, ${failed} failed (${assertionCount} assertions)`);
 process.exit(failed ? 1 : 0);

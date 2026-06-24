@@ -173,8 +173,8 @@ function addBillingMenu_(ui) {
     .addItem("請求サマリを作成（今月）", "createBillingSummaryThisMonth")
     .addItem("請求サマリを作成（先月）", "createBillingSummaryPrevMonth")
     .addSeparator()
-    .addItem("請求書PDFを発行（今月）", "issueInvoicesThisMonth")
-    .addItem("請求書PDFを発行（先月）", "issueInvoicesPrevMonth");
+    .addItem("請求書(xlsx)を作成（今月）", "issueInvoicesThisMonth")
+    .addItem("請求書(xlsx)を作成（先月）", "issueInvoicesPrevMonth");
   // freee連携を使うときだけ（FREEE_ENABLED=TRUE）freeeメニューを表示
   if (freeeEnabled_()) {
     menu.addSeparator()
@@ -542,6 +542,7 @@ const EXPENSE_PATTERNS = [
   { 種別: "パーキング", re: new RegExp(`(?:パーキング|駐車場?|ﾊﾟｰｷﾝｸﾞ|コインP|P代)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
   { 種別: "ガソリン",   re: new RegExp(`(?:ガソリン|燃料|給油|ｶﾞｿﾘﾝ)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
   { 種別: "高速",       re: new RegExp(`(?:高速|有料道路|ETC)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
+  { 種別: "弁当",       re: new RegExp(`(?:弁当代?|べんとう|ﾍﾞﾝﾄｳ)${EXPENSE_CONNECTOR}${EXPENSE_AMOUNT}\\s*円?`, "i") },
 ];
 
 // 経費行に「自社/自腹/自費」等があれば自社負担、無ければ請求対象（既定）。
@@ -690,8 +691,8 @@ function freeeEnabled_() {
 function finalizeBillingForMonth_(ym) {
   try {
     buildBillingSummary_(ym);
-    // 請求書PDFの自動発行（freee非依存・invoice_doc.js 導入時のみ）
-    if (typeof issueInvoicesForMonth_ === "function") issueInvoicesForMonth_(ym);
+    // 請求書(xlsx)の自動作成（freee非依存・invoice_doc.js 導入時のみ）
+    if (typeof issueInvoiceBookForMonth_ === "function") issueInvoiceBookForMonth_(ym);
     // freee連携は任意（既定OFF）。FREEE_ENABLED=TRUE のときだけ実行
     if (freeeEnabled_()) {
       exportFreee_(ym);
