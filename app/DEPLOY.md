@@ -13,10 +13,15 @@
 2. Project Settings → Database → Connection string から取得し `.env` に設定:
    - `DATABASE_URL`（**Transaction pooler** / port 6543 / `?pgbouncer=true`）
    - `DIRECT_URL`（**Direct** / port 5432。migrate 用）
-3. スキーマ反映: `cd app && npx prisma migrate deploy`（初回は `npx prisma migrate dev --name init`）。
-   - **本リビジョンでスキーマ追加あり**（`LumpContract`・`Report.clientRequestId`）。
-     既存DBには `npx prisma migrate dev --name add_lump_and_idempotency` で新規マイグレーションを作成 → `migrate deploy`。
-   - 初期データ（ダミー）投入: `npx prisma db seed`。
+3. スキーマ反映（**初期マイグレーション `prisma/migrations/0_init/` を同梱済み**）。次のどちらかで適用:
+   - **A. ローカルから（推奨・Prisma管理下に置く）**: `.env` に接続文字列を置いて `cd app && npx prisma migrate deploy`。
+     `_prisma_migrations` に記録され、以後のスキーマ変更も `migrate dev`/`migrate deploy` で追える。
+   - **B. ローカル環境なし（最短）**: Supabase ダッシュボード → **SQL Editor** に
+     `app/prisma/migrations/0_init/migration.sql` の全文を貼って **Run**。これだけでテーブルが作られ、
+     アプリは即動く（Prisma Client は実行時に接続するだけ）。後で Prisma 管理下に置きたくなったら
+     ローカルで一度 `npx prisma migrate resolve --applied 0_init` を実行。
+   - 初期データ（ダミー）投入（任意）: `npx prisma db seed`。
+     ※ seed を流さなくても、初期 ADMIN は「`ADMIN_LINE_USER_IDS` に自分の userId を入れて LIFF を一度開く」だけで自動作成される。
 
 ## 2. LINE（公式アカウント / Messaging API / LIFF）— あなたの作業
 
@@ -89,7 +94,7 @@ npx tsx scripts/setup-richmenu.ts
 ## ✅ あなたにしかできない作業 チェックリスト
 
 - [ ] Supabase プロジェクト作成＋接続文字列を `.env`（`DATABASE_URL`/`DIRECT_URL`）
-- [ ] `prisma migrate`（新スキーマ: `LumpContract`・`clientRequestId` 含む）＋ `prisma db seed`
+- [ ] スキーマ反映（同梱の `0_init` を `prisma migrate deploy` で適用、または SQL Editor に貼る）＋（任意）`prisma db seed`
 - [ ] LINE Messaging API のアクセストークン取得＋Webhook URL設定
 - [ ] LINE Login チャネル＋LIFFアプリ作成（`NEXT_PUBLIC_LIFF_ID`）
 - [ ] **管理ログイン用 Callback URL 登録**（`/api/auth/line/callback`）＋ `ADMIN_LOGIN_REDIRECT_URL`
