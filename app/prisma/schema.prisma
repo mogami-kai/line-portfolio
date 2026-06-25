@@ -89,6 +89,7 @@ model Client {
   rates    RateCard[]
   reports  Report[]
   invoices Invoice[]
+  lumpContracts LumpContract[]
 }
 
 model Site {
@@ -122,6 +123,29 @@ model RateCard {
   @@index([clientId, siteId, contractType])
 }
 
+// ── 請負（UKEOI）の契約金額（取引先×月の一式金額）──
+//   常用は RateCard×人工で積めるが、請負は「案件ごとの契約金額」を持つ必要がある。
+//   yearMonth（"2026-06"）でその月の請求に取り込む。status で発行可否を制御。
+enum LumpStatus {
+  ACTIVE // 請求対象
+  ARCHIVED // 取り込まない
+}
+
+model LumpContract {
+  id        String     @id @default(cuid())
+  clientId  String
+  client    Client     @relation(fields: [clientId], references: [id])
+  name      String // 案件名（「{案件} 一式」の品目名に使う）
+  amount    Int // 契約金額（税抜）
+  yearMonth String // "2026-06"（この月の請求に計上）
+  status    LumpStatus @default(ACTIVE)
+  note      String?
+  createdAt DateTime   @default(now())
+
+  @@index([clientId, yearMonth])
+  @@index([yearMonth])
+}
+
 enum Shift {
   DAY // 日勤（1.0）
   HALF // 半日（0.5）
@@ -148,6 +172,9 @@ model Report {
   createdById   String
   status        ReportStatus @default(CONFIRMED)
   postedToGroup Boolean      @default(false)
+  // 二重送信防止: クライアントが生成する一意キー（任意）。
+  // 同一キーの再POSTは既存レポートを返して新規作成しない（冪等性）。
+  clientRequestId String?    @unique
   createdAt     DateTime     @default(now())
 
   entries  ReportEntry[]

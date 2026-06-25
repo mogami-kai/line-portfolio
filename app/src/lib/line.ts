@@ -137,6 +137,85 @@ export async function resolveLineUserFromToken(
 }
 
 // ============================================================
+// LINE Login（OAuth 2.0 / Authorization Code）— 管理画面ログイン用
+//   1) buildLoginUrl  : 認可エンドポイントへのリダイレクト URL を作る（state 付き）
+//   2) exchangeCode   : code → access_token（/oauth2/v2.1/token）
+//   3) getProfile     : access_token → プロフィール（lineUserId/displayName）
+//
+//   LINE Login チャネルの ID/SECRET を使う（Messaging API とは別チャネル）。
+//   env が無ければ LINE_CHANNEL_ID/SECRET にフォールバック（DEPLOY.md 参照）。
+// ============================================================
+
+/** LINE Login チャネル ID（無ければ LINE_CHANNEL_ID にフォールバック）。 */
+export function loginChannelId(): string {
+  const id = process.env.LINE_LOGIN_CHANNEL_ID || process.env.LINE_CHANNEL_ID;
+  if (!id) throw new Error("LINE_LOGIN_CHANNEL_ID (or LINE_CHANNEL_ID) is not set");
+  return id;
+}
+
+/** LINE Login チャネル SECRET（無ければ LINE_CHANNEL_SECRET にフォールバック）。 */
+export function loginChannelSecret(): string {
+  const s =
+    process.env.LINE_LOGIN_CHANNEL_SECRET || process.env.LINE_CHANNEL_SECRET;
+  if (!s)
+    throw new Error("LINE_LOGIN_CHANNEL_SECRET (or LINE_CHANNEL_SECRET) is not set");
+  return s;
+}
+
+/** 管理ログインのコールバック URL（env で固定）。 */
+export function adminRedirectUrl(): string {
+  const u = process.env.ADMIN_LOGIN_REDIRECT_URL;
+  if (!u) throw new Error("ADMIN_LOGIN_REDIRECT_URL is not set");
+  return u;
+}
+
+/** 認可リクエスト URL（state/nonce は CSRF 対策に呼び出し側で生成）。 */
+export function buildLoginUrl(state: string, nonce?: string): string {
+  const url = new URL("https://access.line.me/oauth2/v2.1/authorize");
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("client_id", loginChannelId());
+  url.searchParams.set("redirect_uri", adminRedirectUrl());
+  url.searchParams.set("state", state);
+  url.searchParams.set("scope", "openid profile");
+  if (nonce) url.searchParams.set("nonce", nonce);
+  return url.toString();
+}
+
+/** authorization code → access_token を交換する。失敗時 null。 */
+export async function exchangeCode(
+  code: string,
+): Promise<{ accessToken: string; idToken?: string } | null> {
+  try {
+    const body = new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: adminRedirectUrl(),
+      client_id: loginChannelId(),
+      client_secret: loginChannelSecret(),
+    });
+    const res = await fetch(`${LINE_API}/oauth2/v2.1/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      console.warn(`[line] token exchange failed: ${res.status} ${t}`);
+      return null;
+    }
+    const json = (await res.json()) as {
+      access_token: string;
+      id_token?: string;
+    };
+    if (!json.access_token) return null;
+    return { accessToken: json.access_token, idToken: json.id_token };
+  } catch (e) {
+    console.warn("[line] exchangeCode error", e);
+    return null;
+  }
+}
+
+// ============================================================
 // 受信確認ログ（v1 bot フォーマット踏襲）
 //   日付 / 取引先 / 現場 / 職人ごとの 人工・残業
 // ============================================================

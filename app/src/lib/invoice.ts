@@ -38,11 +38,23 @@ export interface SiteAgg {
   otHours: number;
 }
 
+/** 名前付きの請負（UKEOI）契約 1 件（LumpContract 相当）。 */
+export interface LumpItem {
+  name: string;
+  amount: number;
+}
+
 /** 取引先ごとの集計（現場別 ＋ 請負 ＋ 立替経費）。 */
 export interface ClientAgg {
   sites: Record<string, SiteAgg>;
+  /** 請負金額の合算（名前付き明細を使わない場合のフォールバック）。 */
   lump: number;
   expense: number;
+  /**
+   * 名前付き請負契約（LumpContract）。指定があれば各件を個別明細
+   * 「{name} 一式」として出力し、集約 `lump` は無視する。
+   */
+  lumpItems?: LumpItem[];
 }
 
 /** 集計の入力レコード（1出面相当）。 */
@@ -158,18 +170,37 @@ export function buildInvoiceLines(
     }
   }
 
-  // 請負工事一式
-  const lump = toNumber(agg.lump, 0);
-  if (lump > 0) {
-    lines.push({
-      sortNo: ++sortNo,
-      itemName: "請負工事一式",
-      qty: 1,
-      unitLabel: "式",
-      unitPrice: lump,
-      amount: lump,
-      taxRate,
-    });
+  // 請負（UKEOI）
+  //   - lumpItems があれば各契約を個別明細「{案件} 一式」として出力。
+  //   - 無ければ集約 lump をまとめて「請負工事一式」1 行で出力（後方互換）。
+  if (agg.lumpItems && agg.lumpItems.length > 0) {
+    for (const item of agg.lumpItems) {
+      const amt = toNumber(item.amount, 0);
+      if (amt <= 0) continue;
+      const label = String(item.name ?? "").trim();
+      lines.push({
+        sortNo: ++sortNo,
+        itemName: label ? `${label} 一式` : "請負工事一式",
+        qty: 1,
+        unitLabel: "式",
+        unitPrice: amt,
+        amount: amt,
+        taxRate,
+      });
+    }
+  } else {
+    const lump = toNumber(agg.lump, 0);
+    if (lump > 0) {
+      lines.push({
+        sortNo: ++sortNo,
+        itemName: "請負工事一式",
+        qty: 1,
+        unitLabel: "式",
+        unitPrice: lump,
+        amount: lump,
+        taxRate,
+      });
+    }
   }
 
   // 立替経費（対象外・税率0）

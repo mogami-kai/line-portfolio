@@ -23,7 +23,19 @@
 //      自社/パートナーのトグルは UI に存在しない（本人は source を選ばない）。
 // ============================================================
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+// 冪等キー生成（二重送信防止）。crypto.randomUUID 優先、無ければ簡易生成。
+function newRequestId(): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 // LIFF SDK の最小型（@line/liff 非依存）。
 interface Liff {
@@ -184,6 +196,10 @@ export default function LiffPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<"warn" | "error">("error");
   const [last, setLast] = useState<LastReport | null>(null);
+
+  // 冪等キー: 「1件の出面」に対し一意。送信成功・新規入力でローテーションし、
+  // 失敗時の再送（同一内容）では同じキーを使い回して二重登録を防ぐ。
+  const requestIdRef = useRef<string>(newRequestId());
 
   // ── LIFF 初期化 ──
   useEffect(() => {
@@ -379,6 +395,8 @@ export default function LiffPage() {
       clientId,
       contractType,
       entries: payloadEntries,
+      // 二重送信防止の冪等キー（同一内容の再送では同じ値を使う）。
+      clientRequestId: requestIdRef.current,
     };
     if (siteId) body.siteId = siteId;
     else if (newSiteName.trim()) body.newSiteName = newSiteName.trim();
@@ -445,6 +463,8 @@ export default function LiffPage() {
         askback: data.askback,
         summary: summarySnapshot,
       });
+      // 次の入力は別レコード → 冪等キーをローテーション。
+      requestIdRef.current = newRequestId();
       setView("success");
     } catch (e) {
       setErrorKind("error");
@@ -470,6 +490,8 @@ export default function LiffPage() {
   const onRepeat = useCallback(() => {
     if (!last || !masters) return;
     setErrorMsg(null);
+    // 別レコードとして送るため新しい冪等キーに。
+    requestIdRef.current = newRequestId();
     setWorkDate(todayISO());
     setClientId(last.clientId);
     setSiteId(last.siteId || "");

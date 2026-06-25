@@ -82,15 +82,29 @@ export async function POST(req: Request) {
 
     switch (ev.type) {
       case "join":
-        // bot がグループに参加 → groupId は上で出力済み。
-        console.log(`[webhook] joined group: ${src.groupId ?? "-"}`);
+        // bot がグループ/ルームに参加 → groupId を採取（LINE_GROUP_ID 設定用）。
+        console.log(
+          `[webhook] joined ${src.type ?? "group"}: groupId=${
+            src.groupId ?? "-"
+          } roomId=${src.roomId ?? "-"}`,
+        );
         break;
       case "follow":
-        // 友だち追加 → 初回ユーザー。承認は管理者が行う。
+        // 友だち追加 → 初回ユーザー。ここでは登録/応答せず即 200 を優先。
+        // ユーザー作成・ロール付与は LIFF 初回オープン時 or 管理画面の承認で行う。
         console.log(`[webhook] followed by user: ${src.userId ?? "-"}`);
+        break;
+      case "unfollow":
+        console.log(`[webhook] unfollowed by user: ${src.userId ?? "-"}`);
         break;
       case "message":
         // 当面はメッセージに自動応答しない（LIFF 入力に一本化）。
+        // ただしグループからのメッセージなら groupId を採取できるようログする。
+        if (src.groupId) {
+          console.log(
+            `[webhook] group message: groupId=${src.groupId} (← LINE_GROUP_ID 候補)`,
+          );
+        }
         break;
       default:
         break;

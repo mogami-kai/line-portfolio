@@ -1,0 +1,513 @@
+// ============================================================
+// /admin/masters — マスタ管理（Server Component ＋ Server Actions）
+//
+//   ガード: getAdminContext()（無ければログイン画面へ）＋ middleware。
+//   セクション（タブ風アンカー）:
+//     - 取引先（Client）   … 追加 / 編集（名・敬称・住所・別名・有効）
+//     - 現場（Site）       … 取引先に紐づく現場の追加 / 削除
+//     - 単価（RateCard）   … 取引先×現場×種別×単価 の追加 / 削除
+//     - 職人（Worker）     … org スコープの追加 / 編集
+//     - 組織（Organization）… 自社/パートナーの追加 / 編集
+//     - 自社情報（InvoiceSetting）… 発行元 / 振込先 / 税率
+//     - 請負金額（LumpContract）… 取引先×月の一式金額
+//   入力はすべて zod 検証済みの Server Action 経由（_actions.ts）。
+//   モバイルファースト（globals.css のクラスを流用）。
+// ============================================================
+
+import { redirect } from "next/navigation";
+import { prisma } from "@/lib/db.js";
+import { getAdminContext } from "@/lib/auth.js";
+import { currentYearMonth } from "@/lib/aggregate.js";
+import {
+  createClientAction,
+  updateClientAction,
+  createSiteAction,
+  deleteSiteAction,
+  createRateAction,
+  deleteRateAction,
+  createWorkerAction,
+  updateWorkerAction,
+  createOrganizationAction,
+  updateOrganizationAction,
+  saveInvoiceSettingAction,
+  createLumpContractAction,
+  setLumpContractStatusAction,
+} from "../_actions.js";
+
+export const dynamic = "force-dynamic";
+
+const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
+const contractLabel = (t: string) => (t === "UKEOI" ? "請負" : "常用");
+
+export default async function MastersPage() {
+  const admin = await getAdminContext();
+  if (!admin) redirect("/admin?error=login");
+
+  const [clients, sites, rates, workers, orgs, setting, lumps] =
+    await Promise.all([
+      prisma.client.findMany({ orderBy: { name: "asc" } }),
+      prisma.site.findMany({
+        orderBy: { name: "asc" },
+        include: { client: { select: { name: true } } },
+      }),
+      prisma.rateCard.findMany({
+        orderBy: { effectiveFrom: "desc" },
+        include: {
+          client: { select: { name: true } },
+          site: { select: { name: true } },
+        },
+      }),
+      prisma.worker.findMany({
+        orderBy: { name: "asc" },
+        include: { org: { select: { name: true } } },
+      }),
+      prisma.organization.findMany({ orderBy: { createdAt: "asc" } }),
+      prisma.invoiceSetting.findFirst(),
+      prisma.lumpContract.findMany({
+        orderBy: [{ yearMonth: "desc" }, { createdAt: "desc" }],
+        include: { client: { select: { name: true } } },
+      }),
+    ]);
+
+  const ym = currentYearMonth();
+
+  return (
+    <main className="container">
+      <div className="page-head">
+        <h1 className="page-title">マスタ管理</h1>
+        <a href="/admin" className="badge">
+          ← 管理
+        </a>
+      </div>
+
+      {/* セクション内アンカー */}
+      <div className="chip-wrap" style={{ marginBottom: 8 }}>
+        <a href="#clients" className="chip">取引先</a>
+        <a href="#sites" className="chip">現場</a>
+        <a href="#rates" className="chip">単価</a>
+        <a href="#workers" className="chip">職人</a>
+        <a href="#orgs" className="chip">組織</a>
+        <a href="#setting" className="chip">自社情報</a>
+        <a href="#lumps" className="chip">請負金額</a>
+      </div>
+
+      {/* ───────── 取引先 ───────── */}
+      <div className="section-head" id="clients">
+        <h2 className="section-title">取引先（Client）</h2>
+      </div>
+
+      <details className="card">
+        <summary className="disclosure-btn" style={{ padding: 0 }}>
+          ＋ 取引先を追加
+        </summary>
+        <form action={createClientAction} style={{ marginTop: 12 }}>
+          <div className="field">
+            <label className="label">取引先名</label>
+            <input className="input" name="name" required placeholder="例: ダミー商事" />
+          </div>
+          <div className="field">
+            <label className="label">敬称</label>
+            <select className="select" name="honorific" defaultValue="御中">
+              <option value="御中">御中</option>
+              <option value="様">様</option>
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">住所（任意）</label>
+            <input className="input" name="address" placeholder="例: ダミー県ダミー市1-2-3" />
+          </div>
+          <div className="field">
+            <label className="label">別名（カンマ/改行区切り・任意）</label>
+            <input className="input" name="aliases" placeholder="例: ダミー商事株式会社, ﾀﾞﾐｰ商事" />
+          </div>
+          <button className="btn btn--primary" type="submit">追加</button>
+        </form>
+      </details>
+
+      <div className="list">
+        {clients.length === 0 && <p className="muted">取引先がありません。</p>}
+        {clients.map((c) => (
+          <details className="card" key={c.id}>
+            <summary className="list-title" style={{ cursor: "pointer" }}>
+              {c.name}
+              {!c.active && (
+                <span className="badge" style={{ marginLeft: 6 }}>無効</span>
+              )}
+            </summary>
+            <form action={updateClientAction} style={{ marginTop: 12 }}>
+              <input type="hidden" name="id" value={c.id} />
+              <div className="field">
+                <label className="label">取引先名</label>
+                <input className="input" name="name" defaultValue={c.name} required />
+              </div>
+              <div className="field">
+                <label className="label">敬称</label>
+                <select className="select" name="honorific" defaultValue={c.honorific}>
+                  <option value="御中">御中</option>
+                  <option value="様">様</option>
+                </select>
+              </div>
+              <div className="field">
+                <label className="label">住所</label>
+                <input className="input" name="address" defaultValue={c.address ?? ""} />
+              </div>
+              <div className="field">
+                <label className="label">別名</label>
+                <input className="input" name="aliases" defaultValue={c.aliases.join(", ")} />
+              </div>
+              <label className="inline-row" style={{ gap: 8 }}>
+                <input type="checkbox" name="active" defaultChecked={c.active} />
+                <span>有効</span>
+              </label>
+              <div style={{ marginTop: 10 }}>
+                <button className="btn btn--ghost" type="submit">保存</button>
+              </div>
+            </form>
+          </details>
+        ))}
+      </div>
+
+      {/* ───────── 現場 ───────── */}
+      <div className="section-head" id="sites">
+        <h2 className="section-title">現場（Site）</h2>
+      </div>
+      <details className="card">
+        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 現場を追加</summary>
+        <form action={createSiteAction} style={{ marginTop: 12 }}>
+          <div className="field">
+            <label className="label">取引先</label>
+            <select className="select" name="clientId" required defaultValue="">
+              <option value="" disabled>選択してください</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">現場名</label>
+            <input className="input" name="name" required placeholder="例: ダミー第一現場" />
+          </div>
+          <button className="btn btn--primary" type="submit">追加</button>
+        </form>
+      </details>
+      <div className="list">
+        {sites.length === 0 && <p className="muted">現場がありません。</p>}
+        {sites.map((s) => (
+          <div className="list-row" key={s.id}>
+            <div className="list-main">
+              <div className="list-title">{s.name}</div>
+              <div className="list-meta">{s.client.name}</div>
+            </div>
+            <form action={deleteSiteAction}>
+              <input type="hidden" name="id" value={s.id} />
+              <button className="btn btn--danger-text" type="submit">削除</button>
+            </form>
+          </div>
+        ))}
+      </div>
+
+      {/* ───────── 単価 ───────── */}
+      <div className="section-head" id="rates">
+        <h2 className="section-title">単価（RateCard）</h2>
+      </div>
+      <details className="card">
+        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 単価を追加</summary>
+        <form action={createRateAction} style={{ marginTop: 12 }}>
+          <div className="field">
+            <label className="label">取引先</label>
+            <select className="select" name="clientId" required defaultValue="">
+              <option value="" disabled>選択してください</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">現場（空＝取引先の既定単価）</label>
+            <select className="select" name="siteId" defaultValue="">
+              <option value="">（取引先の既定単価）</option>
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.client.name} / {s.name}
+                </option>
+              ))}
+            </select>
+            <p className="hint">※ 現場を選ぶ場合、その現場は上の取引先に属している必要があります。</p>
+          </div>
+          <div className="field">
+            <label className="label">契約種別</label>
+            <select className="select" name="contractType" defaultValue="JOYO">
+              <option value="JOYO">常用</option>
+              <option value="UKEOI">請負</option>
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">単価（円・税抜）</label>
+            <input className="input" name="unitPrice" type="number" min={0} step={100} required placeholder="例: 22000" />
+          </div>
+          <div className="field">
+            <label className="label">適用開始日（任意）</label>
+            <input className="input" name="effectiveFrom" type="date" />
+          </div>
+          <button className="btn btn--primary" type="submit">追加</button>
+        </form>
+      </details>
+      <div className="list">
+        {rates.length === 0 && <p className="muted">単価がありません。</p>}
+        {rates.map((r) => (
+          <div className="list-row" key={r.id}>
+            <div className="list-main">
+              <div className="list-title">{yen(r.unitPrice)} <span className="muted">/ {contractLabel(r.contractType)}</span></div>
+              <div className="list-meta">
+                {r.client.name} / {r.site?.name ?? "（既定）"} ・ 開始 {r.effectiveFrom.toISOString().slice(0, 10)}
+              </div>
+            </div>
+            <form action={deleteRateAction}>
+              <input type="hidden" name="id" value={r.id} />
+              <button className="btn btn--danger-text" type="submit">削除</button>
+            </form>
+          </div>
+        ))}
+      </div>
+
+      {/* ───────── 職人 ───────── */}
+      <div className="section-head" id="workers">
+        <h2 className="section-title">職人（Worker）</h2>
+      </div>
+      <details className="card">
+        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 職人を追加</summary>
+        <form action={createWorkerAction} style={{ marginTop: 12 }}>
+          <div className="field">
+            <label className="label">所属組織</label>
+            <select className="select" name="orgId" required defaultValue="">
+              <option value="" disabled>選択してください</option>
+              {orgs.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}（{o.kind === "SELF" ? "自社" : "パートナー"}）
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">職人名</label>
+            <input className="input" name="name" required placeholder="例: ダミー太郎" />
+          </div>
+          <div className="field">
+            <label className="label">別名（任意）</label>
+            <input className="input" name="aliases" placeholder="例: だみー太郎" />
+          </div>
+          <button className="btn btn--primary" type="submit">追加</button>
+        </form>
+      </details>
+      <div className="list">
+        {workers.length === 0 && <p className="muted">職人がいません。</p>}
+        {workers.map((w) => (
+          <details className="card" key={w.id}>
+            <summary className="list-title" style={{ cursor: "pointer" }}>
+              {w.name}
+              <span className="muted" style={{ marginLeft: 8 }}>{w.org.name}</span>
+              {!w.active && <span className="badge" style={{ marginLeft: 6 }}>無効</span>}
+            </summary>
+            <form action={updateWorkerAction} style={{ marginTop: 12 }}>
+              <input type="hidden" name="id" value={w.id} />
+              <div className="field">
+                <label className="label">職人名</label>
+                <input className="input" name="name" defaultValue={w.name} required />
+              </div>
+              <div className="field">
+                <label className="label">別名</label>
+                <input className="input" name="aliases" defaultValue={w.aliases.join(", ")} />
+              </div>
+              <label className="inline-row" style={{ gap: 8 }}>
+                <input type="checkbox" name="active" defaultChecked={w.active} />
+                <span>有効</span>
+              </label>
+              <div style={{ marginTop: 10 }}>
+                <button className="btn btn--ghost" type="submit">保存</button>
+              </div>
+            </form>
+          </details>
+        ))}
+      </div>
+
+      {/* ───────── 組織 ───────── */}
+      <div className="section-head" id="orgs">
+        <h2 className="section-title">組織（Organization）</h2>
+      </div>
+      <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
+        ※ パートナー追加＝ここに <strong>PARTNER</strong> を足すだけ。ユーザー承認でそのパートナーに割り当てます。
+      </p>
+      <details className="card">
+        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 組織を追加</summary>
+        <form action={createOrganizationAction} style={{ marginTop: 12 }}>
+          <div className="field">
+            <label className="label">組織名</label>
+            <input className="input" name="name" required placeholder="例: ダミー協力 A社" />
+          </div>
+          <div className="field">
+            <label className="label">種別</label>
+            <select className="select" name="kind" defaultValue="PARTNER">
+              <option value="PARTNER">パートナー（PARTNER）</option>
+              <option value="SELF">自社（SELF）</option>
+            </select>
+          </div>
+          <button className="btn btn--primary" type="submit">追加</button>
+        </form>
+      </details>
+      <div className="list">
+        {orgs.map((o) => (
+          <details className="card" key={o.id}>
+            <summary className="list-title" style={{ cursor: "pointer" }}>
+              {o.name}
+              <span className={`badge ${o.kind === "SELF" ? "badge--self" : "badge--partner"}`} style={{ marginLeft: 6 }}>
+                {o.kind}
+              </span>
+              {!o.active && <span className="badge" style={{ marginLeft: 6 }}>無効</span>}
+            </summary>
+            <form action={updateOrganizationAction} style={{ marginTop: 12 }}>
+              <input type="hidden" name="id" value={o.id} />
+              <div className="field">
+                <label className="label">組織名</label>
+                <input className="input" name="name" defaultValue={o.name} required />
+              </div>
+              <label className="inline-row" style={{ gap: 8 }}>
+                <input type="checkbox" name="active" defaultChecked={o.active} />
+                <span>有効</span>
+              </label>
+              <p className="hint">※ 種別（SELF/PARTNER）は不可逆運用のため変更不可。</p>
+              <div style={{ marginTop: 10 }}>
+                <button className="btn btn--ghost" type="submit">保存</button>
+              </div>
+            </form>
+          </details>
+        ))}
+      </div>
+
+      {/* ───────── 自社情報 ───────── */}
+      <div className="section-head" id="setting">
+        <h2 className="section-title">自社情報（請求書 発行元）</h2>
+      </div>
+      <div className="card">
+        <form action={saveInvoiceSettingAction}>
+          <div className="field">
+            <label className="label">発行元名</label>
+            <input className="input" name="issuerName" required defaultValue={setting?.issuerName ?? ""} placeholder="例: ダミー工務店" />
+          </div>
+          <div className="field">
+            <label className="label">住所</label>
+            <input className="input" name="address" defaultValue={setting?.address ?? ""} />
+          </div>
+          <div className="inline-row" style={{ gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label className="label">TEL</label>
+              <input className="input" name="tel" defaultValue={setting?.tel ?? ""} />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label className="label">Email</label>
+              <input className="input" name="email" defaultValue={setting?.email ?? ""} />
+            </div>
+          </div>
+          <div className="field">
+            <label className="label">登録番号（インボイス T…）</label>
+            <input className="input" name="regNumber" defaultValue={setting?.regNumber ?? ""} placeholder="T0000000000000" />
+          </div>
+          <div className="field">
+            <label className="label">振込先</label>
+            <input className="input" name="bankInfo" defaultValue={setting?.bankInfo ?? ""} placeholder="例: ダミー銀行 本店 普通 0000000" />
+          </div>
+          <div className="inline-row" style={{ gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label className="label">税率（%）</label>
+              <input
+                className="input input--num"
+                name="taxRatePct"
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                defaultValue={Math.round((setting?.taxRate ?? 0.1) * 100)}
+              />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label className="label">担当者</label>
+              <input className="input" name="contactName" defaultValue={setting?.contactName ?? ""} />
+            </div>
+          </div>
+          <button className="btn btn--primary" type="submit">保存</button>
+        </form>
+      </div>
+
+      {/* ───────── 請負金額 ───────── */}
+      <div className="section-head" id="lumps">
+        <h2 className="section-title">請負金額（LumpContract）</h2>
+      </div>
+      <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
+        ※ 請負（UKEOI）の契約金額を取引先×月で登録。請求書生成時、対象月の <strong>ACTIVE</strong> 契約が「{"{案件}"} 一式」として明細に入ります。
+      </p>
+      <details className="card">
+        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 請負金額を追加</summary>
+        <form action={createLumpContractAction} style={{ marginTop: 12 }}>
+          <div className="field">
+            <label className="label">取引先</label>
+            <select className="select" name="clientId" required defaultValue="">
+              <option value="" disabled>選択してください</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">案件名</label>
+            <input className="input" name="name" required placeholder="例: ダミー改修工事" />
+          </div>
+          <div className="inline-row" style={{ gap: 10 }}>
+            <div className="field" style={{ flex: 1 }}>
+              <label className="label">金額（円・税抜）</label>
+              <input className="input input--num" name="amount" type="number" min={1} step={1000} required placeholder="例: 500000" />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label className="label">対象月</label>
+              <input className="input" name="yearMonth" required defaultValue={ym} placeholder="YYYY-MM" pattern="\d{4}-\d{2}" />
+            </div>
+          </div>
+          <div className="field">
+            <label className="label">メモ（任意）</label>
+            <input className="input" name="note" />
+          </div>
+          <button className="btn btn--primary" type="submit">追加</button>
+        </form>
+      </details>
+      <div className="list">
+        {lumps.length === 0 && <p className="muted">請負金額がありません。</p>}
+        {lumps.map((l) => (
+          <div className="list-row" key={l.id}>
+            <div className="list-main">
+              <div className="list-title">
+                {l.name} {yen(l.amount)}
+                {l.status === "ARCHIVED" && (
+                  <span className="badge" style={{ marginLeft: 6 }}>除外</span>
+                )}
+              </div>
+              <div className="list-meta">{l.client.name} ・ {l.yearMonth}</div>
+            </div>
+            <form action={setLumpContractStatusAction}>
+              <input type="hidden" name="id" value={l.id} />
+              <input
+                type="hidden"
+                name="status"
+                value={l.status === "ACTIVE" ? "ARCHIVED" : "ACTIVE"}
+              />
+              <button className="btn btn--ghost btn--sm" type="submit">
+                {l.status === "ACTIVE" ? "除外" : "戻す"}
+              </button>
+            </form>
+          </div>
+        ))}
+      </div>
+
+      <p className="muted" style={{ marginTop: 20 }}>
+        ※ 例・初期データはすべてダミーです。実名・住所・口座はこの管理画面（DB）にのみ入力してください。
+      </p>
+    </main>
+  );
+}

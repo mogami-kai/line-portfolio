@@ -814,3 +814,33 @@ a {
   width: 28px;
   height: 28px;
 }
+
+/* ── 管理マスタ / ユーザー承認（details.card を折りたたみカードとして使う） ── */
+details.card > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+details.card > summary::-webkit-details-marker {
+  display: none;
+}
+details.card > summary::before {
+  content: "▸";
+  color: var(--ink-3);
+  margin-right: 4px;
+  font-size: 12px;
+}
+details.card[open] > summary::before {
+  content: "▾";
+}
+details.card .field {
+  margin-top: 10px;
+}
+/* optgroup の見出しを少し強調（ユーザー承認の組織選択） */
+.select optgroup {
+  font-weight: 700;
+  color: var(--ink-2);
+}

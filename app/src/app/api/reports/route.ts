@@ -60,6 +60,9 @@ const bodySchema = z.object({
   expenses: z.array(expenseSchema).optional(),
   // 任意: クライアントが新規現場名を渡してきた場合の補助（NEEDS_REVIEW 材料）。
   newSiteName: z.string().trim().min(1).optional(),
+  // 任意: 二重送信防止の冪等キー（クライアント生成）。同一キーの再POSTは
+  // 既存レポートを返し、新規作成しない（リトライ/連打の安全網）。
+  clientRequestId: z.string().trim().min(1).max(100).optional(),
 });
 
 type Body = z.infer<typeof bodySchema>;
@@ -108,6 +111,29 @@ export async function POST(req: Request) {
     body = parsed.data;
   } catch {
     return json(400, { ok: false, error: "invalid_json" });
+  }
+
+  // ── 冪等性: clientRequestId が既存なら、その結果を返す（新規作成しない）──
+  // ネットワーク再送・ボタン連打での二重登録を防ぐ。所有者一致も確認する。
+  if (body.clientRequestId) {
+    const dup = await prisma.report.findUnique({
+      where: { clientRequestId: body.clientRequestId },
+      select: { id: true, status: true, postedToGroup: true, createdById: true },
+    });
+    if (dup) {
+      // 別人のキーと衝突した場合は新規キー扱いにせず、安全側で受理済みとして返す
+      // （ここでは作成者一致のときのみ "既存" を返し、不一致は 409 で弾く）。
+      if (dup.createdById !== user.id) {
+        return json(409, { ok: false, error: "request_id_conflict" });
+      }
+      return json(200, {
+        ok: true,
+        reportId: dup.id,
+        status: dup.status,
+        postedToGroup: dup.postedToGroup,
+        deduped: true,
+      });
+    }
   }
 
   // 参照整合性: clientId / siteId / workerId が DB に存在するか。
@@ -182,44 +208,76 @@ export async function POST(req: Request) {
 
   // ── 4) 保存（Report + entries + expenses）──
   // source は org.kind から自動判定（本人は選ばない）。
-  const created = await prisma.report.create({
-    data: {
-      workDate: new Date(`${body.workDate}T00:00:00.000Z`),
-      clientId: client.id,
-      siteId: site?.id ?? null,
-      contractType: body.contractType,
-      source: org.kind,
-      orgId: org.id,
-      createdById: user.id,
-      status,
-      postedToGroup: false,
-      entries: {
-        create: body.entries.map((e) => ({
-          workerId: e.workerId,
-          shift: e.shift,
-          manDays: e.manDays,
-          otHours: e.otHours,
-        })),
+  // create を関数化して戻り型を推論させ、冪等キー競合（P2002）のみ握る。
+  const dayStart = new Date(`${body.workDate}T00:00:00.000Z`);
+  const createReport = () =>
+    prisma.report.create({
+      data: {
+        workDate: dayStart,
+        clientId: client.id,
+        siteId: site?.id ?? null,
+        contractType: body.contractType,
+        source: org.kind,
+        orgId: org.id,
+        createdById: user.id,
+        status,
+        postedToGroup: false,
+        clientRequestId: body.clientRequestId ?? null,
+        entries: {
+          create: body.entries.map((e) => ({
+            workerId: e.workerId,
+            shift: e.shift,
+            manDays: e.manDays,
+            otHours: e.otHours,
+          })),
+        },
+        expenses: body.expenses?.length
+          ? {
+              create: body.expenses.map((x) => ({
+                workDate: dayStart,
+                clientId: client.id,
+                siteId: site?.id ?? null,
+                kind: x.kind,
+                amount: x.amount,
+                billable: x.billable,
+              })),
+            }
+          : undefined,
       },
-      expenses: body.expenses?.length
-        ? {
-            create: body.expenses.map((x) => ({
-              workDate: new Date(`${body.workDate}T00:00:00.000Z`),
-              clientId: client.id,
-              siteId: site?.id ?? null,
-              kind: x.kind,
-              amount: x.amount,
-              billable: x.billable,
-            })),
-          }
-        : undefined,
-    },
-    include: {
-      client: { select: { name: true } },
-      site: { select: { name: true } },
-      entries: { include: { worker: { select: { name: true } } } },
-    },
-  });
+      include: {
+        client: { select: { name: true } },
+        site: { select: { name: true } },
+        entries: { include: { worker: { select: { name: true } } } },
+      },
+    });
+
+  let created: Awaited<ReturnType<typeof createReport>>;
+  try {
+    created = await createReport();
+  } catch (e) {
+    // 冪等キーの競合（同時 2 連打）: 既存レポートを返して二重作成を避ける。
+    if (
+      body.clientRequestId &&
+      typeof e === "object" &&
+      e !== null &&
+      (e as { code?: string }).code === "P2002"
+    ) {
+      const existing = await prisma.report.findUnique({
+        where: { clientRequestId: body.clientRequestId },
+        select: { id: true, status: true, postedToGroup: true },
+      });
+      if (existing) {
+        return json(200, {
+          ok: true,
+          reportId: existing.id,
+          status: existing.status,
+          postedToGroup: existing.postedToGroup,
+          deduped: true,
+        });
+      }
+    }
+    throw e;
+  }
 
   // ── 5) ★2系統ルーティング（org.kind で1分岐）★ ──
   let postedToGroup = false;

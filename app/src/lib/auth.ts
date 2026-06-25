@@ -13,6 +13,7 @@
 import type { Organization, Role, User } from "@prisma/client";
 import { prisma } from "./db.js";
 import { resolveLineUserFromToken } from "./line.js";
+import { verifySession, type SessionPayload } from "./session.js";
 
 export interface ResolvedUser {
   user: User;
@@ -117,11 +118,16 @@ export async function resolveUserFromAccessToken(
   return resolveUser(resolved.lineUserId, resolved.displayName);
 }
 
-/** Authorization ヘッダ（"Bearer xxx" 形式可）から生トークンを取り出す。 */
+/**
+ * Authorization ヘッダから生トークンを取り出す。
+ * ★ "Bearer <token>" 形式のみ受け付ける（生トークンの直入れは拒否＝厳格化）。
+ */
 export function bearerToken(authorizationHeader: string | null): string | null {
   if (!authorizationHeader) return null;
   const m = authorizationHeader.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1].trim() : authorizationHeader.trim();
+  if (!m) return null;
+  const t = m[1].trim();
+  return t || null;
 }
 
 /** 承認済みか。未承認なら例外向けに false。 */
@@ -156,25 +162,58 @@ export function requireApproved(u: ResolvedUser | null): ResolvedUser {
 // ============================================================
 // 管理ダッシュボード（Server Component）向けガード
 //
-//  本番では LINE Login のセッション Cookie で本人を確定すべきだが、
-//  本フェーズでは LINE Login セッション基盤を未導入のため、
-//  「ADMIN_LINE_USER_IDS で設定された ADMIN ユーザーが存在するか」を最低限の
-//  存在ガードとして用いる（実運用ではミドルウェア/プロキシでの保護を併用）。
-//  TODO(P2+): NextAuth 等で LINE Login セッション化し、本人 lineUserId で厳格判定。
+//  本人認証は LINE Login（OAuth）→ 署名付きクッキー（demen_session）で確定する。
+//  getAdminContext() はクッキーの lineUserId から「承認済み・role=ADMIN の
+//  実ユーザー」を引く（＝実際にログイン中の管理者）。クッキーが無い/失効/
+//  改竄、または該当ユーザーが ADMIN でない場合は null。
+//  ルート保護（/admin・管理 API）は src/middleware.ts でも二重に行う。
 // ============================================================
 
 /**
- * 管理画面の表示可否を返す。設定済み ADMIN（ADMIN_LINE_USER_IDS のいずれか）が
- * DB に存在し、承認済み・role=ADMIN であれば、その代表ユーザーを返す。
- * 該当が無ければ null（呼び出し側で 403/未設定案内）。
+ * lineUserId が「承認済み・role=ADMIN の実ユーザー」かを引く（新規作成しない）。
+ * LINE Login コールバックでセッション発行可否を判断するために使う。
  */
-export async function getAdminContext(): Promise<ResolvedUser | null> {
-  const ids = adminLineUserIds();
-  if (ids.length === 0) return null;
+export async function findApprovedAdminByLineUserId(
+  lineUserId: string,
+): Promise<ResolvedUser | null> {
+  if (!lineUserId) return null;
   const admin = await prisma.user.findFirst({
-    where: { lineUserId: { in: ids }, role: "ADMIN", approved: true },
+    where: { lineUserId, role: "ADMIN", approved: true },
     include: { org: true },
   });
   if (!admin) return null;
   return { user: admin, org: admin.org };
+}
+
+/**
+ * セッションペイロード（検証済み）から ADMIN コンテキストを解決する。
+ * payload.lineUserId が現に承認済み ADMIN であることを DB で再確認する
+ * （ロール剥奪・承認取消が即座に効くよう、毎リクエスト DB を引く）。
+ */
+export async function getAdminContextFromSession(
+  session: SessionPayload | null,
+): Promise<ResolvedUser | null> {
+  if (!session) return null;
+  return findApprovedAdminByLineUserId(session.lineUserId);
+}
+
+/**
+ * 現在のリクエストの管理者コンテキストを返す。
+ *   1) next/headers の cookies() から demen_session を読む
+ *   2) 署名検証 → lineUserId
+ *   3) 承認済み ADMIN を DB から解決（無ければ null）
+ *
+ * Server Component / Server Action / Route Handler から呼べる。
+ * 該当が無ければ null（呼び出し側で 403/ログイン誘導）。
+ */
+export async function getAdminContext(): Promise<ResolvedUser | null> {
+  // next/headers は Server Component / Action / Route Handler でのみ利用可。
+  // 動的 import で middleware（Edge）からの誤用時に副作用を避ける。
+  const { cookies } = await import("next/headers");
+  const store = await cookies();
+  // cookies().get().value は復号済みの生値。verifySession に直接渡す
+  // （parseCookie の再 decode を避ける）。
+  const raw = store.get("demen_session")?.value;
+  const session = verifySession(raw);
+  return getAdminContextFromSession(session);
 }

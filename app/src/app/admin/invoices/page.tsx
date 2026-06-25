@@ -11,6 +11,7 @@
 // ============================================================
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import {
@@ -49,17 +50,8 @@ export default async function InvoicesPage({
 }) {
   const admin = await getAdminContext();
   if (!admin) {
-    return (
-      <main className="container">
-        <h1 className="page-title" style={{ marginTop: 12 }}>
-          請求書
-        </h1>
-        <div className="notice notice--error" style={{ marginTop: 12 }}>
-          管理者が未設定/未承認です（<code>ADMIN_LINE_USER_IDS</code>{" "}
-          を設定してください）。
-        </div>
-      </main>
-    );
+    // middleware で保護済みだが、念のためログイン画面へ集約。
+    redirect("/admin?error=login");
   }
 
   const sp = await searchParams;
@@ -200,8 +192,9 @@ export default async function InvoicesPage({
       )}
 
       <p className="muted" style={{ marginTop: 16 }}>
-        ※ 概算・明細は RateCard（取引先×現場×種別）から算出。請負（UKEOI）金額は
-        マスタに持たないため本フェーズでは 0 とし、必要に応じ管理者が後入力します。
+        ※ 概算・明細は RateCard（取引先×現場×種別）から算出。請負（UKEOI）金額は{" "}
+        <a href="/admin/masters#lumps">マスタ管理 → 請負金額</a>{" "}
+        に登録した対象月の契約が「一式」明細として取り込まれます。
       </p>
     </main>
   );

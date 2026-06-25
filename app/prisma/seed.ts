@@ -112,6 +112,26 @@ async function main() {
     });
   }
 
+  // ── ダミー請負契約（LumpContract）＝当月の請負一式（請求書に取り込まれる）──
+  const nowYm = `${new Date().getFullYear()}-${String(
+    new Date().getMonth() + 1,
+  ).padStart(2, "0")}`;
+  const lumpExists = await prisma.lumpContract.findFirst({
+    where: { clientId: clientB.id, yearMonth: nowYm },
+  });
+  if (!lumpExists) {
+    await prisma.lumpContract.create({
+      data: {
+        clientId: clientB.id,
+        name: "ダミー改修工事",
+        amount: 500000,
+        yearMonth: nowYm,
+        status: "ACTIVE",
+        note: "（ダミー）当月の請負一式",
+      },
+    });
+  }
+
   // ── 発行元（InvoiceSetting）＝ダミー（実名・住所・口座は入れない）──
   const settingExists = await prisma.invoiceSetting.findFirst();
   if (!settingExists) {

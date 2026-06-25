@@ -69,7 +69,8 @@ export async function buildClientInvoiceLines(
       manDays,
       otHours,
       contractType: r.contractType,
-      // UKEOI（請負）は金額をマスタで持たないため、本フェーズでは lump=0（管理者が後入力）。
+      // 請負（UKEOI）金額は Report ではなく LumpContract（後述）から取り込むため、
+      // ここでは 0。立替経費のみ計上する。
       lump: 0,
       expense: billableExpense,
     });
@@ -77,9 +78,34 @@ export async function buildClientInvoiceLines(
 
   const agg = aggregateForInvoice(likes);
   // 1 取引先のみ対象。aggregateForInvoice は client 名キーなので最初の値を取る。
-  const clientName = Object.keys(agg)[0];
+  let clientName = Object.keys(agg)[0];
+
+  // ── 請負（UKEOI）契約金額を LumpContract から取り込む ──
+  //   その月（yearMonth）・ACTIVE の契約を取引先ごとに集める。
+  //   常用が無く請負だけの月でも明細を出せるよう、agg が空でも合成する。
+  const lumps = await prisma.lumpContract.findMany({
+    where: { clientId, yearMonth, status: "ACTIVE" },
+    orderBy: { createdAt: "asc" },
+    select: { name: true, amount: true },
+  });
+
+  if (lumps.length > 0 && !clientName) {
+    // 常用ゼロ・請負のみ。取引先名を引いて agg を用意する。
+    const c = await prisma.client.findUnique({
+      where: { id: clientId },
+      select: { name: true },
+    });
+    if (c) {
+      clientName = c.name;
+      agg[clientName] = { sites: {}, lump: 0, expense: 0 };
+    }
+  }
+
   if (!clientName) return [];
   const clientAgg = agg[clientName];
+  if (lumps.length > 0) {
+    clientAgg.lumpItems = lumps.map((l) => ({ name: l.name, amount: l.amount }));
+  }
 
   // 現場別単価を事前解決（siteId 優先 → 取引先既定）。
   const onDate = to; // 月末時点の単価で確定。

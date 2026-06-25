@@ -84,6 +84,40 @@ describe("buildInvoiceLines", () => {
     expect(noRate[0].unitPrice).toBe(0);
     expect(noRate[0].amount).toBe(0);
   });
+
+  it("lumpItems があれば案件ごとに「{name} 一式」を個別出力（集約lumpは無視）", () => {
+    const withLumps = buildInvoiceLines(
+      {
+        sites: {},
+        lump: 999999, // lumpItems があるので無視される
+        expense: 0,
+        lumpItems: [
+          { name: "ダミー改修A", amount: 300000 },
+          { name: "ダミー新築B", amount: 450000 },
+          { name: "金額ゼロは出さない", amount: 0 },
+        ],
+      },
+      { rateFor: () => 0, taxRate: TAX },
+    );
+    expect(withLumps).toHaveLength(2);
+    expect(withLumps[0].itemName).toBe("ダミー改修A 一式");
+    expect(withLumps[0].amount).toBe(300000);
+    expect(withLumps[0].unitLabel).toBe("式");
+    expect(withLumps[1].itemName).toBe("ダミー新築B 一式");
+    expect(withLumps[1].amount).toBe(450000);
+    // sortNo は 1 から連番
+    expect(withLumps.map((l) => l.sortNo)).toEqual([1, 2]);
+  });
+
+  it("lumpItems 未指定なら従来どおり集約 lump を「請負工事一式」で出力", () => {
+    const agg = buildInvoiceLines(
+      { sites: {}, lump: 500000, expense: 0 },
+      { rateFor: () => 0, taxRate: TAX },
+    );
+    expect(agg).toHaveLength(1);
+    expect(agg[0].itemName).toBe("請負工事一式");
+    expect(agg[0].amount).toBe(500000);
+  });
 });
 
 describe("summarize", () => {

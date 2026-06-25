@@ -1,7 +1,7 @@
 // ============================================================
 // /admin — 管理ダッシュボード（Server Component / モバイルファースト）
 //
-//   ガード: getAdminContext()（ADMIN 設定済みか）。未設定/未承認なら案内表示。
+//   ガード: getAdminContext()（セッションから承認済み ADMIN を解決）。未ログインはログイン画面。
 //   表示:
 //     - 月スイッチャー（◀ yyyy-MM ▶, ?ym=）
 //     - 当月の合計カード（自社の人工/残業/概算金額）
@@ -72,29 +72,70 @@ function ClientAccordion({
   );
 }
 
+const LOGIN_ERROR_MESSAGES: Record<string, string> = {
+  login: "ログインが必要です。LINE でログインしてください。",
+  forbidden:
+    "このアカウントには管理権限がありません（承認済み ADMIN のみ）。管理者にご確認ください。",
+  denied: "ログインがキャンセルされました。",
+  state: "セッションが無効です。お手数ですが、もう一度ログインしてください。",
+  token: "LINE 認証に失敗しました。もう一度お試しください。",
+  profile: "プロフィール取得に失敗しました。もう一度お試しください。",
+  session: "セッションの発行に失敗しました（SESSION_SECRET 未設定の可能性）。",
+};
+
+/** 未ログイン時のログイン画面（LINE Login へ誘導）。 */
+function LoginScreen({ error }: { error?: string }) {
+  const msg = error ? LOGIN_ERROR_MESSAGES[error] : undefined;
+  return (
+    <main className="container">
+      <div className="hero">
+        <h1>管理ログイン</h1>
+        <p>LINE でログインして管理ダッシュボードを開きます。</p>
+      </div>
+      {msg && (
+        <div
+          className={`notice ${
+            error === "denied" || error === "login"
+              ? "notice--warn"
+              : "notice--error"
+          }`}
+          style={{ marginTop: 12 }}
+        >
+          {msg}
+        </div>
+      )}
+      <a
+        href="/api/auth/line/login"
+        className="big-link big-link--primary"
+        style={{ marginTop: 16 }}
+      >
+        <span className="bl-ico" aria-hidden>
+          🔐
+        </span>
+        <span>
+          <span className="bl-title">LINE でログイン</span>
+          <span className="bl-sub">承認済みの管理者のみ入室できます</span>
+        </span>
+      </a>
+      <p className="muted center" style={{ marginTop: 24 }}>
+        ※ 初回 ADMIN は <code>ADMIN_LINE_USER_IDS</code> で付与し、一度 LIFF
+        を開いて登録（role=ADMIN・承認済み）すると、ここからログインできます。
+      </p>
+    </main>
+  );
+}
+
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ym?: string }>;
+  searchParams: Promise<{ ym?: string; error?: string }>;
 }) {
+  const sp = await searchParams;
   const admin = await getAdminContext();
   if (!admin) {
-    return (
-      <main className="container">
-        <h1 className="page-title" style={{ marginTop: 12 }}>
-          管理ダッシュボード
-        </h1>
-        <div className="notice notice--error" style={{ marginTop: 12 }}>
-          管理者が未設定、または未承認です。環境変数{" "}
-          <code>ADMIN_LINE_USER_IDS</code> に管理者の LINE userId
-          を設定し、その管理者が一度 LIFF
-          を開いてユーザー登録（自動で role=ADMIN・承認済み）されると表示されます。
-        </div>
-      </main>
-    );
+    return <LoginScreen error={sp.error} />;
   }
 
-  const sp = await searchParams;
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
 
   // 自社 / パートナー を分けて集計。
@@ -137,7 +178,25 @@ export default async function AdminPage({
           請求書 →
         </a>
       </div>
-      <p className="page-sub">ようこそ {admin.user.displayName} さん</p>
+      <p className="page-sub">
+        ようこそ {admin.user.displayName} さん
+        <a href="/api/auth/logout" className="muted" style={{ marginLeft: 10 }}>
+          ログアウト
+        </a>
+      </p>
+
+      {/* 管理メニュー */}
+      <div className="chip-wrap" style={{ marginBottom: 6 }}>
+        <a href="/admin/masters" className="chip">
+          マスタ管理
+        </a>
+        <a href="/admin/users" className="chip">
+          ユーザー承認
+        </a>
+        <a href={`/admin/invoices?ym=${ym}`} className="chip">
+          請求書
+        </a>
+      </div>
 
       {/* 月スイッチャー */}
       <div className="month-switch">
