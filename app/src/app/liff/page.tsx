@@ -52,7 +52,8 @@ declare global {
   }
 }
 
-const LIFF_SDK_URL = "https://static.line.me/liff/edge/2/sdk.js";
+// LIFF v2 SDK（公式CDN: static.line-scdn.net。static.line.me は読めずSDK load errorになる）
+const LIFF_SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
 const LS_KEY = "demen:lastReport:v1";
 
 type Shift = "DAY" | "HALF" | "NIGHT";
