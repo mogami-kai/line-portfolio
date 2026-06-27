@@ -351,6 +351,36 @@ export async function setLumpContractStatusAction(fd: FormData): Promise<void> {
 }
 
 // ============================================================
+// 出面レポート（要確認キューの承認 / 削除）
+//   「日々のチェック」の中核。LIFF から上がった出面のうち、
+//   NEEDS_REVIEW（新規・要確認）を承認（CONFIRMED）するか、誤登録を削除する。
+//   ※ 承認は状態確定のみ。グループ再投稿はしない（誤爆・二重投稿防止）。
+// ============================================================
+export async function confirmReportAction(fd: FormData): Promise<void> {
+  await requireAdminAction();
+  const id = str(fd, "id");
+  if (!id) throw new Error("id がありません");
+  await prisma.report.update({
+    where: { id },
+    data: { status: "CONFIRMED" },
+  });
+  revalidatePath("/admin");
+}
+
+export async function deleteReportAction(fd: FormData): Promise<void> {
+  await requireAdminAction();
+  const id = str(fd, "id");
+  if (!id) throw new Error("id がありません");
+  // entries は onDelete: Cascade。expenses は任意リレーション（SetNull 既定）の
+  // ため、孤児を残さないよう明示削除してから本体を消す（トランザクション）。
+  await prisma.$transaction([
+    prisma.expense.deleteMany({ where: { reportId: id } }),
+    prisma.report.delete({ where: { id } }),
+  ]);
+  revalidatePath("/admin");
+}
+
+// ============================================================
 // ユーザー承認（NEEDS_REVIEW / 未承認 → role/org 割当 ＋ approved）
 //   ★ パートナーは必ず正しい PARTNER 組織へ割り当てる（自社に漏らさない）。
 // ============================================================
