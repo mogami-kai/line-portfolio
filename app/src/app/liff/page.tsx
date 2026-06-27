@@ -547,15 +547,42 @@ export default function LiffPage() {
     );
   }
   if (!ready || !masters) {
+    // 真っ白スピナーではなく、フォームの骨組み（スケルトン）を即出して体感を短縮。
     return (
       <main className="container">
-        <div className="loading-wrap">
-          <span className="spinner" aria-hidden />
-          <span>{mastersError ?? "読み込み中…"}</span>
-          {mastersError && (
-            <div className="notice notice--error">{mastersError}</div>
-          )}
+        <div className="page-head">
+          <h1 className="page-title">出面入力</h1>
+          <span className="muted">読み込み中…</span>
         </div>
+        {mastersError ? (
+          <div className="notice notice--error">{mastersError}</div>
+        ) : (
+          <div aria-hidden>
+            <div className="card" style={{ marginTop: 14 }}>
+              <div className="skeleton-line skeleton-line--head" />
+              <div
+                className="skeleton-box"
+                style={{ minHeight: 48, borderRadius: 10 }}
+              />
+              <div className="skeleton-line" />
+              <div
+                className="skeleton-box"
+                style={{ minHeight: 48, borderRadius: 10 }}
+              />
+            </div>
+            <div className="card">
+              <div className="skeleton-line skeleton-line--head" />
+              <div
+                className="skeleton-box"
+                style={{ minHeight: 56, borderRadius: 10 }}
+              />
+              <div
+                className="skeleton-box"
+                style={{ minHeight: 56, borderRadius: 10, marginTop: 8 }}
+              />
+            </div>
+          </div>
+        )}
       </main>
     );
   }

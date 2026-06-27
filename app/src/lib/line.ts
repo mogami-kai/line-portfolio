@@ -117,7 +117,13 @@ export async function resolveLineUserFromToken(
   accessToken: string,
 ): Promise<{ lineUserId: string; displayName: string } | null> {
   try {
-    const verified = await verifyAccessToken(accessToken);
+    // verify と profile は互いに独立な GET。直列だと East/Tokyo 間で 2 往復になり
+    // /api/masters・/api/reports の待ち時間に直結するため、並列実行で 1 往復に短縮。
+    // verify がチャネル不一致/期限切れなら profile は破棄する。
+    const [verified, profile] = await Promise.all([
+      verifyAccessToken(accessToken),
+      getProfile(accessToken),
+    ]);
     // LIFF はこの LINE Login チャネルに属する。期待チャネルは LINE_LOGIN_CHANNEL_ID
     // を優先（無ければ旧名 LINE_CHANNEL_ID にフォールバック）。設定時のみ一致を強制。
     const expectedChannel =
@@ -129,7 +135,6 @@ export async function resolveLineUserFromToken(
       return null;
     }
     if (verified.expiresIn <= 0) return null;
-    const profile = await getProfile(accessToken);
     if (!profile?.userId) return null;
     return { lineUserId: profile.userId, displayName: profile.displayName };
   } catch (e) {

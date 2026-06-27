@@ -25,6 +25,15 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ja">
+      <head>
+        {/* LIFF SDK の CDN へ早期に接続（DNS+TLS を先行）。/liff の初期描画を短縮。 */}
+        <link
+          rel="preconnect"
+          href="https://static.line-scdn.net"
+          crossOrigin="anonymous"
+        />
+        <link rel="dns-prefetch" href="https://static.line-scdn.net" />
+      </head>
       <body>{children}</body>
     </html>
   );
