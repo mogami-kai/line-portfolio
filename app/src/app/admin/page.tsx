@@ -319,6 +319,9 @@ export default async function AdminPage({
         <a href="/admin/users" className="chip">
           👤 ユーザー承認
         </a>
+        <a href="/admin/import" className="chip">
+          📥 LINE取り込み
+        </a>
         <a href={`/admin/invoices?ym=${ym}`} className="chip">
           📄 請求書
         </a>
@@ -448,8 +451,11 @@ export default async function AdminPage({
                   LIFF（日報入力）や LINE取り込みで登録された出面が、ここに表示されます。
                 </p>
                 <div className="es-actions">
+                  <a href="/admin/import" className="btn btn--primary btn--sm">
+                    📥 LINEから取り込む
+                  </a>
                   <a href="/admin/masters" className="btn btn--ghost btn--sm">
-                    まずマスタを確認
+                    マスタを確認
                   </a>
                 </div>
               </div>
