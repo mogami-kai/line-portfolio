@@ -118,8 +118,10 @@ export async function resolveLineUserFromToken(
 ): Promise<{ lineUserId: string; displayName: string } | null> {
   try {
     const verified = await verifyAccessToken(accessToken);
-    const expectedChannel = process.env.LINE_CHANNEL_ID;
-    // LINE_CHANNEL_ID が設定されている場合のみチャネル一致を強制する。
+    // LIFF はこの LINE Login チャネルに属する。期待チャネルは LINE_LOGIN_CHANNEL_ID
+    // を優先（無ければ旧名 LINE_CHANNEL_ID にフォールバック）。設定時のみ一致を強制。
+    const expectedChannel =
+      process.env.LINE_LOGIN_CHANNEL_ID || process.env.LINE_CHANNEL_ID;
     if (expectedChannel && verified.clientId !== expectedChannel) {
       console.warn(
         `[line] token channel mismatch: got ${verified.clientId}, expected ${expectedChannel}`,
