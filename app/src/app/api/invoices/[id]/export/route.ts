@@ -41,6 +41,7 @@ export async function GET(
       invoiceNo: data.invoiceNo,
       issueDate: data.issueDate,
       client: data.client,
+      honorific: data.honorific,
       address: data.address,
       issuer: data.issuer,
       lines: data.lines,

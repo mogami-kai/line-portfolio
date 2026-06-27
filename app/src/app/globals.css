@@ -545,6 +545,80 @@ a {
   display: block;
 }
 
+/* ── 直近の出面フィード（コンパクト3列＋「表示」で当月全件） ── */
+/* 1 件ずつの大きな行（.list）ではなく、当月の出面を小さなカードで多列に。
+   既定 3 列。極端に狭いスマホ（<420px）だけ 2 列に落として潰れを防ぐ。 */
+.feed-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (max-width: 419px) {
+  .feed-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.feed-cell {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 10px;
+  min-width: 0;
+}
+.feed-date {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.feed-client {
+  font-size: 14px;
+  font-weight: 800;
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  word-break: break-word;
+}
+.feed-site,
+.feed-names {
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feed-site {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.feed-names {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.feed-figs {
+  font-size: 13px;
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.feed-figs b {
+  font-size: 17px;
+  font-weight: 800;
+}
+.feed-ot {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.feed-mini {
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.feed-toggle {
+  width: 100%;
+  margin-top: 12px;
+}
+
 /* ── バッジ ── */
 .badge {
   display: inline-block;
@@ -1015,6 +1089,18 @@ details.card .field {
   color: var(--accent-dark);
 }
 
+/* ── モバイル既定: 縦 1 列。集計（脇）を最上段へ ──
+   要望「スマホの時は集計が一番上の欄に表示されるように」。
+   admin-grid を flex 縦並びにし、aside を order:-1 で要確認・直近より上へ。 */
+.admin-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.admin-aside {
+  order: -1;
+}
+
 /* ── PC レイアウト（≥1024px）: 2 カラム ── */
 @media (min-width: 1024px) {
   .container--admin {
@@ -1028,8 +1114,13 @@ details.card .field {
     gap: 28px;
     align-items: start;
   }
-  /* 集計は脇で常時見える（スクロール追従）。 */
+  /* PC では本来の並び（左=日々のチェック / 右=集計）に戻し、
+     集計は脇で常時見える（スクロール追従）。 */
+  .admin-main {
+    order: 0;
+  }
   .admin-aside {
+    order: 0;
     position: sticky;
     top: 16px;
   }

@@ -10,7 +10,8 @@
 //       4) 月末の請求 … 集計どおりの請求書へ 1 タップ
 //
 //   レイアウト:
-//     - モバイル: 縦 1 カラム（①→②→③→④）。
+//     - モバイル: 縦 1 カラム。集計(③④)を最上段へ（order:-1）→ 要確認(①)→ 直近(②)。
+//       「今いくら／誰が何人工か」を真っ先に見せたい、という要望に合わせた並び。
 //     - PC（≥1024px）: 左に「日々のチェック」(①②)、右に「集計/請求」(③④) の 2 カラム。
 //       → 最頻の操作を主役に、集計は常に脇で見える（.admin-grid / globals.css）。
 //
@@ -22,6 +23,7 @@ import { Suspense } from "react";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { HelpToggle } from "./_help.js";
+import { RecentFeed, type FeedItem } from "./_feed.js";
 import {
   confirmReportAction,
   deleteReportAction,
@@ -281,7 +283,7 @@ export default async function AdminPage({
     prisma.report.findMany({
       where: { workDate: { gte: from, lt: to } },
       orderBy: [{ workDate: "desc" }, { createdAt: "desc" }],
-      take: 30,
+      take: 400, // 当月全件（「表示」で展開）。1 現場 ≒ 数件想定で十分な上限。
       include: {
         client: { select: { name: true } },
         site: { select: { name: true } },
@@ -295,6 +297,23 @@ export default async function AdminPage({
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
   const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
   const isCurrentMonth = ym === currentYearMonth();
+
+  // 直近の出面フィード（コンパクト3列＋「表示」で当月全件）用のプレーン配列。
+  // Server Component で集計まで済ませ、Client Component には素の値だけ渡す。
+  const feedItems: FeedItem[] = recent.map((r) => ({
+    id: r.id,
+    date: mdW(r.workDate),
+    client: r.client.name,
+    site: r.site?.name ?? "(現場未設定)",
+    names: r.entries
+      .map((e) => e.worker?.name)
+      .filter(Boolean)
+      .join("　"),
+    md: r.entries.reduce((a, e) => a + Number(e.manDays || 0), 0),
+    ot: r.entries.reduce((a, e) => a + Number(e.otHours || 0), 0),
+    partner: r.org.kind === "PARTNER",
+    review: r.status === "NEEDS_REVIEW",
+  }));
 
   return (
     <main className="container container--admin">
@@ -436,7 +455,7 @@ export default async function AdminPage({
             </div>
             <div className="help-bubble">
               <b>今月の入力一覧。</b>{" "}
-              LINEグループと同じ並び（日付／取引先／現場／職人）で、最近の出面が上から並びます。ここを眺めれば「今日の分が入っているか」が一目で分かります。
+              最近の出面を小さなカードで並べています（日付／取引先／現場／職人）。下の「<b>表示</b>」を押すと、その月の全件が開きます。ここを眺めれば「今日の分が入っているか」が一目で分かります。
             </div>
             {recent.length === 0 ? (
               <div className="empty-state">
@@ -454,52 +473,7 @@ export default async function AdminPage({
                 </div>
               </div>
             ) : (
-              <div className="list">
-                {recent.map((r) => {
-                  const md = r.entries.reduce((a, e) => a + Number(e.manDays || 0), 0);
-                  const ot = r.entries.reduce((a, e) => a + Number(e.otHours || 0), 0);
-                  const isPartner = r.org.kind === "PARTNER";
-                  const review = r.status === "NEEDS_REVIEW";
-                  const names = r.entries
-                    .map((e) => e.worker?.name)
-                    .filter(Boolean)
-                    .join("　");
-                  return (
-                    <div className="list-row" key={r.id}>
-                      <div className="list-main">
-                        <div className="list-title">
-                          <span className="list-date">{mdW(r.workDate)}</span>
-                          {r.client.name}
-                          <span
-                            className={`badge ${
-                              isPartner ? "badge--partner" : "badge--self"
-                            }`}
-                          >
-                            {r.org.kind}
-                          </span>
-                          {review && (
-                            <span className="badge badge--review">要確認</span>
-                          )}
-                        </div>
-                        <div className="list-meta">
-                          {r.site?.name ?? "(現場未設定)"}
-                          {names && <> ・ {names}</>}
-                        </div>
-                      </div>
-                      <div className="list-figs">
-                        <span className="fig">
-                          <span className="n">{md}</span>
-                          <span className="u">人工</span>
-                        </span>
-                        <span className="fig">
-                          <span className="n">{ot}</span>
-                          <span className="u">残業h</span>
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              <RecentFeed items={feedItems} />
             )}
           </section>
         </div>

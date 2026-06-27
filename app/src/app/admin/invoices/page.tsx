@@ -192,7 +192,10 @@ export default async function InvoicesPage({
       )}
 
       <p className="muted" style={{ marginTop: 16 }}>
-        ※ 概算・明細は RateCard（取引先×現場×種別）から算出。請負（UKEOI）金額は{" "}
+        ※ 明細は取引先ごとに「委託料（人工合計 × 単価）＋ 残業（合計時間 × 残業単価）＋
+        立替経費」で自動計算。単価は{" "}
+        <a href="/admin/masters">マスタ管理 → 単価</a>{" "}
+        に入れた取引先の単価を使います（現場は問いません）。請負（UKEOI）金額は{" "}
         <a href="/admin/masters#lumps">マスタ管理 → 請負金額</a>{" "}
         に登録した対象月の契約が「一式」明細として取り込まれます。
       </p>

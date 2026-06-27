@@ -11,7 +11,7 @@ import { prisma } from "./db.js";
 import { shiftManDays, type Shift } from "./calc.js";
 import {
   aggregateForInvoice,
-  buildInvoiceLines,
+  buildClientLines,
   summarize,
   type ClientAgg,
   type InvoiceLine,
@@ -182,13 +182,11 @@ export async function summarizeByClient(
       otHours += s.otHours;
     }
 
-    // 取引先既定単価を全現場に適用（同期）。
-    const rateFor = (): number | null => unit;
-
-    const lines: InvoiceLine[] = buildInvoiceLines(clientAgg, {
-      rateFor,
-      taxRate: 0, // 概算は税抜小計のみ使うので税率0でよい。
-    });
+    // 取引先ごとの委託料（人工×単価）＋残業で概算（請求書と同じ作り）。
+    const lines: InvoiceLine[] = buildClientLines(
+      { manDays, otHours, expenses: [] },
+      { unitPrice: unit, taxRate: 0 }, // 概算は税抜小計のみ使うので税率0でよい。
+    );
     const summary = summarize(lines, 0);
 
     out.push({

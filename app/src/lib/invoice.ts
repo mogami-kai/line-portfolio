@@ -68,6 +68,24 @@ export interface ReportLike {
   expense?: number;
 }
 
+/** 経費（立替）を種別ごとに集計した1件。 */
+export interface ExpenseAgg {
+  kind: string;
+  amount: number;
+}
+
+/**
+ * 取引先ごとの請求集計（現場の内訳は持たない）。
+ *   manDays … その月の合計人工、otHours … 合計残業時間、
+ *   expenses … 請求対象の立替経費（種別ごと合算）、lumpItems … 請負（一式）。
+ */
+export interface ClientTotals {
+  manDays: number;
+  otHours: number;
+  expenses: ExpenseAgg[];
+  lumpItems?: LumpItem[];
+}
+
 /** 発行元情報（Prisma model InvoiceSetting 相当）。 */
 export interface InvoiceSettingLike {
   issuerName: string;
@@ -221,6 +239,84 @@ export function buildInvoiceLines(
 }
 
 // ============================================================
+// 取引先ごとの明細（委託料 ＋ 残業 ＋ 請負 ＋ 立替経費）
+//   現場の内訳は出さない。委託料＝合計人工×単価、残業＝合計時間×残業単価
+//   （単価÷8×1.25）。経費は種別ごとに対象外（税率0）で計上。
+//   単価は管理者がマスタに入れた値（RateCard）。金額・合計は全て自動計算。
+// ============================================================
+export function buildClientLines(
+  totals: ClientTotals,
+  opts: { unitPrice: number; taxRate: number },
+): InvoiceLine[] {
+  const lines: InvoiceLine[] = [];
+  const { unitPrice, taxRate } = opts;
+  let sortNo = 0;
+
+  // 委託料（常用の人工合計 × 単価）
+  const md = toNumber(totals.manDays, 0);
+  if (md > 0) {
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: "委託料",
+      qty: md,
+      unitLabel: "人工",
+      unitPrice,
+      amount: joyoAmount(md, unitPrice),
+      taxRate,
+    });
+  }
+
+  // 残業（合計時間 × 残業単価＝単価÷8×1.25）
+  const ot = toNumber(totals.otHours, 0);
+  if (ot > 0) {
+    const otUnit = Math.round((unitPrice / HOURS_PER_DAY) * OT_FACTOR);
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: "残業",
+      qty: ot,
+      unitLabel: "時間",
+      unitPrice: otUnit,
+      amount: overtimeAmount(ot, unitPrice),
+      taxRate,
+    });
+  }
+
+  // 請負（一式）。LumpContract があれば案件ごとに計上。
+  for (const item of totals.lumpItems ?? []) {
+    const amt = toNumber(item.amount, 0);
+    if (amt <= 0) continue;
+    const label = String(item.name ?? "").trim();
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: label ? `${label} 一式` : "請負工事一式",
+      qty: 1,
+      unitLabel: "式",
+      unitPrice: amt,
+      amount: amt,
+      taxRate,
+    });
+  }
+
+  // 立替経費（対象外・税率0）。種別ごとに集計済み。
+  for (const e of totals.expenses ?? []) {
+    const amt = toNumber(e.amount, 0);
+    if (amt <= 0) continue;
+    const kind = String(e.kind ?? "").trim() || "立替";
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: `立替 ${kind}`,
+      qty: 1,
+      unitLabel: "式",
+      unitPrice: amt,
+      amount: amt,
+      taxRate: 0,
+    });
+  }
+
+  return lines;
+}
+
+// ============================================================
 // サマリ: 小計（課税）/ 消費税 / 対象外 / 合計
 // ============================================================
 export function summarize(
@@ -285,6 +381,7 @@ export function toXlsx(data: {
   invoiceNo: string;
   issueDate: string;
   client: string;
+  honorific?: string;
   address?: string;
   issuer?: Partial<InvoiceSettingLike>;
   lines: InvoiceLine[];
@@ -336,7 +433,7 @@ export function toXlsx(data: {
   addRow([]);
 
   // ── 宛先（Client）──
-  const to = addRow([data.client + "　御中"]);
+  const to = addRow([data.client + "　" + (data.honorific || "御中")]);
   to.getCell(1).font = { bold: true, size: 12 };
   if (String(data.address ?? "").trim()) addRow([String(data.address)]);
   addRow([]);
