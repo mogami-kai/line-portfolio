@@ -21,6 +21,7 @@
 import { Suspense } from "react";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
+import { HelpToggle } from "./_help.js";
 import {
   confirmReportAction,
   deleteReportAction,
@@ -92,7 +93,7 @@ function ClientAccordion({
  * ストリーミングする（要確認/直近フィードの描画をブロックしない）。
  */
 async function MonthSummary({ ym }: { ym: string }) {
-  const { self, partner, selfTotals } = await getMonthSummary(ym);
+  const { self, partner, byWorker, selfTotals } = await getMonthSummary(ym);
   return (
     <>
       {/* 自社 合計カード */}
@@ -114,11 +115,51 @@ async function MonthSummary({ ym }: { ym: string }) {
         </div>
       </div>
 
-      {/* 自社 取引先別 */}
+      {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
+      <div className="section-head">
+        <h3 className="section-subtitle">職人別（給料の見方）</h3>
+      </div>
+      <div className="help-bubble">
+        <b>いつもの締めと同じ形。</b>{" "}
+        誰が今月何人工・残業何時間か。給料計算はこの「人工 × 単価」が基本です。
+      </div>
+      {byWorker.length === 0 ? (
+        <p className="muted">この月のデータはありません。</p>
+      ) : (
+        <table className="worker-table">
+          <thead>
+            <tr>
+              <th>職人</th>
+              <th>人工</th>
+              <th>残業</th>
+            </tr>
+          </thead>
+          <tbody>
+            {byWorker.map((w) => (
+              <tr key={w.workerName}>
+                <td className="wt-name">{w.workerName}</td>
+                <td>{w.manDays}</td>
+                <td className="wt-ot">{w.otHours ? `${w.otHours}h` : "—"}</td>
+              </tr>
+            ))}
+            <tr className="wt-total">
+              <td>合計</td>
+              <td>{selfTotals.manDays}</td>
+              <td>{selfTotals.otHours}h</td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+
+      {/* 自社 取引先別（請求の見方） */}
       <div className="section-head">
         <h3 className="section-subtitle">
-          自社 <span className="badge badge--self">SELF</span>
+          取引先別（請求の見方）<span className="badge badge--self">SELF</span>
         </h3>
+      </div>
+      <div className="help-bubble">
+        <b>請求書を出す単位。</b>{" "}
+        取引先ごとの人工・残業・概算金額。月末はこの取引先ごとに請求書を作ります。
       </div>
       <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />
 
@@ -259,12 +300,15 @@ export default async function AdminPage({
     <main className="container container--admin">
       <div className="page-head">
         <h1 className="page-title">管理ダッシュボード</h1>
-        <span className="muted">
-          {admin.user.displayName} さん
-          <a href="/api/auth/logout" style={{ marginLeft: 10 }}>
-            ログアウト
-          </a>
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <HelpToggle />
+          <span className="muted">
+            {admin.user.displayName} さん
+            <a href="/api/auth/logout" style={{ marginLeft: 10 }}>
+              ログアウト
+            </a>
+          </span>
+        </div>
       </div>
 
       {/* 管理メニュー */}
@@ -278,6 +322,13 @@ export default async function AdminPage({
         <a href={`/admin/invoices?ym=${ym}`} className="chip">
           📄 請求書
         </a>
+      </div>
+
+      {/* ❓ヘルプ ON のとき出る、全体の使い方 */}
+      <div className="help-bubble">
+        <b>この画面の使い方</b>　毎日はこの3ステップだけ：
+        <br />① <b>要確認</b>を片付ける（承認 or 削除）→ ② <b>直近の出面</b>で今日の入力を確認 → ③ 右の <b>今月の集計</b>を見る。月末に <b>請求書</b>を作るだけ。
+        <br />右上の「使い方」をもう一度押すと、この説明は消えます。
       </div>
 
       {/* 月スイッチャー */}
@@ -307,6 +358,11 @@ export default async function AdminPage({
                   <span className="badge badge--review">{needsReview.length}件</span>
                 )}
               </h2>
+            </div>
+            <div className="help-bubble">
+              <b>いちばん大事な場所。</b>{" "}
+              入力された出面のうち「念のため確認したいもの」が並びます。内容を見て、合っていれば{" "}
+              <b>承認</b>、間違いなら <b>削除</b>。ここが空なら確認待ちゼロ＝OKです。
             </div>
             {needsReview.length === 0 ? (
               <div className="empty-ok">
@@ -378,8 +434,25 @@ export default async function AdminPage({
               <h2 className="section-title">直近の出面</h2>
               <span className="muted">{ym} の入力</span>
             </div>
+            <div className="help-bubble">
+              <b>今月の入力一覧。</b>{" "}
+              LINEグループと同じ並び（日付／取引先／現場／職人）で、最近の出面が上から並びます。ここを眺めれば「今日の分が入っているか」が一目で分かります。
+            </div>
             {recent.length === 0 ? (
-              <p className="muted">この月の出面はまだありません。</p>
+              <div className="empty-state">
+                <div className="es-ico" aria-hidden>
+                  🗒️
+                </div>
+                <div className="es-title">まだ {ym} の出面がありません</div>
+                <p className="es-sub">
+                  LIFF（日報入力）や LINE取り込みで登録された出面が、ここに表示されます。
+                </p>
+                <div className="es-actions">
+                  <a href="/admin/masters" className="btn btn--ghost btn--sm">
+                    まずマスタを確認
+                  </a>
+                </div>
+              </div>
             ) : (
               <div className="list">
                 {recent.map((r) => {

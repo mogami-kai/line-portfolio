@@ -227,21 +227,73 @@ async function loadDefaultJoyoRates(
 }
 
 // ============================================================
+// 職人別サマリ（給料に直結する見方 ＝ 旧 GAS の Summary / Monthly_Report）
+//   現場の担当者（後藤・齋…）が普段から「後藤◯◯ 齋◯◯…」で締めていた形。
+//   出面の entries を職人ごとに 人工・残業 で合算する（自社=SELF が対象）。
+// ============================================================
+export interface WorkerMonthSummary {
+  workerName: string;
+  manDays: number;
+  otHours: number;
+}
+
+export async function summarizeByWorker(
+  yearMonth: string,
+  opts?: { source?: OrgKind },
+): Promise<WorkerMonthSummary[]> {
+  const { from, to } = monthRange(yearMonth);
+  const reports = await prisma.report.findMany({
+    where: {
+      workDate: { gte: from, lt: to },
+      ...(opts?.source ? { source: opts.source } : {}),
+    },
+    select: {
+      entries: {
+        select: {
+          manDays: true,
+          otHours: true,
+          shift: true,
+          worker: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  const map = new Map<string, { manDays: number; otHours: number }>();
+  for (const r of reports) {
+    for (const e of r.entries) {
+      const name = e.worker?.name ?? "(不明)";
+      const md =
+        Number(e.manDays) > 0 ? Number(e.manDays) : shiftManDays(e.shift as Shift);
+      const cur = map.get(name) ?? { manDays: 0, otHours: 0 };
+      cur.manDays += md;
+      cur.otHours += Number(e.otHours) || 0;
+      map.set(name, cur);
+    }
+  }
+  return Array.from(map.entries())
+    .map(([workerName, v]) => ({ workerName, manDays: v.manDays, otHours: v.otHours }))
+    .sort((a, b) => b.manDays - a.manDays || a.workerName.localeCompare(b.workerName, "ja"));
+}
+
+// ============================================================
 // 月次サマリのキャッシュ（管理ダッシュボード）
-//   自社/パートナーの取引先別サマリ＋自社合計を 1 つにまとめ、unstable_cache で
-//   キャッシュ（tag="reports"・revalidate=60s）。出面の作成/承認/削除時に
-//   revalidateTag("reports") で無効化する。要確認/直近フィードは別途ライブ取得。
+//   自社/パートナーの取引先別サマリ＋職人別サマリ＋自社合計を 1 つにまとめ、
+//   unstable_cache でキャッシュ（tag="reports"・revalidate=60s）。出面の
+//   作成/承認/削除時に revalidateTag("reports") で無効化する。
 // ============================================================
 export interface MonthSummaryData {
   self: ClientMonthSummary[];
   partner: ClientMonthSummary[];
+  byWorker: WorkerMonthSummary[];
   selfTotals: { manDays: number; otHours: number; amount: number };
 }
 
 async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData> {
-  const [selfRows, partnerRows] = await Promise.all([
+  const [selfRows, partnerRows, byWorker] = await Promise.all([
     loadMonthRows(yearMonth, { source: "SELF" }),
     loadMonthRows(yearMonth, { source: "PARTNER" }),
+    summarizeByWorker(yearMonth, { source: "SELF" }),
   ]);
   const [self, partner] = await Promise.all([
     summarizeByClient(yearMonth, selfRows),
@@ -252,7 +304,7 @@ async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData>
     otHours: self.reduce((a, r) => a + r.otHours, 0),
     amount: self.reduce((a, r) => a + r.estimatedAmount, 0),
   };
-  return { self, partner, selfTotals };
+  return { self, partner, byWorker, selfTotals };
 }
 
 /** 月次サマリをキャッシュして返す（tag="reports" で無効化）。 */

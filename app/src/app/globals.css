@@ -1096,3 +1096,141 @@ details.card .field {
     transform: translateX(100%);
   }
 }
+
+/* ============================================================
+   ❓ヘルプ（コーチマーク）— 押すと各エリアの吹き出しが一斉表示
+   ・<html>.help-on を付けると .help-bubble が現れる（CSS リビール）
+   ・初心者が「ここは何？次に何をする？」を一目で掴めるように
+   ============================================================ */
+.help-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border: 1.5px solid var(--accent);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.help-toggle--on {
+  color: #fff;
+  background: var(--accent);
+}
+
+/* 吹き出し（既定は非表示。help-on で出現） */
+.help-bubble {
+  display: none;
+}
+html.help-on .help-bubble {
+  display: block;
+  position: relative;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: #fffbe8;
+  border: 1.5px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  color: #6b4e00;
+  font-size: 13.5px;
+  line-height: 1.6;
+  box-shadow: var(--shadow);
+}
+/* 吹き出しの三角（上向き） */
+html.help-on .help-bubble::before {
+  content: "";
+  position: absolute;
+  top: -8px;
+  left: 18px;
+  width: 14px;
+  height: 14px;
+  background: #fffbe8;
+  border-left: 1.5px solid var(--warn-line);
+  border-top: 1.5px solid var(--warn-line);
+  transform: rotate(45deg);
+}
+html.help-on .help-bubble b {
+  color: #8a5a00;
+}
+/* help-on のときだけ、見出しに「？」マークを添える */
+html.help-on .section-title::after,
+html.help-on .section-subtitle::after {
+  content: " ❓";
+  font-size: 12px;
+}
+
+/* ── 職人別 集計テーブル（給料の見方：後藤◯◯ 齋◯◯…） ── */
+.worker-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.worker-table th,
+.worker-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  font-size: 14px;
+}
+.worker-table th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+  background: #f7f9fb;
+}
+.worker-table th:first-child,
+.worker-table td:first-child {
+  text-align: left;
+  font-weight: 700;
+}
+.worker-table tr:last-child td {
+  border-bottom: none;
+}
+.worker-table .wt-name {
+  font-weight: 700;
+}
+.worker-table .wt-ot {
+  color: var(--ink-2);
+}
+.worker-table .wt-total td {
+  background: var(--accent-soft);
+  font-weight: 800;
+  color: var(--accent-dark);
+  border-top: 1.5px solid var(--accent);
+}
+
+/* ── 空の状態（次の行動が分かる案内） ── */
+.empty-state {
+  text-align: center;
+  padding: 28px 18px;
+  background: #fff;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius);
+}
+.empty-state .es-ico {
+  font-size: 36px;
+  line-height: 1;
+}
+.empty-state .es-title {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 10px 0 4px;
+}
+.empty-state .es-sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin: 0 0 14px;
+}
+.empty-state .es-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}

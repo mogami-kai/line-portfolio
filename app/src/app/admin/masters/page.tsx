@@ -18,6 +18,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { currentYearMonth } from "@/lib/aggregate.js";
+import { HelpToggle } from "../_help.js";
 import {
   createClientAction,
   updateClientAction,
@@ -75,25 +76,35 @@ export default async function MastersPage() {
     <main className="container">
       <div className="page-head">
         <h1 className="page-title">マスタ管理</h1>
-        <a href="/admin" className="badge">
-          ← 管理
-        </a>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <HelpToggle />
+          <a href="/admin" className="badge">
+            ← 管理
+          </a>
+        </div>
       </div>
 
-      {/* セクション内アンカー */}
-      <div className="chip-wrap" style={{ marginBottom: 8 }}>
-        <a href="#clients" className="chip">取引先</a>
-        <a href="#sites" className="chip">現場</a>
-        <a href="#rates" className="chip">単価</a>
-        <a href="#workers" className="chip">職人</a>
-        <a href="#orgs" className="chip">組織</a>
-        <a href="#setting" className="chip">自社情報</a>
-        <a href="#lumps" className="chip">請負金額</a>
+      <p className="page-sub">
+        出面入力の「選択肢」と、請求の「単価」をここで登録します。
+      </p>
+
+      {/* ❓ヘルプ ON のとき：最初にやること（順番） */}
+      <div className="help-bubble">
+        <b>はじめての設定は、この順番でOK。</b>
+        <br />① <b>取引先</b>（仕事をもらう相手・請求先）→ ② <b>現場</b>（その取引先の現場名）→ ③{" "}
+        <b>職人</b>（自社のメンバー）→ ④ <b>単価</b>（取引先ごとの1人工の金額）。
+        <br />⑤ <b>自社情報</b>（請求書の発行元）は請求書を出す前に一度だけ。請負仕事があるときだけ ⑥{" "}
+        <b>請負金額</b>。
+        <br />※ 現場は、職人がLIFFで入力したものが自動で増えます。ここでは消したい時に消せます。
       </div>
 
       {/* ───────── 取引先 ───────── */}
       <div className="section-head" id="clients">
         <h2 className="section-title">取引先（Client）</h2>
+      </div>
+      <div className="help-bubble">
+        <b>仕事をもらう相手＝請求先。</b>{" "}
+        例：辻濱工業、恵興業 など。住所を入れておくと請求書に出ます。職人がLIFFで選ぶ一覧にもなります。
       </div>
 
       <details className="card">
@@ -171,6 +182,10 @@ export default async function MastersPage() {
       <div className="section-head" id="sites">
         <h2 className="section-title">現場（Site）</h2>
       </div>
+      <div className="help-bubble">
+        <b>取引先ごとの現場名。</b>{" "}
+        例：みなとみらい、橋本、町田 など。職人がLIFFで「＋新規現場」を足すと自動でここに増えます。重複や打ち間違いを消したい時はここで削除。
+      </div>
       <details className="card">
         <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 現場を追加</summary>
         <form action={createSiteAction} style={{ marginTop: 12 }}>
@@ -209,6 +224,11 @@ export default async function MastersPage() {
       {/* ───────── 単価 ───────── */}
       <div className="section-head" id="rates">
         <h2 className="section-title">単価（RateCard）</h2>
+      </div>
+      <div className="help-bubble">
+        <b>1人工あたりの金額。</b>{" "}
+        取引先ごとに「常用1人工 = ◯◯円」を登録します。現場は空でOK（取引先の既定単価）。請求書の金額と概算は、この単価 ×
+        人工で計算されます。残業は自動で「単価 ÷ 8 × 1.25 × 時間」。
       </div>
       <details className="card">
         <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 単価を追加</summary>
@@ -274,6 +294,10 @@ export default async function MastersPage() {
       <div className="section-head" id="workers">
         <h2 className="section-title">職人（Worker）</h2>
       </div>
+      <div className="help-bubble">
+        <b>出面に出すメンバー。</b>{" "}
+        自社の職人（後藤・齋・金子…）を登録。LIFFの入力でタップして選ぶ名前になります。所属組織は自社（SELF）を選びます。
+      </div>
       <details className="card">
         <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 職人を追加</summary>
         <form action={createWorkerAction} style={{ marginTop: 12 }}>
@@ -333,6 +357,11 @@ export default async function MastersPage() {
       {/* ───────── 組織 ───────── */}
       <div className="section-head" id="orgs">
         <h2 className="section-title">組織（Organization）</h2>
+      </div>
+      <div className="help-bubble">
+        <b>自社か、協力会社か。</b>{" "}
+        <b>SELF＝自分の会社</b>（出面が出面グループに自動投稿される）。
+        <b>PARTNER＝協力会社</b>（管理画面の集計だけに入り、グループには出ません）。普段は自社が1つあればOK。
       </div>
       <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
         ※ パートナー追加＝ここに <strong>PARTNER</strong> を足すだけ。ユーザー承認でそのパートナーに割り当てます。
