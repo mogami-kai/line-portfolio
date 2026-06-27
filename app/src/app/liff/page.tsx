@@ -835,7 +835,7 @@ export default function LiffPage() {
                 onChange={(e) => setNewSiteName(e.target.value)}
               />
               <p className="hint">
-                ※ 新規現場は管理者の「要確認」に載ります。
+                ※ 追加した現場は次回からこの一覧に残ります。
               </p>
             </>
           )}

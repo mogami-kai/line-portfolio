@@ -156,6 +156,22 @@ export async function POST(req: Request) {
     }
   }
 
+  // 新規現場名が来たら（既存 siteId 無し）、その取引先配下に現場を find-or-create して恒久化する。
+  // 「ユーザーが現場を自由に追加でき、一度追加したら以後ずっと選択肢に残る」要件。
+  // 同名は再利用して重複を防ぐ。管理者は /admin/masters から追加/削除できる。
+  if (!site && body.newSiteName) {
+    const name = body.newSiteName.trim();
+    site =
+      (await prisma.site.findFirst({
+        where: { clientId: body.clientId, name },
+        select: { id: true, name: true },
+      })) ??
+      (await prisma.site.create({
+        data: { clientId: body.clientId, name },
+        select: { id: true, name: true },
+      }));
+  }
+
   const workerIds = body.entries.map((e) => e.workerId);
   const workers = await prisma.worker.findMany({
     where: { id: { in: workerIds }, orgId: org.id },
@@ -201,10 +217,8 @@ export async function POST(req: Request) {
   }
 
   // confirm → 管理者承認キュー（NEEDS_REVIEW）。ok → CONFIRMED。
-  // パートナーの新規現場（newSiteName 指定・既存 site なし）も要確認に倒す。
-  const isNewSite = !site && Boolean(body.newSiteName);
-  const status =
-    report.status === "confirm" || isNewSite ? "NEEDS_REVIEW" : "CONFIRMED";
+  // 新規現場は上で恒久化済み（自由追加方針）なので、新規現場ゲートは設けない。
+  const status = report.status === "confirm" ? "NEEDS_REVIEW" : "CONFIRMED";
 
   // ── 4) 保存（Report + entries + expenses）──
   // source は org.kind から自動判定（本人は選ばない）。
