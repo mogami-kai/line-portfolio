@@ -108,38 +108,42 @@ export async function buildClientInvoiceLines(
   }
 
   // 現場別単価を事前解決（siteId 優先 → 取引先既定）。
+  //   ★N+1 解消: 以前は現場ごとに findFirst を直列 await（取引先×現場ぶんの DB 往復）。
+  //   当該取引先の RateCard（現場別＋既定）を 1 クエリで取り、メモリで解決する。
   const onDate = to; // 月末時点の単価で確定。
+  const siteIds = Array.from(siteNameToId.values()).filter(
+    (v): v is string => Boolean(v),
+  );
+  const cards = await prisma.rateCard.findMany({
+    where: {
+      clientId,
+      contractType: "JOYO",
+      effectiveFrom: { lte: onDate },
+      OR: [{ siteId: null }, { siteId: { in: siteIds } }],
+    },
+    orderBy: { effectiveFrom: "desc" },
+    select: { siteId: true, unitPrice: true },
+  });
+  // effectiveFrom 降順なので、siteId ごと最初の 1 件が最新有効単価。
+  let defaultUnit: number | null = null;
+  const bySite = new Map<string, number>();
+  for (const c of cards) {
+    if (c.siteId === null) {
+      if (defaultUnit === null) defaultUnit = c.unitPrice;
+    } else if (!bySite.has(c.siteId)) {
+      bySite.set(c.siteId, c.unitPrice);
+    }
+  }
   const rateCache = new Map<string, number>();
   for (const siteName of Object.keys(clientAgg.sites)) {
     const siteId = siteNameToId.get(siteName) ?? null;
-    const unit = await resolveRate(clientId, siteId, "JOYO", onDate);
-    rateCache.set(siteName, unit ?? 0);
+    const siteUnit = siteId ? bySite.get(siteId) : undefined;
+    rateCache.set(siteName, siteUnit ?? defaultUnit ?? 0);
   }
   const rateFor = (siteName: string): number | null =>
     rateCache.get(siteName) ?? 0;
 
   return buildInvoiceLines(clientAgg, { rateFor, taxRate });
-}
-
-/** RateCard 解決（現場 → 取引先既定）。aggregate.rateLookup と同等。 */
-async function resolveRate(
-  clientId: string,
-  siteId: string | null,
-  contractType: "JOYO" | "UKEOI",
-  on: Date,
-): Promise<number | null> {
-  if (siteId) {
-    const siteRate = await prisma.rateCard.findFirst({
-      where: { clientId, siteId, contractType, effectiveFrom: { lte: on } },
-      orderBy: { effectiveFrom: "desc" },
-    });
-    if (siteRate) return siteRate.unitPrice;
-  }
-  const def = await prisma.rateCard.findFirst({
-    where: { clientId, siteId: null, contractType, effectiveFrom: { lte: on } },
-    orderBy: { effectiveFrom: "desc" },
-  });
-  return def ? def.unitPrice : null;
 }
 
 /** "YYYY-MM" の連番から請求書番号 "YYYY-NNN" を採番（その月の通番）。 */

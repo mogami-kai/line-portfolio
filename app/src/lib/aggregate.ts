@@ -6,6 +6,7 @@
 //   ロジックは calc / invoice に一元化し、ここでは DB → 集計入力の橋渡しのみ行う。
 // ============================================================
 
+import { unstable_cache } from "next/cache";
 import { prisma } from "./db.js";
 import { shiftManDays, type Shift } from "./calc.js";
 import {
@@ -159,28 +160,30 @@ export async function summarizeByClient(
   }
 
   const agg = aggregateForInvoice(toReportLike(rows));
-  const out: ClientMonthSummary[] = [];
 
+  // ★N+1 解消: 取引先既定単価（JOYO・siteId=null）を 1 クエリでまとめ取りし、
+  // メモリで取引先→単価に解決する。以前は現場ごとに rateLookup を直列 await して
+  // いた（取引先×現場ぶんの DB 往復＝East/Tokyo 間で致命的）。概算は取引先既定単価
+  // のみ使うため、現場別の引き当ては不要。
+  const clientIds = Array.from(new Set(nameToClientId.values()));
+  const rateByClient = await loadDefaultJoyoRates(clientIds, onDate);
+
+  const out: ClientMonthSummary[] = [];
   for (const clientName of Object.keys(agg).sort()) {
     const clientAgg: ClientAgg = agg[clientName];
     const clientId = nameToClientId.get(clientName)!;
+    const unit = rateByClient.get(clientId) ?? 0;
 
-    // 現場別単価を事前に解決（async）してキャッシュに積む。
-    // 現場名から siteId は直接引けないため、取引先既定単価（siteId=null）で概算する。
-    const rateCache = new Map<string, number>();
     let manDays = 0;
     let otHours = 0;
     for (const siteName of Object.keys(clientAgg.sites)) {
       const s = clientAgg.sites[siteName];
       manDays += s.manDays;
       otHours += s.otHours;
-      const unit = await rateLookup(clientId, null, "JOYO", onDate);
-      rateCache.set(siteName, unit ?? 0);
     }
 
-    // buildInvoiceLines は事前解決済みキャッシュを参照する（同期）。
-    const rateFor = (siteName: string): number | null =>
-      rateCache.get(siteName) ?? 0;
+    // 取引先既定単価を全現場に適用（同期）。
+    const rateFor = (): number | null => unit;
 
     const lines: InvoiceLine[] = buildInvoiceLines(clientAgg, {
       rateFor,
@@ -196,4 +199,67 @@ export async function summarizeByClient(
     });
   }
   return out;
+}
+
+/**
+ * 取引先既定単価（JOYO・siteId=null・effectiveFrom<=on）を 1 クエリでまとめ取りし、
+ * clientId → 最新有効 unitPrice の Map にして返す（N+1 回避）。
+ */
+async function loadDefaultJoyoRates(
+  clientIds: string[],
+  on: Date,
+): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  if (clientIds.length === 0) return map;
+  const cards = await prisma.rateCard.findMany({
+    where: {
+      clientId: { in: clientIds },
+      siteId: null,
+      contractType: "JOYO",
+      effectiveFrom: { lte: on },
+    },
+    orderBy: { effectiveFrom: "desc" },
+    select: { clientId: true, unitPrice: true },
+  });
+  // effectiveFrom 降順なので、各 clientId 最初の 1 件が最新有効単価。
+  for (const c of cards) if (!map.has(c.clientId)) map.set(c.clientId, c.unitPrice);
+  return map;
+}
+
+// ============================================================
+// 月次サマリのキャッシュ（管理ダッシュボード）
+//   自社/パートナーの取引先別サマリ＋自社合計を 1 つにまとめ、unstable_cache で
+//   キャッシュ（tag="reports"・revalidate=60s）。出面の作成/承認/削除時に
+//   revalidateTag("reports") で無効化する。要確認/直近フィードは別途ライブ取得。
+// ============================================================
+export interface MonthSummaryData {
+  self: ClientMonthSummary[];
+  partner: ClientMonthSummary[];
+  selfTotals: { manDays: number; otHours: number; amount: number };
+}
+
+async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData> {
+  const [selfRows, partnerRows] = await Promise.all([
+    loadMonthRows(yearMonth, { source: "SELF" }),
+    loadMonthRows(yearMonth, { source: "PARTNER" }),
+  ]);
+  const [self, partner] = await Promise.all([
+    summarizeByClient(yearMonth, selfRows),
+    summarizeByClient(yearMonth, partnerRows),
+  ]);
+  const selfTotals = {
+    manDays: self.reduce((a, r) => a + r.manDays, 0),
+    otHours: self.reduce((a, r) => a + r.otHours, 0),
+    amount: self.reduce((a, r) => a + r.estimatedAmount, 0),
+  };
+  return { self, partner, selfTotals };
+}
+
+/** 月次サマリをキャッシュして返す（tag="reports" で無効化）。 */
+export function getMonthSummary(yearMonth: string): Promise<MonthSummaryData> {
+  return unstable_cache(
+    () => computeMonthSummary(yearMonth),
+    ["month-summary", yearMonth],
+    { revalidate: 60, tags: ["reports"] },
+  )();
 }
