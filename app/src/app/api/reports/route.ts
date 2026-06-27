@@ -248,6 +248,7 @@ export async function POST(req: Request) {
         client: { select: { name: true } },
         site: { select: { name: true } },
         entries: { include: { worker: { select: { name: true } } } },
+        expenses: { select: { kind: true, amount: true } },
       },
     });
 
@@ -294,6 +295,10 @@ export async function POST(req: Request) {
           manDays: e.manDays,
           otHours: e.otHours,
           worker: e.worker,
+        })),
+        expenses: created.expenses.map((x) => ({
+          kind: x.kind,
+          amount: x.amount,
         })),
       };
       await pushToGroup(formatReportLog(logInput));
