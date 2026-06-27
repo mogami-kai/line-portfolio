@@ -16,6 +16,7 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db.js";
 import {
@@ -293,6 +294,9 @@ export async function POST(req: Request) {
     }
     throw e;
   }
+
+  // 新規出面が増えたので、管理ダッシュボードの月次集計キャッシュを無効化。
+  revalidateTag("reports");
 
   // ── 5) ★2系統ルーティング（org.kind で1分岐）★ ──
   let postedToGroup = false;
