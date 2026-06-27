@@ -18,6 +18,7 @@
 //   行動（承認/削除）は _actions.ts の Server Action（多層 ADMIN ガード）。
 // ============================================================
 
+import { Suspense } from "react";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import {
@@ -26,9 +27,8 @@ import {
 } from "./_actions.js";
 import {
   currentYearMonth,
-  loadMonthRows,
+  getMonthSummary,
   monthRange,
-  summarizeByClient,
   type ClientMonthSummary,
 } from "@/lib/aggregate.js";
 
@@ -83,6 +83,75 @@ function ClientAccordion({
         </details>
       ))}
     </>
+  );
+}
+
+/**
+ * 今月の集計（自社/パートナー＋自社合計）。
+ * 重い集計を getMonthSummary（unstable_cache）で取得し、<Suspense> 配下で
+ * ストリーミングする（要確認/直近フィードの描画をブロックしない）。
+ */
+async function MonthSummary({ ym }: { ym: string }) {
+  const { self, partner, selfTotals } = await getMonthSummary(ym);
+  return (
+    <>
+      {/* 自社 合計カード */}
+      <div className="stat-grid">
+        <div className="stat stat--accent stat--wide">
+          <div className="stat-k">自社 概算金額（税抜）</div>
+          <div className="stat-v">{yen(selfTotals.amount)}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-k">人工合計</div>
+          <div className="stat-v">{selfTotals.manDays}</div>
+        </div>
+        <div className="stat">
+          <div className="stat-k">残業合計</div>
+          <div className="stat-v">
+            {selfTotals.otHours}
+            <small>h</small>
+          </div>
+        </div>
+      </div>
+
+      {/* 自社 取引先別 */}
+      <div className="section-head">
+        <h3 className="section-subtitle">
+          自社 <span className="badge badge--self">SELF</span>
+        </h3>
+      </div>
+      <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />
+
+      {/* パートナー 取引先別 */}
+      <div className="section-head">
+        <h3 className="section-subtitle">
+          パートナー <span className="badge badge--partner">PARTNER</span>
+        </h3>
+      </div>
+      <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
+        ※ 管理画面のみで集約（出面グループには投稿されません）。
+      </p>
+      <ClientAccordion
+        rows={partner}
+        emptyLabel="この月のパートナーデータはありません。"
+      />
+    </>
+  );
+}
+
+/** 集計ストリーミング中のスケルトン（脇に即時表示）。 */
+function SummarySkeleton() {
+  return (
+    <div aria-hidden>
+      <div className="stat-grid">
+        <div className="stat stat--wide skeleton-box" />
+        <div className="stat skeleton-box" />
+        <div className="stat skeleton-box" />
+      </div>
+      <div className="skeleton-line" />
+      <div className="skeleton-line" />
+      <div className="skeleton-line" />
+    </div>
   );
 }
 
@@ -153,10 +222,10 @@ export default async function AdminPage({
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
   const { from, to } = monthRange(ym);
 
-  // 自社 / パートナーを分けて集計 ＋ 要確認 ＋ 直近の出面（当月フィード）。
-  const [selfRows, partnerRows, needsReview, recent] = await Promise.all([
-    loadMonthRows(ym, { source: "SELF" }),
-    loadMonthRows(ym, { source: "PARTNER" }),
+  // 「日々のチェック」の主役データだけを先に取得（要確認＋当月フィード）。
+  // 重い月次集計は <MonthSummary>（Suspense + キャッシュ）に切り出してストリーミング
+  // するため、ここでは待たない（要確認カードが即座に描画される）。
+  const [needsReview, recent] = await Promise.all([
     prisma.report.findMany({
       where: { status: "NEEDS_REVIEW" },
       orderBy: { createdAt: "desc" },
@@ -180,16 +249,6 @@ export default async function AdminPage({
       },
     }),
   ]);
-
-  const [selfSummary, partnerSummary] = await Promise.all([
-    summarizeByClient(ym, selfRows),
-    summarizeByClient(ym, partnerRows),
-  ]);
-
-  // 自社の合計（大カード用）。
-  const selfTotalMd = selfSummary.reduce((a, r) => a + r.manDays, 0);
-  const selfTotalOt = selfSummary.reduce((a, r) => a + r.otHours, 0);
-  const selfTotalAmt = selfSummary.reduce((a, r) => a + r.estimatedAmount, 0);
 
   // 月ナビ。
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
@@ -374,32 +433,13 @@ export default async function AdminPage({
 
         {/* ───────── 右：集計・請求（常時表示の脇）───────── */}
         <aside className="admin-aside">
-          {/* ③ 今月の集計 */}
+          {/* ③④ 今月の集計（Suspense でストリーミング＋キャッシュ） */}
           <section className="block">
             <div className="section-head">
               <h2 className="section-title">今月の集計</h2>
             </div>
 
-            {/* 自社 合計カード */}
-            <div className="stat-grid">
-              <div className="stat stat--accent stat--wide">
-                <div className="stat-k">自社 概算金額（税抜）</div>
-                <div className="stat-v">{yen(selfTotalAmt)}</div>
-              </div>
-              <div className="stat">
-                <div className="stat-k">人工合計</div>
-                <div className="stat-v">{selfTotalMd}</div>
-              </div>
-              <div className="stat">
-                <div className="stat-k">残業合計</div>
-                <div className="stat-v">
-                  {selfTotalOt}
-                  <small>h</small>
-                </div>
-              </div>
-            </div>
-
-            {/* ④ 月末の請求へ */}
+            {/* 月末の請求へ（集計を待たず即表示） */}
             <a href={`/admin/invoices?ym=${ym}`} className="invoice-cta">
               <span className="invoice-cta-ico" aria-hidden>
                 📄
@@ -413,30 +453,9 @@ export default async function AdminPage({
               </span>
             </a>
 
-            {/* 自社 取引先別 */}
-            <div className="section-head">
-              <h3 className="section-subtitle">
-                自社 <span className="badge badge--self">SELF</span>
-              </h3>
-            </div>
-            <ClientAccordion
-              rows={selfSummary}
-              emptyLabel="この月のデータはありません。"
-            />
-
-            {/* パートナー 取引先別 */}
-            <div className="section-head">
-              <h3 className="section-subtitle">
-                パートナー <span className="badge badge--partner">PARTNER</span>
-              </h3>
-            </div>
-            <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
-              ※ 管理画面のみで集約（出面グループには投稿されません）。
-            </p>
-            <ClientAccordion
-              rows={partnerSummary}
-              emptyLabel="この月のパートナーデータはありません。"
-            />
+            <Suspense fallback={<SummarySkeleton />}>
+              <MonthSummary ym={ym} />
+            </Suspense>
           </section>
         </aside>
       </div>

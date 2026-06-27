@@ -11,7 +11,7 @@
 
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
@@ -364,6 +364,7 @@ export async function confirmReportAction(fd: FormData): Promise<void> {
     where: { id },
     data: { status: "CONFIRMED" },
   });
+  revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
 }
 
@@ -377,6 +378,7 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
     prisma.expense.deleteMany({ where: { reportId: id } }),
     prisma.report.delete({ where: { id } }),
   ]);
+  revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
 }
 
