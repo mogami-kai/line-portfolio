@@ -1048,3 +1048,51 @@ details.card .field {
     min-width: 88px;
   }
 }
+
+/* ── スケルトン（loading.tsx / Suspense フォールバック） ── */
+.skeleton-box,
+.skeleton-line {
+  position: relative;
+  overflow: hidden;
+  background: #eef1f4;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+.skeleton-box {
+  min-height: 64px;
+}
+.skeleton-line {
+  height: 14px;
+  border-radius: 8px;
+  margin: 10px 0;
+}
+.skeleton-line--head {
+  width: 42%;
+  height: 18px;
+  margin: 4px 0 12px;
+}
+.skeleton-box::after,
+.skeleton-line::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.65),
+    transparent
+  );
+  animation: shimmer 1.2s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-box::after,
+  .skeleton-line::after {
+    animation: none;
+  }
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
