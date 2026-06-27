@@ -1,7 +1,8 @@
 // ============================================================
 // POST /api/line/webhook — LINE Messaging API Webhook
 //
-//   - x-line-signature を HMAC-SHA256(LINE_CHANNEL_SECRET, rawBody) base64 で検証。
+//   - x-line-signature を HMAC-SHA256(Messaging APIチャネルのsecret, rawBody) base64 で検証。
+//     secret は LINE_MESSAGING_CHANNEL_SECRET（無ければ LINE_CHANNEL_SECRET にフォールバック）。
 //   - イベントを軽く処理して即 200 を返す（LINE は素早い 200 応答を要求）。
 //   - 重要: source.groupId をログ出力 → 管理者が LINE_GROUP_ID を採取できる。
 //   - join / follow は受領のみ（応答返信は将来拡張）。
@@ -31,9 +32,14 @@ interface LineEvent {
 
 /** 署名検証: base64(HMAC-SHA256(channelSecret, rawBody)) === x-line-signature。 */
 function verifySignature(rawBody: string, signature: string | null): boolean {
-  const secret = process.env.LINE_CHANNEL_SECRET;
+  // Messaging API チャネル（出面bot）の secret。LIFF/管理ログインの LINE_CHANNEL_SECRET
+  // とは別チャネルなので専用変数を優先。後方互換で LINE_CHANNEL_SECRET にフォールバック。
+  const secret =
+    process.env.LINE_MESSAGING_CHANNEL_SECRET || process.env.LINE_CHANNEL_SECRET;
   if (!secret) {
-    console.warn("[webhook] LINE_CHANNEL_SECRET not set; rejecting");
+    console.warn(
+      "[webhook] LINE_MESSAGING_CHANNEL_SECRET / LINE_CHANNEL_SECRET not set; rejecting",
+    );
     return false;
   }
   if (!signature) return false;
