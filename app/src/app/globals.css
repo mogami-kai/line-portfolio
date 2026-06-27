@@ -510,9 +510,16 @@ a {
 .list-title {
   font-size: 15px;
   font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.list-date {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  font-weight: 700;
 }
 .list-meta {
   font-size: 12px;
@@ -843,4 +850,201 @@ details.card .field {
 .select optgroup {
   font-weight: 700;
   color: var(--ink-2);
+}
+
+/* ============================================================
+   管理ダッシュボード — 行動カード & PC レイアウト
+   ・モバイル: 縦 1 列（①要確認 →②直近 →③集計 →④請求）。
+   ・PC（≥1024px）: 左に「日々のチェック」(①②)、右に「集計/請求」を 2 カラム。
+   ・最頻の操作（日々のチェック）を主役に、集計は脇で常時見えるように。
+   ============================================================ */
+
+/* 管理画面はワイド運用可（PC で 2 カラムを活かす）。モバイルは container と同じ。 */
+.container--admin {
+  max-width: var(--maxw);
+}
+
+.block {
+  margin-bottom: 22px;
+}
+.block:last-child {
+  margin-bottom: 0;
+}
+
+/* 月スイッチャーの「今月」ピル */
+.ym-now {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* セクション小見出し（集計の SELF/PARTNER 等） */
+.section-subtitle {
+  font-size: 14px;
+  font-weight: 800;
+  margin: 0;
+}
+
+/* 要確認ゼロ件（安心できる空状態） */
+.empty-ok {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--ok-bg);
+  border: 1px solid var(--ok-line);
+  color: var(--ok-ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* 要確認カード（その場で承認/削除できる行動カード） */
+.review-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.review-card {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  border: 1.5px solid var(--warn-line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+.review-body {
+  min-width: 0;
+}
+.review-title {
+  font-size: 15px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.review-date {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  font-weight: 700;
+}
+.review-meta {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 4px;
+}
+.review-names {
+  font-size: 14px;
+  margin-top: 4px;
+}
+.review-figs {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.review-figs b {
+  font-size: 15px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.review-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.review-actions form {
+  margin: 0;
+}
+.review-actions .btn {
+  width: 100%;
+  min-width: 76px;
+}
+.review-actions .btn--danger-text {
+  width: 100%;
+  border: 1.5px solid var(--danger-line);
+  background: var(--danger-bg);
+}
+
+/* 請求書 CTA（脇から月末発行へ 1 タップ） */
+.invoice-cta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  margin: 14px 0 18px;
+}
+.invoice-cta:active {
+  transform: scale(0.99);
+}
+.invoice-cta-ico {
+  font-size: 24px;
+  line-height: 1;
+}
+.invoice-cta-title {
+  font-size: 15px;
+  font-weight: 800;
+  display: block;
+}
+.invoice-cta-sub {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.invoice-cta-arrow {
+  margin-left: auto;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--accent-dark);
+}
+
+/* ── PC レイアウト（≥1024px）: 2 カラム ── */
+@media (min-width: 1024px) {
+  .container--admin {
+    max-width: 1160px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .admin-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(340px, 1fr);
+    gap: 28px;
+    align-items: start;
+  }
+  /* 集計は脇で常時見える（スクロール追従）。 */
+  .admin-aside {
+    position: sticky;
+    top: 16px;
+  }
+  /* PC では合計カードを 3 列に伸ばし、一目で読める。 */
+  .admin-aside .stat-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* 中間幅（タブレット）でも窮屈にならないよう、見出しの折返しを許可。 */
+@media (min-width: 1024px) {
+  .review-card {
+    padding: 16px;
+  }
+  .review-actions .btn {
+    min-width: 88px;
+  }
 }

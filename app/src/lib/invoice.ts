@@ -379,6 +379,27 @@ export function toXlsx(data: {
   totalRow.getCell(5).font = { bold: true };
   totalRow.getCell(6).font = { bold: true };
   totalRow.getCell(6).numFmt = "#,##0";
+
+  // ── 税率内訳（適格請求書の記載要件 / スプレッドシート体裁に準拠）──
+  //   区分 | 対象金額 | 消費税額。常用＝10%対象、立替＝対象外（税0）。
+  addRow([]);
+  const brkHead = addRow(["", "", "", "税率内訳", "対象金額", "消費税額"]);
+  brkHead.getCell(4).font = { bold: true };
+  brkHead.getCell(5).font = { bold: true };
+  brkHead.getCell(6).font = { bold: true };
+  brkHead.eachCell((cell) => {
+    cell.border = { bottom: { style: "thin" } };
+  });
+  const brk10 = addRow(["", "", "", `${pct}% 対象`, summary.subtotal, summary.tax]);
+  brk10.getCell(5).numFmt = "#,##0";
+  brk10.getCell(6).numFmt = "#,##0";
+  if (summary.exempt > 0) {
+    const brkEx = addRow(["", "", "", "対象外（立替）", summary.exempt, 0]);
+    brkEx.getCell(5).numFmt = "#,##0";
+    brkEx.getCell(6).numFmt = "#,##0";
+  }
+
+  addRow([]);
   addRow(["", "", "", "", "お支払期限", data.issueDate]);
 
   // ── フッタ ──

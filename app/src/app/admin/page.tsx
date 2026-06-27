@@ -1,19 +1,29 @@
 // ============================================================
-// /admin — 管理ダッシュボード（Server Component / モバイルファースト）
+// /admin — 管理ダッシュボード（Server Component）
 //
-//   ガード: getAdminContext()（セッションから承認済み ADMIN を解決）。未ログインはログイン画面。
-//   表示:
-//     - 月スイッチャー（◀ yyyy-MM ▶, ?ym=）
-//     - 当月の合計カード（自社の人工/残業/概算金額）
-//     - 取引先別の折りたたみ行（人工/残業/金額）— 自社 / パートナーを分離
-//        ※ パートナーは管理画面のみ（グループ非投稿）。冒頭に注記。
-//     - NEEDS_REVIEW（要確認）一覧
-//   集計は @/lib/aggregate（内部で @/lib/calc・@/lib/invoice を再利用）。
-//   ※ サーバ側のデータ取得ロジック・ガードは従来どおり。表示のみ刷新。
+//   設計思想（学習コスト≒0／「次の行動」最優先）:
+//     利用者の優先順位 ① 日々のチェック ② 集計の確認 ③ 月末の請求。
+//     これに合わせ、画面の主役を「日々のチェック」に置く。
+//       1) 要確認（NEEDS_REVIEW）… その場で「承認」「削除」できる行動カード（最上段）
+//       2) 直近の出面 … 当月の入力フィード（LINE グループと同じ並びで一目確認）
+//       3) 今月の集計 … 自社/パートナーの人工・残業・概算（脇に常時表示）
+//       4) 月末の請求 … 集計どおりの請求書へ 1 タップ
+//
+//   レイアウト:
+//     - モバイル: 縦 1 カラム（①→②→③→④）。
+//     - PC（≥1024px）: 左に「日々のチェック」(①②)、右に「集計/請求」(③④) の 2 カラム。
+//       → 最頻の操作を主役に、集計は常に脇で見える（.admin-grid / globals.css）。
+//
+//   ガード: getAdminContext()。集計は @/lib/aggregate（calc・invoice を再利用）。
+//   行動（承認/削除）は _actions.ts の Server Action（多層 ADMIN ガード）。
 // ============================================================
 
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
+import {
+  confirmReportAction,
+  deleteReportAction,
+} from "./_actions.js";
 import {
   currentYearMonth,
   loadMonthRows,
@@ -27,6 +37,10 @@ export const dynamic = "force-dynamic";
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
 const ymStr = (d: Date) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"] as const;
+/** 出面日（UTC 0時保存）を "M/D(曜)" で。前日/翌日にズレないよう UTC で読む。 */
+const mdW = (d: Date) =>
+  `${d.getUTCMonth() + 1}/${d.getUTCDate()}(${WEEKDAY_JP[d.getUTCDay()]})`;
 
 function ClientAccordion({
   rows,
@@ -137,9 +151,10 @@ export default async function AdminPage({
   }
 
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
+  const { from, to } = monthRange(ym);
 
-  // 自社 / パートナー を分けて集計。
-  const [selfRows, partnerRows, needsReview] = await Promise.all([
+  // 自社 / パートナーを分けて集計 ＋ 要確認 ＋ 直近の出面（当月フィード）。
+  const [selfRows, partnerRows, needsReview, recent] = await Promise.all([
     loadMonthRows(ym, { source: "SELF" }),
     loadMonthRows(ym, { source: "PARTNER" }),
     prisma.report.findMany({
@@ -150,7 +165,18 @@ export default async function AdminPage({
         client: { select: { name: true } },
         site: { select: { name: true } },
         org: { select: { name: true, kind: true } },
-        entries: { select: { manDays: true, otHours: true } },
+        entries: { include: { worker: { select: { name: true } } } },
+      },
+    }),
+    prisma.report.findMany({
+      where: { workDate: { gte: from, lt: to } },
+      orderBy: [{ workDate: "desc" }, { createdAt: "desc" }],
+      take: 30,
+      include: {
+        client: { select: { name: true } },
+        site: { select: { name: true } },
+        org: { select: { kind: true } },
+        entries: { include: { worker: { select: { name: true } } } },
       },
     }),
   ]);
@@ -166,156 +192,254 @@ export default async function AdminPage({
   const selfTotalAmt = selfSummary.reduce((a, r) => a + r.estimatedAmount, 0);
 
   // 月ナビ。
-  const { from } = monthRange(ym);
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
   const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
+  const isCurrentMonth = ym === currentYearMonth();
 
   return (
-    <main className="container">
+    <main className="container container--admin">
       <div className="page-head">
         <h1 className="page-title">管理ダッシュボード</h1>
-        <a href={`/admin/invoices?ym=${ym}`} className="badge badge--self">
-          請求書 →
-        </a>
+        <span className="muted">
+          {admin.user.displayName} さん
+          <a href="/api/auth/logout" style={{ marginLeft: 10 }}>
+            ログアウト
+          </a>
+        </span>
       </div>
-      <p className="page-sub">
-        ようこそ {admin.user.displayName} さん
-        <a href="/api/auth/logout" className="muted" style={{ marginLeft: 10 }}>
-          ログアウト
-        </a>
-      </p>
 
       {/* 管理メニュー */}
-      <div className="chip-wrap" style={{ marginBottom: 6 }}>
+      <div className="chip-wrap" style={{ marginBottom: 12 }}>
         <a href="/admin/masters" className="chip">
-          マスタ管理
+          🗂 マスタ管理
         </a>
         <a href="/admin/users" className="chip">
-          ユーザー承認
+          👤 ユーザー承認
         </a>
         <a href={`/admin/invoices?ym=${ym}`} className="chip">
-          請求書
+          📄 請求書
         </a>
       </div>
 
       {/* 月スイッチャー */}
       <div className="month-switch">
-        <a
-          className="month-nav"
-          href={`/admin?ym=${ymStr(prev)}`}
-          aria-label="前月"
-        >
+        <a className="month-nav" href={`/admin?ym=${ymStr(prev)}`} aria-label="前月">
           ◀
         </a>
-        <span className="ym">{ym}</span>
-        <a
-          className="month-nav"
-          href={`/admin?ym=${ymStr(next)}`}
-          aria-label="翌月"
-        >
+        <span className="ym">
+          {ym}
+          {isCurrentMonth && <span className="ym-now">今月</span>}
+        </span>
+        <a className="month-nav" href={`/admin?ym=${ymStr(next)}`} aria-label="翌月">
           ▶
         </a>
       </div>
 
-      {/* 自社 合計カード */}
-      <div className="stat-grid">
-        <div className="stat stat--accent stat--wide">
-          <div className="stat-k">自社 概算金額（税抜）</div>
-          <div className="stat-v">{yen(selfTotalAmt)}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">人工合計</div>
-          <div className="stat-v">{selfTotalMd}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">残業合計</div>
-          <div className="stat-v">
-            {selfTotalOt}
-            <small>h</small>
-          </div>
-        </div>
-      </div>
+      {/* PC は 2 カラム（左=日々のチェック / 右=集計・請求）。モバイルは縦 1 列。 */}
+      <div className="admin-grid">
+        {/* ───────── 左：日々のチェック（主役）───────── */}
+        <div className="admin-main">
+          {/* ① 要確認（行動カード） */}
+          <section className="block">
+            <div className="section-head">
+              <h2 className="section-title">
+                要確認{" "}
+                {needsReview.length > 0 && (
+                  <span className="badge badge--review">{needsReview.length}件</span>
+                )}
+              </h2>
+            </div>
+            {needsReview.length === 0 ? (
+              <div className="empty-ok">
+                <span aria-hidden>✓</span> 確認待ちはありません。
+              </div>
+            ) : (
+              <div className="review-list">
+                {needsReview.map((r) => {
+                  const md = r.entries.reduce((a, e) => a + Number(e.manDays || 0), 0);
+                  const ot = r.entries.reduce((a, e) => a + Number(e.otHours || 0), 0);
+                  const isPartner = r.org.kind === "PARTNER";
+                  const names = r.entries
+                    .map((e) => e.worker?.name)
+                    .filter(Boolean)
+                    .join("　");
+                  return (
+                    <div className="review-card" key={r.id}>
+                      <div className="review-body">
+                        <div className="review-title">
+                          <span className="review-date">{mdW(r.workDate)}</span>
+                          {r.client.name}
+                          <span
+                            className={`badge ${
+                              isPartner ? "badge--partner" : "badge--self"
+                            }`}
+                          >
+                            {r.org.kind}
+                          </span>
+                        </div>
+                        <div className="review-meta">
+                          {r.site?.name ?? "(現場未設定)"} ・ {r.org.name}
+                        </div>
+                        {names && <div className="review-names">{names}</div>}
+                        <div className="review-figs">
+                          <span>
+                            人工 <b>{md}</b>
+                          </span>
+                          {ot > 0 && (
+                            <span>
+                              残業 <b>{ot}</b>h
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="review-actions">
+                        <form action={confirmReportAction}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <button type="submit" className="btn btn--primary btn--sm">
+                            承認
+                          </button>
+                        </form>
+                        <form action={deleteReportAction}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <button type="submit" className="btn btn--danger-text btn--sm">
+                            削除
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
-      {/* 自社 取引先別 */}
-      <div className="section-head">
-        <h2 className="section-title">
-          自社 <span className="badge badge--self">SELF</span>
-        </h2>
-      </div>
-      <ClientAccordion rows={selfSummary} emptyLabel="この月のデータはありません。" />
+          {/* ② 直近の出面（当月フィード） */}
+          <section className="block">
+            <div className="section-head">
+              <h2 className="section-title">直近の出面</h2>
+              <span className="muted">{ym} の入力</span>
+            </div>
+            {recent.length === 0 ? (
+              <p className="muted">この月の出面はまだありません。</p>
+            ) : (
+              <div className="list">
+                {recent.map((r) => {
+                  const md = r.entries.reduce((a, e) => a + Number(e.manDays || 0), 0);
+                  const ot = r.entries.reduce((a, e) => a + Number(e.otHours || 0), 0);
+                  const isPartner = r.org.kind === "PARTNER";
+                  const review = r.status === "NEEDS_REVIEW";
+                  const names = r.entries
+                    .map((e) => e.worker?.name)
+                    .filter(Boolean)
+                    .join("　");
+                  return (
+                    <div className="list-row" key={r.id}>
+                      <div className="list-main">
+                        <div className="list-title">
+                          <span className="list-date">{mdW(r.workDate)}</span>
+                          {r.client.name}
+                          <span
+                            className={`badge ${
+                              isPartner ? "badge--partner" : "badge--self"
+                            }`}
+                          >
+                            {r.org.kind}
+                          </span>
+                          {review && (
+                            <span className="badge badge--review">要確認</span>
+                          )}
+                        </div>
+                        <div className="list-meta">
+                          {r.site?.name ?? "(現場未設定)"}
+                          {names && <> ・ {names}</>}
+                        </div>
+                      </div>
+                      <div className="list-figs">
+                        <span className="fig">
+                          <span className="n">{md}</span>
+                          <span className="u">人工</span>
+                        </span>
+                        <span className="fig">
+                          <span className="n">{ot}</span>
+                          <span className="u">残業h</span>
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
 
-      {/* パートナー 取引先別 */}
-      <div className="section-head">
-        <h2 className="section-title">
-          パートナー <span className="badge badge--partner">PARTNER</span>
-        </h2>
-      </div>
-      <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
-        ※ パートナーのデータは管理画面のみで集約します（出面グループには投稿されません）。
-      </p>
-      <ClientAccordion
-        rows={partnerSummary}
-        emptyLabel="この月のパートナーデータはありません。"
-      />
+        {/* ───────── 右：集計・請求（常時表示の脇）───────── */}
+        <aside className="admin-aside">
+          {/* ③ 今月の集計 */}
+          <section className="block">
+            <div className="section-head">
+              <h2 className="section-title">今月の集計</h2>
+            </div>
 
-      {/* 要確認キュー */}
-      <div className="section-head">
-        <h2 className="section-title">
-          要確認{" "}
-          {needsReview.length > 0 && (
-            <span className="badge badge--review">{needsReview.length}件</span>
-          )}
-        </h2>
-      </div>
-      {needsReview.length === 0 ? (
-        <p className="muted">要確認のレポートはありません。</p>
-      ) : (
-        <div className="list">
-          {needsReview.map((r) => {
-            const md = r.entries.reduce(
-              (a, e) => a + Number(e.manDays || 0),
-              0,
-            );
-            const ot = r.entries.reduce(
-              (a, e) => a + Number(e.otHours || 0),
-              0,
-            );
-            const d = r.workDate;
-            const ds = `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
-            const isPartner = r.org.kind === "PARTNER";
-            return (
-              <div className="list-row" key={r.id}>
-                <div className="list-main">
-                  <div className="list-title">
-                    {r.client.name}
-                    <span
-                      className={`badge ${
-                        isPartner ? "badge--partner" : "badge--self"
-                      }`}
-                      style={{ marginLeft: 6 }}
-                    >
-                      {r.org.kind}
-                    </span>
-                  </div>
-                  <div className="list-meta">
-                    {ds} ・ {r.site?.name ?? "(現場未設定)"} ・ {r.org.name}
-                  </div>
-                </div>
-                <div className="list-figs">
-                  <span className="fig">
-                    <span className="n">{md}</span>
-                    <span className="u">人工</span>
-                  </span>
-                  <span className="fig">
-                    <span className="n">{ot}</span>
-                    <span className="u">残業h</span>
-                  </span>
+            {/* 自社 合計カード */}
+            <div className="stat-grid">
+              <div className="stat stat--accent stat--wide">
+                <div className="stat-k">自社 概算金額（税抜）</div>
+                <div className="stat-v">{yen(selfTotalAmt)}</div>
+              </div>
+              <div className="stat">
+                <div className="stat-k">人工合計</div>
+                <div className="stat-v">{selfTotalMd}</div>
+              </div>
+              <div className="stat">
+                <div className="stat-k">残業合計</div>
+                <div className="stat-v">
+                  {selfTotalOt}
+                  <small>h</small>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+
+            {/* ④ 月末の請求へ */}
+            <a href={`/admin/invoices?ym=${ym}`} className="invoice-cta">
+              <span className="invoice-cta-ico" aria-hidden>
+                📄
+              </span>
+              <span>
+                <span className="invoice-cta-title">請求書を作る</span>
+                <span className="invoice-cta-sub">集計どおりに月末発行</span>
+              </span>
+              <span className="invoice-cta-arrow" aria-hidden>
+                →
+              </span>
+            </a>
+
+            {/* 自社 取引先別 */}
+            <div className="section-head">
+              <h3 className="section-subtitle">
+                自社 <span className="badge badge--self">SELF</span>
+              </h3>
+            </div>
+            <ClientAccordion
+              rows={selfSummary}
+              emptyLabel="この月のデータはありません。"
+            />
+
+            {/* パートナー 取引先別 */}
+            <div className="section-head">
+              <h3 className="section-subtitle">
+                パートナー <span className="badge badge--partner">PARTNER</span>
+              </h3>
+            </div>
+            <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
+              ※ 管理画面のみで集約（出面グループには投稿されません）。
+            </p>
+            <ClientAccordion
+              rows={partnerSummary}
+              emptyLabel="この月のパートナーデータはありません。"
+            />
+          </section>
+        </aside>
+      </div>
 
       <p className="muted" style={{ marginTop: 20 }}>
         ※ 例・初期データはすべてダミーです。

@@ -244,41 +244,46 @@ export interface ReportLogInput {
     otHours: number;
     worker: { name: string };
   }>;
+  /** 立替経費（任意）。グループ投稿に「パーキング800円」等で併記する。 */
+  expenses?: Array<{ kind: string; amount: number }>;
 }
 
-function fmtDate(d: Date | string): string {
+/** 曜日。workDate は UTC 0時保存なので UTC で読む（TZズレで前日/翌日にならないように）。 */
+const WEEKDAY_JP = ["日", "月", "火", "水", "木", "金", "土"] as const;
+
+/** "M月D日(曜)"。workDate は UTC 0時のため UTC メソッドで読む。 */
+function fmtDateJp(d: Date | string): string {
   const dt = typeof d === "string" ? new Date(d) : d;
-  const y = dt.getFullYear();
-  const m = String(dt.getMonth() + 1).padStart(2, "0");
-  const day = String(dt.getDate()).padStart(2, "0");
-  return `${y}/${m}/${day}`;
+  return `${dt.getUTCMonth() + 1}月${dt.getUTCDate()}日(${WEEKDAY_JP[dt.getUTCDay()]})`;
 }
 
-/** 出面グループ投稿用のテキストを生成（v1 受信確認フォーマット）。 */
+/**
+ * 出面グループ投稿用テキスト（実運用ログのフォーマット踏襲）:
+ *   1行目: 日付(曜)
+ *   2行目: 取引先　契約（常用/請負）
+ *   3行目: 現場
+ *   4行目: 職人（半日/夜勤/残業を各人に「（…）」で注記。日勤は無印）
+ *   5行目: 経費（あれば「パーキング800円」等を併記）
+ */
 export function formatReportLog(report: ReportLogInput): string {
   const lines: string[] = [];
-  lines.push("【出面記録】受信しました");
-  lines.push(`日付：${fmtDate(report.workDate)}`);
-  lines.push(`取引先：${report.client.name}`);
-  lines.push(`現場：${report.site?.name ?? "(現場未設定)"}`);
-  lines.push(`契約：${CONTRACT_LABEL[report.contractType]}`);
-  lines.push("―――――――――――");
+  lines.push(fmtDateJp(report.workDate));
+  lines.push(`${report.client.name}　${CONTRACT_LABEL[report.contractType]}`);
+  lines.push(report.site?.name ?? "(現場未設定)");
 
-  let totalMd = 0;
-  let totalOt = 0;
-  for (const e of report.entries) {
-    totalMd += Number(e.manDays) || 0;
-    totalOt += Number(e.otHours) || 0;
-    const parts = [`・${e.worker.name}`, `${e.manDays}人工`];
-    if (e.shift !== "DAY") parts.push(`(${SHIFT_LABEL[e.shift]})`);
-    if (Number(e.otHours) > 0) parts.push(`残業${e.otHours}h`);
-    lines.push(parts.join(" "));
+  const workerTokens = report.entries.map((e) => {
+    const notes: string[] = [];
+    if (e.shift !== "DAY") notes.push(SHIFT_LABEL[e.shift]); // 半日 / 夜勤
+    if (Number(e.otHours) > 0) notes.push(`残${e.otHours}h`);
+    return notes.length
+      ? `${e.worker.name}（${notes.join("・")}）`
+      : e.worker.name;
+  });
+  lines.push(workerTokens.join("　"));
+
+  if (report.expenses?.length) {
+    lines.push(report.expenses.map((x) => `${x.kind}${x.amount}円`).join("　"));
   }
-
-  lines.push("―――――――――――");
-  const totalLine = [`合計 ${totalMd}人工`];
-  if (totalOt > 0) totalLine.push(`残業${totalOt}h`);
-  lines.push(totalLine.join(" / "));
 
   return lines.join("\n");
 }
