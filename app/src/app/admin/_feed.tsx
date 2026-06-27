@@ -54,6 +54,7 @@ export function RecentFeed({
         <button
           type="button"
           className="btn btn--ghost btn--sm feed-toggle"
+          aria-expanded={all}
           onClick={() => setAll((v) => !v)}
         >
           {all ? "閉じる" : `その月の全 ${items.length} 件を表示`}

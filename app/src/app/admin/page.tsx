@@ -162,6 +162,9 @@ async function MonthSummary({ ym }: { ym: string }) {
       <div className="help-bubble">
         <b>請求書を出す単位。</b>{" "}
         取引先ごとの人工・残業・概算金額。月末はこの取引先ごとに請求書を作ります。
+        <br />
+        ※ ここの概算は<b>人工・残業（税抜）</b>のみ。立替経費・請負は{" "}
+        <a href={`/admin/invoices?ym=${ym}`}>請求書</a>で加算されます。
       </div>
       <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />
 
@@ -283,12 +286,18 @@ export default async function AdminPage({
     prisma.report.findMany({
       where: { workDate: { gte: from, lt: to } },
       orderBy: [{ workDate: "desc" }, { createdAt: "desc" }],
-      take: 400, // 当月全件（「表示」で展開）。1 現場 ≒ 数件想定で十分な上限。
-      include: {
+      take: 200, // 当月全件（「表示」で展開）。当月件数の現実的上限＝クライアント転送量の上限。
+      // フィードに必要な列だけを select（include で全列を引かず RSC ペイロードを最小化）。
+      select: {
+        id: true,
+        workDate: true,
+        status: true,
         client: { select: { name: true } },
         site: { select: { name: true } },
         org: { select: { kind: true } },
-        entries: { include: { worker: { select: { name: true } } } },
+        entries: {
+          select: { manDays: true, otHours: true, worker: { select: { name: true } } },
+        },
       },
     }),
   ]);
@@ -455,7 +464,7 @@ export default async function AdminPage({
             </div>
             <div className="help-bubble">
               <b>今月の入力一覧。</b>{" "}
-              最近の出面を小さなカードで並べています（日付／取引先／現場／職人）。下の「<b>表示</b>」を押すと、その月の全件が開きます。ここを眺めれば「今日の分が入っているか」が一目で分かります。
+              最近の出面を小さなカードで並べています（日付／取引先／現場／職人）。下の「<b>全件を表示</b>」を押すと、その月の全件が開きます。ここを眺めれば「今日の分が入っているか」が一目で分かります。
             </div>
             {recent.length === 0 ? (
               <div className="empty-state">

@@ -547,16 +547,13 @@ a {
 
 /* ── 直近の出面フィード（コンパクト3列＋「表示」で当月全件） ── */
 /* 1 件ずつの大きな行（.list）ではなく、当月の出面を小さなカードで多列に。
-   既定 3 列。極端に狭いスマホ（<420px）だけ 2 列に落として潰れを防ぐ。 */
+   auto-fill＋minmax で「1セル140px以上を保てる範囲で詰める」＝幅に応じて列数が
+   自動調整される。標準的なスマホ幅(≈390〜480px)で約3列、狭い端末では2列、PCの広い
+   左カラムでは4〜5列。固定3列だと中間幅で取引先名・現場名が潰れるのを避ける。 */
 .feed-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 8px;
-}
-@media (max-width: 419px) {
-  .feed-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 .feed-cell {
   border: 1px solid var(--line);
@@ -603,7 +600,7 @@ a {
   font-variant-numeric: tabular-nums;
 }
 .feed-figs b {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 800;
 }
 .feed-ot {
@@ -611,8 +608,8 @@ a {
   font-size: 12px;
 }
 .feed-mini {
-  font-size: 10px;
-  padding: 1px 6px;
+  font-size: 11px;
+  padding: 2px 7px;
 }
 .feed-toggle {
   width: 100%;

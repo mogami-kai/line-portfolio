@@ -19,7 +19,7 @@
 // ============================================================
 
 import ExcelJS from "exceljs";
-import { joyoAmount, overtimeAmount, HOURS_PER_DAY, OT_FACTOR } from "./calc.js";
+import { joyoAmount, overtimeUnit, overtimeLineAmount } from "./calc.js";
 
 /** 請求書明細1行（Prisma model InvoiceLine と一致）。 */
 export interface InvoiceLine {
@@ -172,17 +172,16 @@ export function buildInvoiceLines(
       taxRate,
     });
 
-    // 残業（otHours>0 のみ）
+    // 残業（otHours>0 のみ）。金額＝round(表示残業単価 × 時間)で「単価×数量＝金額」を一致させる。
     const ot = toNumber(s.otHours, 0);
     if (ot > 0) {
-      const otUnit = Math.round((unit / HOURS_PER_DAY) * OT_FACTOR);
       lines.push({
         sortNo: ++sortNo,
         itemName: `${site} 残業`,
         qty: ot,
         unitLabel: "時間",
-        unitPrice: otUnit,
-        amount: overtimeAmount(ot, unit),
+        unitPrice: overtimeUnit(unit),
+        amount: overtimeLineAmount(ot, unit),
         taxRate,
       });
     }
@@ -266,17 +265,17 @@ export function buildClientLines(
     });
   }
 
-  // 残業（合計時間 × 残業単価＝単価÷8×1.25）
+  // 残業（合計時間 × 残業単価＝単価÷8×1.25）。
+  // 金額＝round(表示残業単価 × 時間)。帳票上「単価×数量＝金額」が一致する（検算に強い）。
   const ot = toNumber(totals.otHours, 0);
   if (ot > 0) {
-    const otUnit = Math.round((unitPrice / HOURS_PER_DAY) * OT_FACTOR);
     lines.push({
       sortNo: ++sortNo,
       itemName: "残業",
       qty: ot,
       unitLabel: "時間",
-      unitPrice: otUnit,
-      amount: overtimeAmount(ot, unitPrice),
+      unitPrice: overtimeUnit(unitPrice),
+      amount: overtimeLineAmount(ot, unitPrice),
       taxRate,
     });
   }
@@ -338,7 +337,10 @@ export function summarize(
 // ヘッダ行: No,品目・内容,数量,単位,単価,金額,税率
 // ============================================================
 const csvCell = (v: unknown): string => {
-  const s = String(v ?? "");
+  let s = String(v ?? "");
+  // CSV インジェクション対策: =, +, -, @, タブ, CR で始まるセルは Excel/会計ソフトで
+  // 数式として評価されうる。先頭に ' を付けて無害化（取引先名・経費種別・案件名は自由入力）。
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 

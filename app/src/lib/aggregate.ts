@@ -8,7 +8,7 @@
 
 import { unstable_cache } from "next/cache";
 import { prisma } from "./db.js";
-import { shiftManDays, type Shift } from "./calc.js";
+import { resolveManDays, type Shift } from "./calc.js";
 import {
   aggregateForInvoice,
   buildClientLines,
@@ -104,11 +104,7 @@ export async function loadMonthRows(
     let manDays = 0;
     let otHours = 0;
     for (const e of r.entries) {
-      const md =
-        Number(e.manDays) > 0
-          ? Number(e.manDays)
-          : shiftManDays(e.shift as Shift);
-      manDays += md;
+      manDays += resolveManDays(e.shift as Shift, e.manDays);
       otHours += Number(e.otHours) || 0;
     }
     rows.push({
@@ -261,8 +257,7 @@ export async function summarizeByWorker(
   for (const r of reports) {
     for (const e of r.entries) {
       const name = e.worker?.name ?? "(不明)";
-      const md =
-        Number(e.manDays) > 0 ? Number(e.manDays) : shiftManDays(e.shift as Shift);
+      const md = resolveManDays(e.shift as Shift, e.manDays);
       const cur = map.get(name) ?? { manDays: 0, otHours: 0 };
       cur.manDays += md;
       cur.otHours += Number(e.otHours) || 0;

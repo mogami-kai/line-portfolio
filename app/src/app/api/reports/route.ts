@@ -42,13 +42,15 @@ export const dynamic = "force-dynamic";
 const entrySchema = z.object({
   workerId: z.string().min(1),
   shift: z.enum(["DAY", "HALF", "NIGHT"]).default("DAY"),
-  manDays: z.number().positive(),
-  otHours: z.number().min(0).default(0),
+  // 1出面=1人の1日ぶん。人工は実運用で 0.5〜1 程度。上限は安全網（不正値の遮断）。
+  manDays: z.number().positive().max(31),
+  otHours: z.number().min(0).max(24).default(0),
 });
 
 const expenseSchema = z.object({
-  kind: z.string().min(1),
-  amount: z.number().int(),
+  kind: z.string().min(1).max(50),
+  // 立替は非負・現実的上限まで。負数・桁あふれが請求金額/xlsx へ伝播するのを防ぐ。
+  amount: z.number().int().min(0).max(10_000_000),
   billable: z.boolean().default(true),
 });
 

@@ -44,6 +44,29 @@ export function overtimeAmount(otHours: number, unitPrice: number): number {
   return Math.round(otHours * (unitPrice / HOURS_PER_DAY) * OT_FACTOR);
 }
 
+/** 残業の表示単価（1時間あたり）= round(単価 / 8 × 1.25)。請求書に出す単価セル。 */
+export function overtimeUnit(unitPrice: number): number {
+  return Math.round((unitPrice / HOURS_PER_DAY) * OT_FACTOR);
+}
+
+/**
+ * 残業明細の金額 = round(表示残業単価 × 時間)。
+ * overtimeAmount（生値で丸め）と違い「表示単価 × 数量 = 金額」が帳票上で一致するため、
+ * 請求書フェイスで利用者・税理士が検算しても矛盾しない（明細はこちらを使う）。
+ */
+export function overtimeLineAmount(otHours: number, unitPrice: number): number {
+  return Math.round(overtimeUnit(unitPrice) * otHours);
+}
+
+/**
+ * 出面 entry の人工を解決する。保存済みの manDays を優先し、未設定（0・負・非数）の
+ * ときだけ勤務区分（shift）から補完する。集計・請求で同一規約を使うための共通関数。
+ */
+export function resolveManDays(shift: Shift, manDays: unknown): number {
+  const n = Number(manDays);
+  return n > 0 ? n : shiftManDays(shift);
+}
+
 /** 1明細（人工＋残業）の金額 = 常用金額 ＋ 残業金額。 */
 export function entryAmount(input: {
   manDays: number;

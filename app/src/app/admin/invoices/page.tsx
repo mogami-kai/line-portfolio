@@ -21,6 +21,7 @@ import {
 } from "@/lib/aggregate.js";
 import {
   buildClientInvoiceLines,
+  clientsWithDefaultRate,
   generateInvoice,
 } from "@/lib/invoiceService.js";
 import { summarize } from "@/lib/invoice.js";
@@ -39,14 +40,22 @@ async function generateInvoiceAction(formData: FormData) {
   const clientId = String(formData.get("clientId") ?? "");
   const ym = String(formData.get("ym") ?? "");
   if (!clientId || !/^\d{4}-\d{2}$/.test(ym)) throw new Error("BAD_INPUT");
-  await generateInvoice(clientId, ym);
+  // 生成失敗（例: 採番衝突の連続）でも画面をクラッシュさせず、エラー表示に集約する。
+  let ok = true;
+  try {
+    await generateInvoice(clientId, ym);
+  } catch (e) {
+    console.error("[invoices] generateInvoice failed", e);
+    ok = false;
+  }
+  if (!ok) redirect(`/admin/invoices?ym=${ym}&error=generate`);
   revalidatePath("/admin/invoices");
 }
 
 export default async function InvoicesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ym?: string }>;
+  searchParams: Promise<{ ym?: string; error?: string }>;
 }) {
   const admin = await getAdminContext();
   if (!admin) {
@@ -56,6 +65,7 @@ export default async function InvoicesPage({
 
   const sp = await searchParams;
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
+  const { from, to } = monthRange(ym);
 
   // 当月に出面のある取引先（id, name）を抽出。
   const rows = await loadMonthRows(ym);
@@ -76,20 +86,36 @@ export default async function InvoicesPage({
     existingInvoices.map((iv) => [iv.clientId, iv]),
   );
 
-  // 各取引先の概算合計（税込）。
+  // 既定単価が登録済みの取引先（未登録＝委託料/残業が0円になる→警告表示用）。
+  const ratedClients = await clientsWithDefaultRate(
+    Array.from(clientMap.keys()),
+    to,
+  );
+
+  // 各取引先の概算合計（税込）。exempt＝立替（対象外）ぶん。
   const summaries = await Promise.all(
     Array.from(clientMap.entries()).map(async ([clientId, name]) => {
       const lines = await buildClientInvoiceLines(clientId, ym, taxRate);
       const s = summarize(lines, taxRate);
-      return { clientId, name, total: s.total, subtotal: s.subtotal };
+      const hasLabor = lines.some(
+        (l) => l.itemName === "委託料" || l.itemName === "残業",
+      );
+      return {
+        clientId,
+        name,
+        total: s.total,
+        subtotal: s.subtotal,
+        exempt: s.exempt,
+        rateMissing: hasLabor && !ratedClients.has(clientId),
+      };
     }),
   );
   summaries.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 
   const grandTotal = summaries.reduce((a, s) => a + s.total, 0);
+  const anyRateMissing = summaries.some((s) => s.rateMissing);
 
   // 月ナビ。
-  const { from } = monthRange(ym);
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
   const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
 
@@ -101,6 +127,18 @@ export default async function InvoicesPage({
           ← 集計
         </a>
       </div>
+
+      {sp.error === "generate" && (
+        <div className="notice notice--error" style={{ marginBottom: 12 }}>
+          請求書の作成に失敗しました。お手数ですが、もう一度お試しください。
+        </div>
+      )}
+      {anyRateMissing && (
+        <div className="notice notice--warn" style={{ marginBottom: 12 }}>
+          ⚠ 単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
+          <a href="/admin/masters">マスタ管理 → 単価</a> で登録してください。
+        </div>
+      )}
 
       {/* 月スイッチャー */}
       <div className="month-switch">
@@ -144,13 +182,23 @@ export default async function InvoicesPage({
                     <strong style={{ color: "var(--ink)" }}>
                       {yen(s.total)}
                     </strong>
+                    {s.exempt > 0 && (
+                      <span className="muted">　うち立替 {yen(s.exempt)}</span>
+                    )}
                   </div>
                 </div>
-                <div>
+                <div style={{ textAlign: "right" }}>
                   {iv ? (
                     <span className="badge badge--self">{iv.status}</span>
                   ) : (
                     <span className="badge">未作成</span>
+                  )}
+                  {s.rateMissing && (
+                    <div>
+                      <span className="badge badge--review" style={{ marginTop: 4 }}>
+                        単価未登録
+                      </span>
+                    </div>
                   )}
                 </div>
               </div>

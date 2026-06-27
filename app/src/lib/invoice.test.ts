@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   aggregateForInvoice,
+  buildClientLines,
   buildInvoiceLines,
   summarize,
   toCSV,
@@ -120,6 +121,64 @@ describe("buildInvoiceLines", () => {
   });
 });
 
+describe("buildClientLines（取引先単位・自動計算）", () => {
+  it("委託料＋残業を出し、残業は「単価×数量＝金額」が一致（割り切れない単価でも）", () => {
+    // 18000/8*1.25 = 2812.5 → 表示単価 2813。amount は round(2813×2)=5626。
+    // 旧実装の overtimeAmount(2,18000)=round(2×2812.5)=5625 とは 1 円ズレるが、
+    // 帳票フェイスでは「単価2813×数量2=5626」と一致する（こちらが正）。
+    const lines = buildClientLines(
+      { manDays: 10, otHours: 2, expenses: [] },
+      { unitPrice: 18000, taxRate: 0.1 },
+    );
+    const itaku = lines.find((l) => l.itemName === "委託料")!;
+    expect(itaku.qty).toBe(10);
+    expect(itaku.unitPrice).toBe(18000);
+    expect(itaku.amount).toBe(180000);
+    expect(itaku.taxRate).toBe(0.1);
+
+    const ot = lines.find((l) => l.itemName === "残業")!;
+    expect(ot.unitPrice).toBe(2813);
+    expect(ot.qty).toBe(2);
+    expect(ot.amount).toBe(5626);
+    expect(ot.amount).toBe(ot.unitPrice * ot.qty); // 検算一致
+    expect(ot.taxRate).toBe(0.1);
+  });
+
+  it("立替経費は種別ごとに「立替 ◯◯」で税率0（対象外）", () => {
+    const lines = buildClientLines(
+      {
+        manDays: 0,
+        otHours: 0,
+        expenses: [
+          { kind: "駐車", amount: 3000 },
+          { kind: "燃料", amount: 0 }, // 0 は出さない
+        ],
+      },
+      { unitPrice: 20000, taxRate: 0.1 },
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].itemName).toBe("立替 駐車");
+    expect(lines[0].amount).toBe(3000);
+    expect(lines[0].taxRate).toBe(0);
+  });
+
+  it("請負（lumpItems）は「{name} 一式」で計上、全0なら空配列", () => {
+    const withLump = buildClientLines(
+      { manDays: 0, otHours: 0, expenses: [], lumpItems: [{ name: "ダミー改修", amount: 250000 }] },
+      { unitPrice: 0, taxRate: 0.1 },
+    );
+    expect(withLump).toHaveLength(1);
+    expect(withLump[0].itemName).toBe("ダミー改修 一式");
+    expect(withLump[0].amount).toBe(250000);
+
+    const empty = buildClientLines(
+      { manDays: 0, otHours: 0, expenses: [] },
+      { unitPrice: 20000, taxRate: 0.1 },
+    );
+    expect(empty).toHaveLength(0);
+  });
+});
+
 describe("summarize", () => {
   it("subtotal=課税合計, tax=round(subtotal*0.1), exempt=立替, total一致", () => {
     const s = summarize(lines, TAX);
@@ -147,6 +206,22 @@ describe("toCSV", () => {
     expect(csv).toContain("対象外");
     // 請求書メタも含む
     expect(csv).toContain("2026-001");
+  });
+
+  it("CSVインジェクション: =,+,-,@ 始まりのセルは ' で無害化", () => {
+    const malicious = buildClientLines(
+      { manDays: 0, otHours: 0, expenses: [], lumpItems: [{ name: "=HYPERLINK(\"http://x\")", amount: 1000 }] },
+      { unitPrice: 0, taxRate: 0.1 },
+    );
+    const csv = toCSV(
+      { invoiceNo: "2026-001", issueDate: "2026/06/30", client: "=cmd|'/c calc'!A1" },
+      malicious,
+    );
+    // 宛先（取引先名）と案件名（itemName）の双方が ' プリフィックスされる
+    expect(csv).toContain("'=cmd");
+    expect(csv).toContain("'=HYPERLINK");
+    // 生の =cmd（' なし）で始まる行が無い
+    expect(csv.split(/\r?\n/).some((line) => /(^|,)=cmd/.test(line))).toBe(false);
   });
 });
 

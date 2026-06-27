@@ -9,7 +9,7 @@
 // ============================================================
 
 import { prisma } from "./db.js";
-import { shiftManDays, type Shift } from "./calc.js";
+import { resolveManDays, type Shift } from "./calc.js";
 import {
   buildClientLines,
   summarize,
@@ -38,17 +38,21 @@ export async function buildClientInvoiceLines(
   });
 
   // 取引先ごとに合算。
+  //   委託料の人工/残業は「常用（JOYO）」のみ積む。請負（UKEOI）の出面は LumpContract
+  //   で「一式」計上するため、人工×単価に混ぜると二重計上になる（集計ダッシュボードと同規約）。
   let manDays = 0;
   let otHours = 0;
   const expByKind = new Map<string, number>();
   for (const r of reports) {
-    for (const e of r.entries) {
-      manDays +=
-        Number(e.manDays) > 0 ? Number(e.manDays) : shiftManDays(e.shift as Shift);
-      otHours += Number(e.otHours) || 0;
+    if (r.contractType === "JOYO") {
+      for (const e of r.entries) {
+        manDays += resolveManDays(e.shift as Shift, e.manDays);
+        otHours += Number(e.otHours) || 0;
+      }
     }
+    // 立替経費は契約種別に依らず請求対象（請求する=billable のみ）。
     for (const x of r.expenses) {
-      if (!x.billable) continue; // 請求対象の立替のみ。
+      if (!x.billable) continue;
       expByKind.set(x.kind, (expByKind.get(x.kind) ?? 0) + Number(x.amount || 0));
     }
   }
@@ -96,13 +100,37 @@ async function resolveDefaultRate(
   return card ? card.unitPrice : null;
 }
 
-/** "YYYY-MM" の連番から請求書番号 "YYYY-NNN" を採番（その月の通番）。 */
-async function nextInvoiceNo(yearMonth: string): Promise<string> {
+/**
+ * 指定取引先のうち「既定単価（JOYO・siteId=null・effectiveFrom<=on）」が登録済みの
+ * clientId 集合を 1 クエリで返す。請求一覧で「単価未登録（→0円請求）」を警告するために使う。
+ */
+export async function clientsWithDefaultRate(
+  clientIds: string[],
+  on: Date,
+): Promise<Set<string>> {
+  if (clientIds.length === 0) return new Set();
+  const cards = await prisma.rateCard.findMany({
+    where: {
+      clientId: { in: clientIds },
+      siteId: null,
+      contractType: "JOYO",
+      effectiveFrom: { lte: on },
+    },
+    select: { clientId: true },
+  });
+  return new Set(cards.map((c) => c.clientId));
+}
+
+/**
+ * 請求書番号 "YYYY-NNN" を採番（年内の通番＝count+1）。
+ * offset は採番衝突時のリトライ用（衝突した番号を飛ばして次を試す）。
+ */
+async function nextInvoiceNo(yearMonth: string, offset = 0): Promise<string> {
   const [y] = yearMonth.split("-");
   const countThisYear = await prisma.invoice.count({
     where: { yearMonth: { startsWith: `${y}-` } },
   });
-  const seq = String(countThisYear + 1).padStart(3, "0");
+  const seq = String(countThisYear + 1 + offset).padStart(3, "0");
   return `${y}-${seq}`;
 }
 
@@ -119,6 +147,15 @@ export async function generateInvoice(
   const taxRate = setting?.taxRate ?? 0.1;
 
   const lines = await buildClientInvoiceLines(clientId, yearMonth, taxRate);
+  const lineCreate = lines.map((l) => ({
+    sortNo: l.sortNo,
+    itemName: l.itemName,
+    qty: l.qty,
+    unitLabel: l.unitLabel,
+    unitPrice: l.unitPrice,
+    amount: l.amount,
+    taxRate: l.taxRate,
+  }));
 
   const { to } = monthRange(yearMonth);
   // 月末日 = 翌月1日(UTC) の前日。
@@ -133,46 +170,41 @@ export async function generateInvoice(
     await prisma.invoiceLine.deleteMany({ where: { invoiceId: existing.id } });
     await prisma.invoice.update({
       where: { id: existing.id },
-      data: {
-        issueDate,
-        lines: {
-          create: lines.map((l) => ({
-            sortNo: l.sortNo,
-            itemName: l.itemName,
-            qty: l.qty,
-            unitLabel: l.unitLabel,
-            unitPrice: l.unitPrice,
-            amount: l.amount,
-            taxRate: l.taxRate,
-          })),
-        },
-      },
+      data: { issueDate, lines: { create: lineCreate } },
     });
     return { id: existing.id, invoiceNo: existing.invoiceNo };
   }
 
-  const invoiceNo = await nextInvoiceNo(yearMonth);
-  const created = await prisma.invoice.create({
-    data: {
-      clientId,
-      yearMonth,
-      invoiceNo,
-      issueDate,
-      status: "DRAFT",
-      lines: {
-        create: lines.map((l) => ({
-          sortNo: l.sortNo,
-          itemName: l.itemName,
-          qty: l.qty,
-          unitLabel: l.unitLabel,
-          unitPrice: l.unitPrice,
-          amount: l.amount,
-          taxRate: l.taxRate,
-        })),
-      },
-    },
-  });
-  return { id: created.id, invoiceNo: created.invoiceNo };
+  // 新規作成。請求書番号(count+1)は採番→作成が非アトミックなため、unique 競合(P2002)
+  // 時は番号を採り直して数回リトライ。同時生成・過去請求の削除後でも番号衝突でクラッシュしない。
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const invoiceNo = await nextInvoiceNo(yearMonth, attempt);
+    try {
+      const created = await prisma.invoice.create({
+        data: {
+          clientId,
+          yearMonth,
+          invoiceNo,
+          issueDate,
+          status: "DRAFT",
+          lines: { create: lineCreate },
+        },
+      });
+      return { id: created.id, invoiceNo: created.invoiceNo };
+    } catch (e) {
+      if ((e as { code?: string }).code !== "P2002") throw e;
+      // clientId+yearMonth の同時生成競合なら、出来上がった既存を返す。
+      const raced = await prisma.invoice.findUnique({
+        where: { clientId_yearMonth: { clientId, yearMonth } },
+        select: { id: true, invoiceNo: true },
+      });
+      if (raced) return raced;
+      // それ以外（invoiceNo の衝突）は番号を採り直して次の試行へ。
+    }
+  }
+  throw new Error(
+    "請求書番号の採番に繰り返し失敗しました。時間をおいて再試行してください。",
+  );
 }
 
 /** 既存 Invoice を出力用に読み出す（CSV/xlsx 共通）。 */
