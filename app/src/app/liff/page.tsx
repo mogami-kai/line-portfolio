@@ -201,6 +201,13 @@ export default function LiffPage() {
   const [okResult, setOkResult] = useState<SubmitOk | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<"warn" | "error">("error");
+  const errorRef = useRef<HTMLDivElement | null>(null);
+  // エラー/聞き返しが出たら、その通知へスクロール（下部CTAから送って失敗しても気づける）。
+  useEffect(() => {
+    if (errorMsg) {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [errorMsg]);
   const [last, setLast] = useState<LastReport | null>(null);
 
   // 冪等キー: 「1件の出面」に対し一意。送信成功・新規入力でローテーションし、
@@ -786,6 +793,7 @@ export default function LiffPage() {
       )}
       {errorMsg && (
         <div
+          ref={errorRef}
           className={`notice ${
             errorKind === "warn" ? "notice--warn" : "notice--error"
           }`}

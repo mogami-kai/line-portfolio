@@ -370,15 +370,15 @@ export default async function AdminPage({
 
       {/* 今月の状態（カード） */}
       <div className="metric-grid">
-        <a className="metric" href="/admin">
+        <div className="metric">
           <div className="metric-v">{home.metrics.monthReports}</div>
           <div className="metric-k">今月の入力</div>
-        </a>
-        <a className="metric" href="/admin">
+        </div>
+        <div className="metric">
           <div className="metric-v">{home.metrics.needsReview}</div>
           <div className="metric-k">要確認</div>
-        </a>
-        <a className="metric" href="/admin/users">
+        </div>
+        <a className="metric" href="/admin/users?tab=pending">
           <div className="metric-v">{home.metrics.pendingUsers}</div>
           <div className="metric-k">承認待ち</div>
         </a>
@@ -390,10 +390,10 @@ export default async function AdminPage({
           <div className="metric-v">{home.metrics.draftInvoices}</div>
           <div className="metric-k">未発行</div>
         </a>
-        <a className="metric" href="/admin">
+        <div className="metric">
           <div className="metric-v">{home.metrics.partnerReports}</div>
           <div className="metric-k">協力会社</div>
-        </a>
+        </div>
       </div>
 
       {/* PC は 2 カラム（左=日々のチェック / 右=集計・請求）。モバイルは縦 1 列。 */}
