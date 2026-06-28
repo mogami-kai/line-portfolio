@@ -40,6 +40,7 @@ export async function GET(
     const wb = toXlsx({
       invoiceNo: data.invoiceNo,
       issueDate: data.issueDate,
+      yearMonth: data.yearMonth,
       client: data.client,
       honorific: data.honorific,
       address: data.address,

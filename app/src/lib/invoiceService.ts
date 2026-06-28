@@ -81,9 +81,11 @@ export async function buildClientInvoiceLines(
   // 単価（取引先既定・JOYO・月末時点）。管理者がマスタに入れた値。無ければ0。
   const unitPrice = (await resolveDefaultRate(clientId, to)) ?? 0;
 
+  // 委託料の品目名は「○月委託料」（写真の体裁に合わせる）。
+  const month = parseInt(yearMonth.split("-")[1] ?? "0", 10);
   return buildClientLines(
     { manDays, otHours, expenses, lumpItems },
-    { unitPrice, taxRate },
+    { unitPrice, taxRate, joyoItemName: `${month}月委託料` },
   );
 }
 
