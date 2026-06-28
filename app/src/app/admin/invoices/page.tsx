@@ -178,8 +178,8 @@ export default async function InvoicesPage({
       )}
       {anyRateMissing && (
         <div className="notice notice--warn" style={{ marginBottom: 12 }}>
-          単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
-          <a href="/admin/masters">マスタ管理 → 単価</a> で登録してください。
+          常用単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
+          <a href="/admin/masters">マスタ管理 → 取引先</a> を開いて単価を登録してください。
         </div>
       )}
 
@@ -316,12 +316,6 @@ export default async function InvoicesPage({
                   <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
                     請求書(Excel)
                   </a>
-                  <span style={{ margin: "0 8px", color: "var(--ink-3)" }}>
-                    /
-                  </span>
-                  <a href={`/api/invoices/${iv.id}/export?format=csv`}>
-                    CSV(会計取込)
-                  </a>
                 </div>
               )}
 
@@ -332,7 +326,7 @@ export default async function InvoicesPage({
                   type="submit"
                   className={`btn ${iv ? "btn--ghost" : "btn--primary"}`}
                 >
-                  {iv ? "請求書を再作成" : "請求書を作成"}
+                  請求書作成
                 </button>
               </form>
             </div>
@@ -342,11 +336,10 @@ export default async function InvoicesPage({
 
       <p className="muted" style={{ marginTop: 16 }}>
         ※ 明細は取引先ごとに「委託料（人工合計 × 単価）＋ 残業（合計時間 × 残業単価）＋
-        立替経費」で自動計算。単価は{" "}
-        <a href="/admin/masters">マスタ管理 → 単価</a>{" "}
-        に入れた取引先の単価を使います（現場は問いません）。請負（UKEOI）金額は{" "}
-        <a href="/admin/masters#lumps">マスタ管理 → 請負金額</a>{" "}
-        に登録した対象月の契約が「一式」明細として取り込まれます。
+        立替経費」で自動計算。常用単価は{" "}
+        <a href="/admin/masters">マスタ管理 → 取引先</a>{" "}
+        に登録した取引先の単価を使います（現場は問いません）。請負（UKEOI）金額は、
+        出面入力で「請負」を選んで入れた金額が「○月委託料 数量1」として取り込まれます。
       </p>
     </main>
   );
