@@ -1,0 +1,8 @@
+<!-- プレースホルダー・ロゴ。Adobe Illustrator 等で作成した正式ロゴ（SVG/PNG）に差し替えてください。
+     差し替え時はこのファイルを上書き（同名 /public/brand/logo.svg）するか、logo.png を置いて参照先を変更。 -->
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="出面管理">
+  <rect width="40" height="40" rx="9" fill="#2b5fb3"/>
+  <rect x="10" y="12" width="20" height="3" rx="1.5" fill="#ffffff"/>
+  <rect x="10" y="19" width="20" height="3" rx="1.5" fill="#ffffff" fill-opacity="0.8"/>
+  <rect x="10" y="26" width="13" height="3" rx="1.5" fill="#ffffff" fill-opacity="0.55"/>
+</svg>

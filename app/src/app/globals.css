@@ -6,11 +6,12 @@
    ============================================================ */
 
 :root {
-  --accent: #06c755;
-  --accent-dark: #05a948;
-  --accent-press: #048a3b;
-  --accent-soft: #e7f8ee;
-  --bg: #f4f6f8;
+  /* 業務SaaS基調: 落ち着いた青を1アクセント、面は白＋極薄グレー、境界線主体 */
+  --accent: #2b5fb3;
+  --accent-dark: #224d92;
+  --accent-press: #1b3f78;
+  --accent-soft: #eef3fb;
+  --bg: #f5f6f8;
   --card: #ffffff;
   --ink: #1a1d1f;
   --ink-2: #5b6770;
@@ -20,17 +21,21 @@
   --warn-bg: #fff4e0;
   --warn-line: #f3d39a;
   --warn-ink: #8a5a00;
-  --ok-bg: #e7f8ee;
+  --ok-bg: #e7f6ee;
   --ok-line: #b6e6c9;
   --ok-ink: #0a6b34;
   --danger: #c0392b;
   --danger-bg: #fdecef;
   --danger-line: #f4c2cc;
-  --radius: 14px;
-  --radius-sm: 10px;
+  --radius: 12px;
+  --radius-sm: 8px;
   --tap: 48px;
   --maxw: 480px;
-  --shadow: 0 1px 2px rgba(16, 24, 32, 0.06), 0 2px 8px rgba(16, 24, 32, 0.05);
+  /* AppShell */
+  --sidebar-w: 240px;
+  --header-h: 56px;
+  --content-max: 1140px;
+  --shadow: 0 1px 2px rgba(16, 24, 32, 0.05);
   --shadow-cta: 0 -2px 12px rgba(16, 24, 32, 0.08);
 }
 
@@ -412,6 +417,186 @@ a {
   font-weight: 800;
   font-size: 13px;
   margin: 6px 0 4px;
+}
+
+/* ============================================================
+   AppShell（管理画面の共通レイアウト）
+   モバイル既定: 上部ヘッダー＋全幅本文／PC(≥1024px): 左サイドバー＋作業領域
+   ============================================================ */
+.app-shell {
+  min-height: 100vh;
+}
+.app-sidebar {
+  display: none;
+}
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: var(--header-h);
+  padding: 0 12px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+.app-header-title {
+  flex: 1;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--ink-2);
+}
+.app-burger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.app-burger:hover {
+  background: #eef1f4;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.brand-logo {
+  display: block;
+  border-radius: 7px;
+}
+.brand-name {
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--ink-2);
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+}
+.nav-item:hover {
+  background: #eef1f4;
+  color: var(--ink);
+}
+.nav-item.is-active {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+.nav-ico {
+  display: inline-flex;
+  color: currentColor;
+}
+.app-sidebar-foot {
+  margin-top: auto;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sb-user {
+  font-size: 13px;
+  color: var(--ink-2);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sb-logout {
+  font-size: 13px;
+  color: var(--accent-dark);
+  white-space: nowrap;
+}
+.app-main {
+  min-width: 0;
+}
+.app-content {
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: 16px 16px 40px;
+}
+/* シェル内ではページ側の .container（幅480px制約）を解除し作業領域いっぱいに */
+.app-content .container {
+  max-width: none;
+  padding: 0;
+  margin: 0;
+}
+.app-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+}
+.app-drawer-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 24, 32, 0.4);
+  border: none;
+  cursor: pointer;
+}
+.app-drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 82%;
+  max-width: 300px;
+  background: var(--card);
+  box-shadow: -4px 0 20px rgba(16, 24, 32, 0.12);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+}
+.app-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+@media (min-width: 1024px) {
+  .app-shell {
+    display: grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+  }
+  .app-header {
+    display: none;
+  }
+  .app-sidebar {
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    background: var(--card);
+    border-right: 1px solid var(--line);
+    padding: 14px 10px;
+  }
+  .app-sidebar-top {
+    padding: 6px 8px 14px;
+  }
+  .app-content {
+    padding: 24px 28px 56px;
+  }
 }
 
 /* ── セグメント（大トグル：日勤/半日/夜勤・常用/請負） ── */

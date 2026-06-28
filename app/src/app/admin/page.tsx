@@ -239,9 +239,6 @@ function LoginScreen({ error }: { error?: string }) {
         className="big-link big-link--primary"
         style={{ marginTop: 16 }}
       >
-        <span className="bl-ico" aria-hidden>
-          🔐
-        </span>
         <span>
           <span className="bl-title">LINE でログイン</span>
           <span className="bl-sub">承認済みの管理者のみ入室できます</span>
@@ -329,36 +326,13 @@ export default async function AdminPage({
   return (
     <main className="container container--admin">
       <div className="page-head">
-        <h1 className="page-title">管理ダッシュボード</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <HelpToggle />
-          <span className="muted">
-            {admin.user.displayName} さん
-            <a href="/api/auth/logout" style={{ marginLeft: 10 }}>
-              ログアウト
-            </a>
-          </span>
-        </div>
+        <h1 className="page-title">ホーム</h1>
+        <HelpToggle />
       </div>
 
-      {/* 管理メニュー */}
-      <div className="chip-wrap" style={{ marginBottom: 12 }}>
-        <a href="/admin/masters" className="chip">
-          🗂 マスタ管理
-        </a>
-        <a href="/admin/users" className="chip">
-          👤 ユーザー承認
-        </a>
-        <a href={`/admin/invoices?ym=${ym}`} className="chip">
-          📄 請求書
-        </a>
-      </div>
-
-      {/* ❓ヘルプ ON のとき出る、全体の使い方 */}
       <div className="help-bubble">
         <b>この画面の使い方</b>　毎日はこの3ステップだけ：
-        <br />① <b>要確認</b>を片付ける（承認 or 削除）→ ② <b>直近の出面</b>で今日の入力を確認 → ③ 右の <b>今月の集計</b>を見る。月末に <b>請求書</b>を作るだけ。
-        <br />右上の「使い方」をもう一度押すと、この説明は消えます。
+        ① <b>要確認</b>を片付ける（承認 か 削除）→ ② <b>直近の出面</b>で今日の入力を確認 → ③ <b>今月の集計</b>を見る。月末に <b>請求書</b>を作るだけです。
       </div>
 
       {/* 月スイッチャー */}
