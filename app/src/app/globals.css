@@ -195,6 +195,33 @@ a {
   content: "✓ ";
 }
 
+/* ── 現場ピッカー（LIFF）── */
+.site-search {
+  margin-bottom: 8px;
+}
+.chip--add {
+  border-style: dashed;
+  font-weight: 700;
+}
+.site-new {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.site-spot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.site-spot input {
+  width: 18px;
+  height: 18px;
+}
+
 /* ── セグメント（大トグル：日勤/半日/夜勤・常用/請負） ── */
 .seg {
   display: flex;
