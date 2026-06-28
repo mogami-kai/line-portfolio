@@ -458,6 +458,15 @@ a {
 .app-burger:hover {
   background: #eef1f4;
 }
+/* メニュー開くボタン＝青いハンバーガー（右）。会社ロゴは持たず、これが唯一のメニュー。 */
+.app-burger--menu {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+}
+.app-burger--menu:hover {
+  background: var(--accent-dark);
+}
 .brand {
   display: inline-flex;
   align-items: center;

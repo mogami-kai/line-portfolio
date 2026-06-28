@@ -76,8 +76,6 @@ const NAV: NavItem[] = [
 function Brand() {
   return (
     <a href="/admin" className="brand" aria-label="出面管理 ホーム">
-      {/* 正式ロゴは /public/brand/logo.svg に差し替え。 */}
-      <img className="brand-logo" src="/brand/logo.svg" alt="" width={28} height={28} />
       <span className="brand-name">出面管理</span>
     </a>
   );
@@ -166,7 +164,7 @@ export function AdminShell({
         <span className="app-header-title">{current}</span>
         <button
           type="button"
-          className="app-burger"
+          className="app-burger app-burger--menu"
           aria-label="メニュー"
           aria-expanded={open}
           onClick={() => setOpen(true)}
