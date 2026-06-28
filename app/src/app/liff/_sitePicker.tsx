@@ -94,7 +94,6 @@ export function SitePicker({
             onClick={() => pick(s.id)}
             disabled={disabled}
           >
-            {s.isPinned ? "📌 " : ""}
             {s.name}
           </button>
         ))}

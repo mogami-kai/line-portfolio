@@ -196,10 +196,6 @@ a {
   background: var(--accent);
   border-color: var(--accent);
 }
-.chip--on .chip-check::before {
-  content: "✓ ";
-}
-
 /* ── 現場ピッカー（LIFF）── */
 .site-search {
   margin-bottom: 8px;
@@ -700,7 +696,7 @@ a {
   min-height: 60px;
   padding: 14px 16px;
   text-align: left;
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+  background: var(--accent);
   color: #fff;
   border: none;
   border-radius: var(--radius);
@@ -711,8 +707,10 @@ a {
   filter: brightness(0.96);
 }
 .repeat-btn .repeat-ico {
-  font-size: 22px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
 }
 .repeat-btn .repeat-main {
   font-size: 17px;
@@ -732,8 +730,7 @@ a {
   right: 0;
   bottom: 0;
   z-index: 50;
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: saturate(180%) blur(6px);
+  background: #fff;
   border-top: 1px solid var(--line);
   box-shadow: var(--shadow-cta);
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
@@ -1096,7 +1093,7 @@ a {
   box-shadow: var(--shadow);
 }
 .stat--accent {
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+  background: var(--accent);
   border-color: transparent;
   color: #fff;
 }
@@ -1232,13 +1229,15 @@ a {
   transform: scale(0.99);
 }
 .big-link--primary {
-  background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+  background: var(--accent);
   border-color: transparent;
   color: #fff;
 }
 .big-link .bl-ico {
-  font-size: 32px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
 }
 .big-link .bl-title {
   font-size: 19px;
@@ -1647,13 +1646,6 @@ html.help-on .help-bubble::before {
 html.help-on .help-bubble b {
   color: #8a5a00;
 }
-/* help-on のときだけ、見出しに「？」マークを添える */
-html.help-on .section-title::after,
-html.help-on .section-subtitle::after {
-  content: " ❓";
-  font-size: 12px;
-}
-
 /* ── 職人別 集計テーブル（給料の見方：後藤◯◯ 齋◯◯…） ── */
 .worker-table {
   width: 100%;

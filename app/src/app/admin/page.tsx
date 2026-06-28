@@ -361,9 +361,6 @@ export default async function AdminPage({
               href={a.href}
               className={`next-action next-action--${a.level}`}
             >
-              <span className="na-ico" aria-hidden>
-                {a.level === "warn" ? "⚠" : a.level === "ok" ? "✓" : "→"}
-              </span>
               <span className="na-text">{a.text}</span>
               <span className="na-arrow" aria-hidden>
                 ›
@@ -421,9 +418,7 @@ export default async function AdminPage({
               <b>承認</b>、間違いなら <b>削除</b>。ここが空なら確認待ちゼロ＝OKです。
             </div>
             {needsReview.length === 0 ? (
-              <div className="empty-ok">
-                <span aria-hidden>✓</span> 確認待ちはありません。
-              </div>
+              <div className="empty-ok">確認待ちはありません。</div>
             ) : (
               <div className="review-list">
                 {needsReview.map((r) => {
@@ -496,9 +491,6 @@ export default async function AdminPage({
             </div>
             {recent.length === 0 ? (
               <div className="empty-state">
-                <div className="es-ico" aria-hidden>
-                  🗒️
-                </div>
                 <div className="es-title">まだ {ym} の出面がありません</div>
                 <p className="es-sub">
                   LIFF（日報入力フォーム）から送られた出面が、ここに表示されます。
@@ -525,15 +517,12 @@ export default async function AdminPage({
 
             {/* 月末の請求へ（集計を待たず即表示） */}
             <a href={`/admin/invoices?ym=${ym}`} className="invoice-cta">
-              <span className="invoice-cta-ico" aria-hidden>
-                📄
-              </span>
               <span>
                 <span className="invoice-cta-title">請求書を作る</span>
                 <span className="invoice-cta-sub">集計どおりに月末発行</span>
               </span>
               <span className="invoice-cta-arrow" aria-hidden>
-                →
+                ›
               </span>
             </a>
 

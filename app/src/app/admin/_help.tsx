@@ -24,7 +24,7 @@ export function HelpToggle({ label = "使い方" }: { label?: string }) {
       onClick={() => setOn((v) => !v)}
       aria-pressed={on}
     >
-      {on ? "✕ 説明を閉じる" : `❓ ${label}`}
+      {on ? "説明を閉じる" : label}
     </button>
   );
 }

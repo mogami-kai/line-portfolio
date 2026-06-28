@@ -181,7 +181,7 @@ export default async function InvoicesPage({
       )}
       {anyRateMissing && (
         <div className="notice notice--warn" style={{ marginBottom: 12 }}>
-          ⚠ 単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
+          単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
           <a href="/admin/masters">マスタ管理 → 単価</a> で登録してください。
         </div>
       )}
@@ -317,7 +317,7 @@ export default async function InvoicesPage({
                     |
                   </span>
                   <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
-                    📄 請求書(Excel)
+                    請求書(Excel)
                   </a>
                   <span style={{ margin: "0 8px", color: "var(--ink-3)" }}>
                     /
