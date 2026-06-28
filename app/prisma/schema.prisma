@@ -43,10 +43,19 @@ model Organization {
 
 // ── 利用者（LINEアカウント）──
 enum Role {
-  ADMIN // 管理者（全org集約・マスタ・請求）
-  OWNER // 自社代表（自社入力→グループログ）
-  VIEWER // 自社メンバー（閲覧のみ）
-  PARTNER // 協力会社（自組織の入力のみ）
+  ADMIN // 管理者（全org集約・マスタ・請求・管理画面に入れる唯一のロール）
+  OWNER // 自社代表（自社=SELF組織の入力／approved必須）
+  VIEWER // 自社メンバー（閲覧想定・現状はOWNERと同等の入力可）
+  PARTNER // 協力会社（自組織=PARTNERの入力のみ）
+}
+
+// 利用者の在籍状態。承認(approved)とは独立。
+//   未承認 = approved:false かつ status:ACTIVE
+//   承認済 = approved:true  かつ status:ACTIVE
+//   無効   = status:DISABLED（拒否・退場。承認状態に関わらず入室不可）
+enum UserStatus {
+  ACTIVE
+  DISABLED
 }
 
 model User {
@@ -55,11 +64,13 @@ model User {
   displayName String
   role        Role     @default(PARTNER)
   approved    Boolean  @default(false) // 初回 false → 管理者が org/role を承認
+  status      UserStatus @default(ACTIVE) // 拒否/無効化用（DISABLED は一切入室不可）
   orgId       String
   org         Organization @relation(fields: [orgId], references: [id])
   createdAt   DateTime @default(now())
 
   @@index([orgId])
+  @@index([approved])
 }
 
 // ── 職人 ──
@@ -93,15 +104,22 @@ model Client {
 }
 
 model Site {
-  id       String @id @default(cuid())
-  name     String
-  clientId String
-  client   Client @relation(fields: [clientId], references: [id])
+  id          String    @id @default(cuid())
+  name        String
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id])
+  // ── 内部管理用の属性（請求書には出さない）──
+  isActive    Boolean   @default(true)  // false=アーカイブ（LIFFの選択肢から除外）
+  isPinned    Boolean   @default(false) // よく使う現場（上部固定）
+  isTemporary Boolean   @default(false) // スポット現場（一回だけ。要確認キュー→承認で正式化）
+  usageCount  Int       @default(0)     // 出面で使われた回数（並び順＝よく使う順）
+  lastUsedAt  DateTime?                 // 最終利用日（並び順＝最近使った順）
 
   rates   RateCard[]
   reports Report[]
 
   @@index([clientId])
+  @@index([clientId, isActive])
 }
 
 enum ContractType {
