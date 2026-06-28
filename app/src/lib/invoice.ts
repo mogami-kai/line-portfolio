@@ -78,12 +78,17 @@ export interface ExpenseAgg {
  * 取引先ごとの請求集計（現場の内訳は持たない）。
  *   manDays … その月の合計人工、otHours … 合計残業時間、
  *   expenses … 請求対象の立替経費（種別ごと合算）、lumpItems … 請負（一式）。
+ *   ukeoiAmounts … v3 請負(UKEOI) Report の契約金額。Report ごとに 1 行
+ *     「○月委託料 数量1 単位=式 単価=金額」で計上する（品目名は常用と共通）。
+ *     旧 LumpContract（lumpItems）とは別系統で、双方を並べても二重計上しない
+ *     （データソースが Report.contractAmount と LumpContract で分かれている）。
  */
 export interface ClientTotals {
   manDays: number;
   otHours: number;
   expenses: ExpenseAgg[];
   lumpItems?: LumpItem[];
+  ukeoiAmounts?: number[];
 }
 
 /** 発行元情報（Prisma model InvoiceSetting 相当）。 */
@@ -282,7 +287,23 @@ export function buildClientLines(
     });
   }
 
-  // 請負（一式）。LumpContract があれば案件ごとに計上。
+  // 請負（UKEOI・v3）。Report.contractAmount を案件ごとに 1 行で計上。
+  // 品目名は常用と共通の「○月委託料」、数量1・単位=式・単価=金額・税率=既定。
+  for (const amount of totals.ukeoiAmounts ?? []) {
+    const amt = toNumber(amount, 0);
+    if (amt <= 0) continue;
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: joyoItemName,
+      qty: 1,
+      unitLabel: "式",
+      unitPrice: amt,
+      amount: amt,
+      taxRate,
+    });
+  }
+
+  // 請負（一式）。LumpContract があれば案件ごとに計上（過去分維持）。
   for (const item of totals.lumpItems ?? []) {
     const amt = toNumber(item.amount, 0);
     if (amt <= 0) continue;

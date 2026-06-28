@@ -223,6 +223,29 @@ a {
   height: 18px;
 }
 
+/* ── 職人を自分で追加（LIFF）── */
+.worker-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.worker-add-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.worker-add .btn {
+  flex: 0 0 auto;
+}
+
+/* ── 請負金額（LIFF・UKEOI時のみ）── */
+.contract-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── マスタ: 初期設定チェックリスト ── */
 .setup-card {
   padding: 14px;
@@ -457,6 +480,15 @@ a {
 }
 .app-burger:hover {
   background: #eef1f4;
+}
+/* メニュー開くボタン＝青いハンバーガー（右）。会社ロゴは持たず、これが唯一のメニュー。 */
+.app-burger--menu {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+}
+.app-burger--menu:hover {
+  background: var(--accent-dark);
 }
 .brand {
   display: inline-flex;

@@ -50,7 +50,8 @@ const clientSchema = z.object({
   name: z.string().min(1, "取引先名は必須です"),
   honorific: z.enum(["御中", "様"]).default("御中"),
   address: z.string().optional(),
-  aliases: z.array(z.string()).default([]),
+  // v3: 常用の人工単価（任意・未入力=null）。別名(aliases)は UI 廃止のため受け取らない。
+  unitPrice: z.number().int().nonnegative("単価は0以上の整数").nullable().default(null),
 });
 
 export async function createClientAction(fd: FormData): Promise<void> {
@@ -59,7 +60,7 @@ export async function createClientAction(fd: FormData): Promise<void> {
     name: str(fd, "name"),
     honorific: str(fd, "honorific") || "御中",
     address: str(fd, "address") || undefined,
-    aliases: parseAliases(str(fd, "aliases")),
+    unitPrice: str(fd, "unitPrice") ? Number(str(fd, "unitPrice")) : null,
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
   await prisma.client.create({
@@ -67,7 +68,7 @@ export async function createClientAction(fd: FormData): Promise<void> {
       name: parsed.data.name,
       honorific: parsed.data.honorific,
       address: parsed.data.address ?? null,
-      aliases: parsed.data.aliases,
+      unitPrice: parsed.data.unitPrice,
     },
   });
   revalidatePath(MASTERS_PATH);
@@ -83,17 +84,18 @@ export async function updateClientAction(fd: FormData): Promise<void> {
       name: str(fd, "name"),
       honorific: str(fd, "honorific") || "御中",
       address: str(fd, "address") || undefined,
-      aliases: parseAliases(str(fd, "aliases")),
+      unitPrice: str(fd, "unitPrice") ? Number(str(fd, "unitPrice")) : null,
       active: fd.get("active") === "on" || fd.get("active") === "true",
     });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  // aliases は UI 廃止後も既存値を維持するため update では touch しない。
   await prisma.client.update({
     where: { id },
     data: {
       name: parsed.data.name,
       honorific: parsed.data.honorific,
       address: parsed.data.address ?? null,
-      aliases: parsed.data.aliases,
+      unitPrice: parsed.data.unitPrice,
       active: parsed.data.active,
     },
   });
@@ -217,6 +219,28 @@ export async function updateWorkerAction(fd: FormData): Promise<void> {
       aliases: parseAliases(str(fd, "aliases")),
       active: fd.get("active") === "on" || fd.get("active") === "true",
     },
+  });
+  revalidatePath(MASTERS_PATH);
+}
+
+// 職人の「削除（無効化）」＝有効/無効トグル。
+//   ReportEntry の FK があるため物理削除はせず active を切り替える。
+//   無効化＝LIFF の選択肢（active のみ返す masters）から除外される。
+const workerActiveSchema = z.object({
+  id: z.string().min(1, "id がありません"),
+  active: z.boolean(),
+});
+
+export async function setWorkerActiveAction(fd: FormData): Promise<void> {
+  await requireAdminAction();
+  const parsed = workerActiveSchema.safeParse({
+    id: str(fd, "id"),
+    active: fd.get("active") === "on" || fd.get("active") === "true",
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  await prisma.worker.update({
+    where: { id: parsed.data.id },
+    data: { active: parsed.data.active },
   });
   revalidatePath(MASTERS_PATH);
 }

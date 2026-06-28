@@ -31,24 +31,33 @@ export async function buildClientInvoiceLines(
 
   const reports = await prisma.report.findMany({
     where: { clientId, workDate: { gte: from, lt: to } },
-    include: {
+    select: {
+      contractType: true,
+      contractAmount: true,
       entries: { select: { shift: true, manDays: true, otHours: true } },
       expenses: { select: { kind: true, amount: true, billable: true } },
     },
   });
 
   // 取引先ごとに合算。
-  //   委託料の人工/残業は「常用（JOYO）」のみ積む。請負（UKEOI）の出面は LumpContract
-  //   で「一式」計上するため、人工×単価に混ぜると二重計上になる（集計ダッシュボードと同規約）。
+  //   委託料の人工/残業は「常用（JOYO）」のみ積む。請負（UKEOI）は Report ごとの
+  //   contractAmount を「○月委託料 数量1（式）」で計上するため、人工×単価には混ぜない
+  //   （混ぜると二重計上になる。集計ダッシュボードと同規約）。
   let manDays = 0;
   let otHours = 0;
   const expByKind = new Map<string, number>();
+  // 請負(UKEOI)：その月・その取引先の各 Report の契約金額（>0 のみ）。案件ごと1行。
+  const ukeoiAmounts: number[] = [];
   for (const r of reports) {
     if (r.contractType === "JOYO") {
       for (const e of r.entries) {
         manDays += resolveManDays(e.shift as Shift, e.manDays);
         otHours += Number(e.otHours) || 0;
       }
+    } else if (r.contractType === "UKEOI") {
+      // UKEOI の職人 entries は社内記録用で請求額に影響しない（共通仕様）。
+      const amt = Number(r.contractAmount) || 0;
+      if (amt > 0) ukeoiAmounts.push(amt);
     }
     // 立替経費は契約種別に依らず請求対象（請求する=billable のみ）。
     for (const x of r.expenses) {
@@ -73,6 +82,7 @@ export async function buildClientInvoiceLines(
     manDays === 0 &&
     otHours === 0 &&
     lumpItems.length === 0 &&
+    ukeoiAmounts.length === 0 &&
     expenses.length === 0
   ) {
     return [];
@@ -81,10 +91,10 @@ export async function buildClientInvoiceLines(
   // 単価（取引先既定・JOYO・月末時点）。管理者がマスタに入れた値。無ければ0。
   const unitPrice = (await resolveDefaultRate(clientId, to)) ?? 0;
 
-  // 委託料の品目名は「○月委託料」（写真の体裁に合わせる）。
+  // 委託料の品目名は「○月委託料」（常用・請負とも共通。写真の体裁に合わせる）。
   const month = parseInt(yearMonth.split("-")[1] ?? "0", 10);
   return buildClientLines(
-    { manDays, otHours, expenses, lumpItems },
+    { manDays, otHours, expenses, lumpItems, ukeoiAmounts },
     { unitPrice, taxRate, joyoItemName: `${month}月委託料` },
   );
 }
@@ -94,6 +104,12 @@ async function resolveDefaultRate(
   clientId: string,
   on: Date,
 ): Promise<number | null> {
+  // v3: 取引先の常用単価を優先。未設定なら旧RateCard既定（過去分維持）。
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { unitPrice: true },
+  });
+  if (client?.unitPrice != null) return client.unitPrice;
   const card = await prisma.rateCard.findFirst({
     where: { clientId, siteId: null, contractType: "JOYO", effectiveFrom: { lte: on } },
     orderBy: { effectiveFrom: "desc" },
@@ -111,6 +127,14 @@ export async function clientsWithDefaultRate(
   on: Date,
 ): Promise<Set<string>> {
   if (clientIds.length === 0) return new Set();
+  const has = new Set<string>();
+  // v3: 取引先に常用単価が入っていれば「登録済み」。
+  const priced = await prisma.client.findMany({
+    where: { id: { in: clientIds }, unitPrice: { not: null } },
+    select: { id: true },
+  });
+  priced.forEach((c) => has.add(c.id));
+  // 未設定分は旧RateCard既定でフォールバック判定（過去分維持）。
   const cards = await prisma.rateCard.findMany({
     where: {
       clientId: { in: clientIds },
@@ -120,7 +144,8 @@ export async function clientsWithDefaultRate(
     },
     select: { clientId: true },
   });
-  return new Set(cards.map((c) => c.clientId));
+  cards.forEach((c) => has.add(c.clientId));
+  return has;
 }
 
 // ============================================================

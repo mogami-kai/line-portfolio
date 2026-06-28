@@ -55,6 +55,15 @@ export async function rateLookup(
     : null;
   if (siteRate) return siteRate.unitPrice;
 
+  // v3: 常用(JOYO)は取引先の常用単価を優先（未設定なら旧RateCard・過去分維持）。
+  if (contractType === "JOYO") {
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+      select: { unitPrice: true },
+    });
+    if (client?.unitPrice != null) return client.unitPrice;
+  }
+
   const defaultRate = await prisma.rateCard.findFirst({
     where: {
       clientId,
@@ -75,6 +84,8 @@ export interface ReportRowForAgg {
   source: OrgKind;
   manDays: number;
   otHours: number;
+  /** 請負(UKEOI)の契約金額（税抜）。常用は 0。概算金額に反映する。 */
+  contractAmount: number;
 }
 
 /**
@@ -115,6 +126,7 @@ export async function loadMonthRows(
       source: r.source,
       manDays,
       otHours,
+      contractAmount: r.contractType === "UKEOI" ? Number(r.contractAmount) || 0 : 0,
     });
   }
   return rows;
@@ -128,6 +140,8 @@ export function toReportLike(rows: ReportRowForAgg[]): ReportLike[] {
     manDays: r.manDays,
     otHours: r.otHours,
     contractType: r.contractType,
+    // 請負(UKEOI)の契約金額は概算で「一式」として積む（lump に載せる）。
+    lump: r.contractAmount,
   }));
 }
 
@@ -178,9 +192,11 @@ export async function summarizeByClient(
       otHours += s.otHours;
     }
 
-    // 取引先ごとの委託料（人工×単価）＋残業で概算（請求書と同じ作り）。
+    // 取引先ごとの委託料（人工×単価）＋残業＋請負(UKEOI)契約金額で概算（請求書と同じ作り）。
+    // 概算は税抜小計のみ使うため、請負はその月の合算を 1 件にまとめて積めば十分。
+    const ukeoiAmounts = clientAgg.lump > 0 ? [clientAgg.lump] : [];
     const lines: InvoiceLine[] = buildClientLines(
-      { manDays, otHours, expenses: [] },
+      { manDays, otHours, expenses: [], ukeoiAmounts },
       { unitPrice: unit, taxRate: 0 }, // 概算は税抜小計のみ使うので税率0でよい。
     );
     const summary = summarize(lines, 0);
@@ -205,6 +221,13 @@ async function loadDefaultJoyoRates(
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (clientIds.length === 0) return map;
+  // v3: 取引先の常用単価を優先（1クエリ）。
+  const clients = await prisma.client.findMany({
+    where: { id: { in: clientIds } },
+    select: { id: true, unitPrice: true },
+  });
+  for (const c of clients) if (c.unitPrice != null) map.set(c.id, c.unitPrice);
+  // 未設定分のみ旧RateCard既定でフォールバック（過去分維持）。
   const cards = await prisma.rateCard.findMany({
     where: {
       clientId: { in: clientIds },
