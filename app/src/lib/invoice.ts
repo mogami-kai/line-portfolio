@@ -540,7 +540,8 @@ export function toXlsx(data: {
     set(`A${r}`, { formula: `IF(B${r}="","",ROW()-19)`, result: l ? l.sortNo : "" }, { align: CENTER });
     if (l) {
       set(`B${r}`, l.itemName);
-      set(`C${r}`, l.qty, { align: RIGHT });
+      // 数量も3桁区切り（半日=0.5 等の小数は保持）。単価・金額は ¥#,##0 で区切り済み。
+      set(`C${r}`, l.qty, { numFmt: "#,##0.##", align: RIGHT });
       set(`D${r}`, l.unitLabel, { align: CENTER });
       set(`E${r}`, l.unitPrice, { numFmt: "¥#,##0", align: RIGHT });
       set(`G${r}`, l.taxRate, { numFmt: "0%", align: CENTER });

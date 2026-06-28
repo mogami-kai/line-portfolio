@@ -270,6 +270,11 @@ describe("toXlsx（テンプレ準拠・数式）", () => {
     expect(f20.formula).toContain("C20*E20");
     expect(f20.result).toBe(106 * 22000);
 
+    // 三桁区切り（数量・単価・金額すべてカンマ書式）
+    expect(ws.getCell("C20").numFmt).toContain("#,##0");
+    expect(ws.getCell("E20").numFmt).toContain("#,##0");
+    expect(ws.getCell("F20").numFmt).toContain("#,##0");
+
     // 2行目＝残業、3行目＝立替
     expect(txt("B21")).toBe("残業");
     expect(String(txt("B22"))).toContain("立替");
