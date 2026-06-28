@@ -1,7 +1,7 @@
 /* ============================================================
-   出面管理 — モバイルファースト デザインシステム（依存ゼロ）
-   ・LINE 風パレット（アクセント緑 #06C755 / 白カード / ソフトグレー背景）
-   ・最小タップ領域 48px、余白広め、親指ゾーン（下部）に主要操作
+   出面管理 — 業務SaaS デザインシステム（依存ゼロ）
+   ・落ち着いた青を1アクセント／白カード／極薄グレー背景・境界線主体（フラット）
+   ・最小タップ領域 48px、PCは左サイドバー＋作業領域、スマホはハンバーガー
    ・iOS セーフエリア対応（cta-bar の下部）
    ============================================================ */
 
@@ -85,9 +85,9 @@ a {
 }
 .page-title {
   font-size: 20px;
-  font-weight: 800;
+  font-weight: 700;
   margin: 0;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 .page-sub {
   font-size: 13px;
@@ -369,7 +369,7 @@ a {
   color: var(--ink-3);
   font-weight: 700;
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: #eef1f4;
 }
 .step.is-on {
@@ -1033,8 +1033,8 @@ a {
   color: var(--accent-dark);
 }
 .badge--partner {
-  background: #eef0ff;
-  color: #4a4fbf;
+  background: #eef1f4;
+  color: var(--ink-2);
 }
 .badge--review {
   background: var(--warn-bg);
@@ -1049,10 +1049,9 @@ a {
   gap: 8px;
   background: #fff;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   padding: 6px;
   margin-bottom: 14px;
-  box-shadow: var(--shadow);
 }
 .month-switch .ym {
   font-size: 18px;
@@ -1066,7 +1065,7 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: #f4f6f8;
   color: var(--ink);
   font-size: 20px;
@@ -1090,12 +1089,12 @@ a {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 14px;
-  box-shadow: var(--shadow);
 }
 .stat--accent {
-  background: var(--accent);
-  border-color: transparent;
-  color: #fff;
+  background: #fff;
+  border-color: var(--line);
+  border-left: 3px solid var(--accent);
+  color: var(--ink);
 }
 .stat--wide {
   grid-column: 1 / -1;
@@ -1128,7 +1127,7 @@ a {
 }
 .section-title {
   font-size: 16px;
-  font-weight: 800;
+  font-weight: 700;
   margin: 0;
 }
 
@@ -1139,7 +1138,6 @@ a {
   border-radius: var(--radius);
   margin-bottom: 10px;
   overflow: hidden;
-  box-shadow: var(--shadow);
 }
 .acc > summary {
   list-style: none;
@@ -1619,32 +1617,18 @@ details.card .field {
 }
 html.help-on .help-bubble {
   display: block;
-  position: relative;
   margin: 0 0 12px;
   padding: 12px 14px;
-  background: #fffbe8;
-  border: 1.5px solid var(--warn-line);
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm);
-  color: #6b4e00;
-  font-size: 13.5px;
+  color: var(--ink-2);
+  font-size: 13px;
   line-height: 1.6;
-  box-shadow: var(--shadow);
-}
-/* 吹き出しの三角（上向き） */
-html.help-on .help-bubble::before {
-  content: "";
-  position: absolute;
-  top: -8px;
-  left: 18px;
-  width: 14px;
-  height: 14px;
-  background: #fffbe8;
-  border-left: 1.5px solid var(--warn-line);
-  border-top: 1.5px solid var(--warn-line);
-  transform: rotate(45deg);
 }
 html.help-on .help-bubble b {
-  color: #8a5a00;
+  color: var(--ink);
 }
 /* ── 職人別 集計テーブル（給料の見方：後藤◯◯ 齋◯◯…） ── */
 .worker-table {
