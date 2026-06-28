@@ -157,7 +157,7 @@ async function MonthSummary({ ym }: { ym: string }) {
       {/* 自社 取引先別（請求の見方） */}
       <div className="section-head">
         <h3 className="section-subtitle">
-          取引先別（請求の見方）<span className="badge badge--self">SELF</span>
+          取引先別（請求の見方）<span className="badge badge--self">自社</span>
         </h3>
       </div>
       <div className="help-bubble">
@@ -171,16 +171,14 @@ async function MonthSummary({ ym }: { ym: string }) {
 
       {/* パートナー 取引先別 */}
       <div className="section-head">
-        <h3 className="section-subtitle">
-          パートナー <span className="badge badge--partner">PARTNER</span>
-        </h3>
+        <h3 className="section-subtitle">取引先別（協力会社）</h3>
       </div>
       <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
         ※ 管理画面のみで集約（出面グループには投稿されません）。
       </p>
       <ClientAccordion
         rows={partner}
-        emptyLabel="この月のパートナーデータはありません。"
+        emptyLabel="この月の協力会社のデータはありません。"
       />
     </>
   );
@@ -239,9 +237,6 @@ function LoginScreen({ error }: { error?: string }) {
         className="big-link big-link--primary"
         style={{ marginTop: 16 }}
       >
-        <span className="bl-ico" aria-hidden>
-          🔐
-        </span>
         <span>
           <span className="bl-title">LINE でログイン</span>
           <span className="bl-sub">承認済みの管理者のみ入室できます</span>
@@ -329,36 +324,13 @@ export default async function AdminPage({
   return (
     <main className="container container--admin">
       <div className="page-head">
-        <h1 className="page-title">管理ダッシュボード</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <HelpToggle />
-          <span className="muted">
-            {admin.user.displayName} さん
-            <a href="/api/auth/logout" style={{ marginLeft: 10 }}>
-              ログアウト
-            </a>
-          </span>
-        </div>
+        <h1 className="page-title">ホーム</h1>
+        <HelpToggle />
       </div>
 
-      {/* 管理メニュー */}
-      <div className="chip-wrap" style={{ marginBottom: 12 }}>
-        <a href="/admin/masters" className="chip">
-          🗂 マスタ管理
-        </a>
-        <a href="/admin/users" className="chip">
-          👤 ユーザー承認
-        </a>
-        <a href={`/admin/invoices?ym=${ym}`} className="chip">
-          📄 請求書
-        </a>
-      </div>
-
-      {/* ❓ヘルプ ON のとき出る、全体の使い方 */}
       <div className="help-bubble">
         <b>この画面の使い方</b>　毎日はこの3ステップだけ：
-        <br />① <b>要確認</b>を片付ける（承認 or 削除）→ ② <b>直近の出面</b>で今日の入力を確認 → ③ 右の <b>今月の集計</b>を見る。月末に <b>請求書</b>を作るだけ。
-        <br />右上の「使い方」をもう一度押すと、この説明は消えます。
+        ① <b>要確認</b>を片付ける（承認 か 削除）→ ② <b>直近の出面</b>で今日の入力を確認 → ③ <b>今月の集計</b>を見る。月末に <b>請求書</b>を作るだけです。
       </div>
 
       {/* 月スイッチャー */}
@@ -387,9 +359,6 @@ export default async function AdminPage({
               href={a.href}
               className={`next-action next-action--${a.level}`}
             >
-              <span className="na-ico" aria-hidden>
-                {a.level === "warn" ? "⚠" : a.level === "ok" ? "✓" : "→"}
-              </span>
               <span className="na-text">{a.text}</span>
               <span className="na-arrow" aria-hidden>
                 ›
@@ -401,15 +370,15 @@ export default async function AdminPage({
 
       {/* 今月の状態（カード） */}
       <div className="metric-grid">
-        <a className="metric" href="/admin">
+        <div className="metric">
           <div className="metric-v">{home.metrics.monthReports}</div>
           <div className="metric-k">今月の入力</div>
-        </a>
-        <a className="metric" href="/admin">
+        </div>
+        <div className="metric">
           <div className="metric-v">{home.metrics.needsReview}</div>
           <div className="metric-k">要確認</div>
-        </a>
-        <a className="metric" href="/admin/users">
+        </div>
+        <a className="metric" href="/admin/users?tab=pending">
           <div className="metric-v">{home.metrics.pendingUsers}</div>
           <div className="metric-k">承認待ち</div>
         </a>
@@ -421,10 +390,10 @@ export default async function AdminPage({
           <div className="metric-v">{home.metrics.draftInvoices}</div>
           <div className="metric-k">未発行</div>
         </a>
-        <a className="metric" href="/admin">
+        <div className="metric">
           <div className="metric-v">{home.metrics.partnerReports}</div>
-          <div className="metric-k">パートナー入力</div>
-        </a>
+          <div className="metric-k">協力会社</div>
+        </div>
       </div>
 
       {/* PC は 2 カラム（左=日々のチェック / 右=集計・請求）。モバイルは縦 1 列。 */}
@@ -447,9 +416,7 @@ export default async function AdminPage({
               <b>承認</b>、間違いなら <b>削除</b>。ここが空なら確認待ちゼロ＝OKです。
             </div>
             {needsReview.length === 0 ? (
-              <div className="empty-ok">
-                <span aria-hidden>✓</span> 確認待ちはありません。
-              </div>
+              <div className="empty-ok">確認待ちはありません。</div>
             ) : (
               <div className="review-list">
                 {needsReview.map((r) => {
@@ -471,7 +438,7 @@ export default async function AdminPage({
                               isPartner ? "badge--partner" : "badge--self"
                             }`}
                           >
-                            {r.org.kind}
+                            {r.org.kind === "SELF" ? "自社" : "協力会社"}
                           </span>
                         </div>
                         <div className="review-meta">
@@ -522,12 +489,9 @@ export default async function AdminPage({
             </div>
             {recent.length === 0 ? (
               <div className="empty-state">
-                <div className="es-ico" aria-hidden>
-                  🗒️
-                </div>
                 <div className="es-title">まだ {ym} の出面がありません</div>
                 <p className="es-sub">
-                  LIFF（日報入力フォーム）から送られた出面が、ここに表示されます。
+                  出面入力（LINE）から送られた出面が、ここに表示されます。
                 </p>
                 <div className="es-actions">
                   <a href="/admin/masters" className="btn btn--ghost btn--sm">
@@ -551,15 +515,12 @@ export default async function AdminPage({
 
             {/* 月末の請求へ（集計を待たず即表示） */}
             <a href={`/admin/invoices?ym=${ym}`} className="invoice-cta">
-              <span className="invoice-cta-ico" aria-hidden>
-                📄
-              </span>
               <span>
                 <span className="invoice-cta-title">請求書を作る</span>
                 <span className="invoice-cta-sub">集計どおりに月末発行</span>
               </span>
               <span className="invoice-cta-arrow" aria-hidden>
-                →
+                ›
               </span>
             </a>
 

@@ -150,12 +150,9 @@ export default async function InvoicesPage({
   const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
 
   return (
-    <main className="container">
+    <main className="container admin-narrow">
       <div className="page-head">
         <h1 className="page-title">請求書</h1>
-        <a href={`/admin?ym=${ym}`} className="badge">
-          ← 集計
-        </a>
       </div>
 
       {/* ステップ（迷わない導線） */}
@@ -181,7 +178,7 @@ export default async function InvoicesPage({
       )}
       {anyRateMissing && (
         <div className="notice notice--warn" style={{ marginBottom: 12 }}>
-          ⚠ 単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
+          単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
           <a href="/admin/masters">マスタ管理 → 単価</a> で登録してください。
         </div>
       )}
@@ -317,7 +314,7 @@ export default async function InvoicesPage({
                     |
                   </span>
                   <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
-                    📄 請求書(Excel)
+                    請求書(Excel)
                   </a>
                   <span style={{ margin: "0 8px", color: "var(--ink-3)" }}>
                     /

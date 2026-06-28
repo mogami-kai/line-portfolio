@@ -10,21 +10,21 @@ export const ROLE_LABELS: Record<Role, string> = {
   ADMIN: "管理者",
   OWNER: "自社メンバー",
   VIEWER: "閲覧",
-  PARTNER: "パートナー",
+  PARTNER: "協力会社",
 };
 
 export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   ADMIN: "すべて管理できる（マスタ・集計・請求・ユーザー承認）。管理画面に入れる唯一のロール。",
   OWNER: "自社の出面を入力・確認できる（管理画面には入れません）。",
-  PARTNER: "所属するパートナー会社の出面だけ入力できる（管理画面には入れません）。",
+  PARTNER: "所属する協力会社の出面だけ入力できる（管理画面には入れません）。",
   VIEWER: "閲覧のみ想定（現状は自社メンバーと同等の入力ができます）。",
 };
 
 export const ROLE_OPTIONS: Role[] = ["PARTNER", "OWNER", "VIEWER", "ADMIN"];
 
 export const ORG_KIND_LABELS: Record<OrgKind, string> = {
-  SELF: "自社入力",
-  PARTNER: "パートナー入力",
+  SELF: "自社",
+  PARTNER: "協力会社",
 };
 
 /**
@@ -37,7 +37,7 @@ export function describeAccess(role: Role, orgKind: OrgKind): string[] {
       "全社のデータを集約して確認できる",
     ];
   }
-  const where = orgKind === "PARTNER" ? "パートナー会社" : "自社";
+  const where = orgKind === "PARTNER" ? "協力会社" : "自社";
   const post =
     orgKind === "SELF"
       ? "入力した出面は自社LINEグループに投稿される"

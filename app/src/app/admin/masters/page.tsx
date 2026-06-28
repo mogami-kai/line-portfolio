@@ -93,7 +93,7 @@ export default async function MastersPage() {
   }[] = [
     {
       key: "setting",
-      label: "発行元（自社情報）を登録",
+      label: "自社情報を登録",
       href: "#setting",
       done: !!setting?.issuerName?.trim(),
     },
@@ -113,7 +113,7 @@ export default async function MastersPage() {
     { key: "rates", label: "単価を登録", href: "#rates", done: rates.length > 0 },
     {
       key: "orgs",
-      label: "パートナー会社を追加（任意）",
+      label: "協力会社を追加（任意）",
       href: "#orgs",
       done: orgs.some(
         (o) => o.kind === "PARTNER" && o.name !== "未割当（承認待ち）",
@@ -127,25 +127,20 @@ export default async function MastersPage() {
 
   // セクションナビ。
   const navItems = [
-    { href: "#setting", label: "発行元" },
+    { href: "#setting", label: "自社情報" },
     { href: "#clients", label: "取引先" },
     { href: "#sites", label: "現場" },
     { href: "#workers", label: "職人" },
     { href: "#rates", label: "単価" },
-    { href: "#orgs", label: "自社/パートナー" },
+    { href: "#orgs", label: "自社/協力会社" },
     { href: "#lumps", label: "請負金額" },
   ];
 
   return (
-    <main className="container">
+    <main className="container admin-narrow">
       <div className="page-head">
         <h1 className="page-title">マスタ管理</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <HelpToggle />
-          <a href="/admin" className="badge">
-            ← 管理
-          </a>
-        </div>
+        <HelpToggle />
       </div>
 
       <p className="page-sub">
@@ -157,7 +152,7 @@ export default async function MastersPage() {
         <b>はじめての設定は、この順番でOK。</b>
         <br />① <b>取引先</b>（仕事をもらう相手・請求先）→ ② <b>現場</b>（その取引先の現場名）→ ③{" "}
         <b>職人</b>（自社のメンバー）→ ④ <b>単価</b>（取引先ごとの1人工の金額）。
-        <br />⑤ <b>自社情報</b>（請求書の発行元）は請求書を出す前に一度だけ。請負仕事があるときだけ ⑥{" "}
+        <br />⑤ <b>自社情報</b>（請求書に印字）は請求書を出す前に一度だけ。請負仕事があるときだけ ⑥{" "}
         <b>請負金額</b>。
         <br />※ 現場は、職人がLIFFで入力したものが自動で増えます。ここでは消したい時に消せます。
       </div>
@@ -178,7 +173,15 @@ export default async function MastersPage() {
               className={`setup-item ${c.done ? "is-done" : ""}`}
             >
               <span className="setup-check" aria-hidden>
-                {c.done ? "✓" : "○"}
+                {c.done ? (
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="9" />
+                  </svg>
+                )}
               </span>
               <span className="setup-label">{c.label}</span>
               {!c.done && (
@@ -220,10 +223,10 @@ export default async function MastersPage() {
       {/* 用語の整理（「自社」の三重混在を解消） */}
       <div className="help-bubble">
         <b>用語の整理（ここが分かれば迷いません）</b>
-        <br />・<b>発行元（自社情報）</b>＝請求書に印字するあなたの会社情報（名前・住所・振込先）。
+        <br />・<b>自社情報</b>＝請求書に印字するあなたの会社情報（名前・住所・振込先）。
         <br />・<b>取引先</b>＝請求先の会社。<b>現場</b>＝内部管理用の作業場所（請求書には出ません）。
         <br />・<b>自社入力</b>（SELF組織）＝出面が自社LINEグループに投稿される入力元。
-        <br />・<b>パートナー会社</b>（PARTNER組織）＝外部協力会社の入力元（グループには投稿されません）。
+        <br />・<b>協力会社</b>（PARTNER組織）＝外部の入力元（グループには投稿されません）。
       </div>
 
       {/* ───────── 取引先 ───────── */}
@@ -435,7 +438,7 @@ export default async function MastersPage() {
               <option value="" disabled>選択してください</option>
               {orgs.map((o) => (
                 <option key={o.id} value={o.id}>
-                  {o.name}（{o.kind === "SELF" ? "自社" : "パートナー"}）
+                  {o.name}（{o.kind === "SELF" ? "自社" : "協力会社"}）
                 </option>
               ))}
             </select>
@@ -492,7 +495,7 @@ export default async function MastersPage() {
         <b>PARTNER＝協力会社</b>（管理画面の集計だけに入り、グループには出ません）。普段は自社が1つあればOK。
       </div>
       <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
-        ※ パートナー追加＝ここに <strong>PARTNER</strong> を足すだけ。ユーザー承認でそのパートナーに割り当てます。
+        ※ 協力会社の追加＝ここに 1 件足すだけ。ユーザー承認でその協力会社に割り当てます。
       </p>
       <details className="card">
         <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 組織を追加</summary>
@@ -504,8 +507,8 @@ export default async function MastersPage() {
           <div className="field">
             <label className="label">種別</label>
             <select className="select" name="kind" defaultValue="PARTNER">
-              <option value="PARTNER">パートナー（PARTNER）</option>
-              <option value="SELF">自社（SELF）</option>
+              <option value="PARTNER">協力会社</option>
+              <option value="SELF">自社</option>
             </select>
           </div>
           <button className="btn btn--primary" type="submit">追加</button>
@@ -517,7 +520,7 @@ export default async function MastersPage() {
             <summary className="list-title" style={{ cursor: "pointer" }}>
               {o.name}
               <span className={`badge ${o.kind === "SELF" ? "badge--self" : "badge--partner"}`} style={{ marginLeft: 6 }}>
-                {o.kind}
+                {o.kind === "SELF" ? "自社" : "協力会社"}
               </span>
               {!o.active && <span className="badge" style={{ marginLeft: 6 }}>無効</span>}
             </summary>
@@ -542,12 +545,12 @@ export default async function MastersPage() {
 
       {/* ───────── 自社情報 ───────── */}
       <div className="section-head" id="setting">
-        <h2 className="section-title">自社情報（請求書 発行元）</h2>
+        <h2 className="section-title">自社情報（請求書の差出人）</h2>
       </div>
       <div className="card">
         <form action={saveInvoiceSettingAction}>
           <div className="field">
-            <label className="label">発行元名</label>
+            <label className="label">会社名</label>
             <input className="input" name="issuerName" required defaultValue={setting?.issuerName ?? ""} placeholder="例: ダミー工務店" />
           </div>
           <div className="field">

@@ -201,6 +201,13 @@ export default function LiffPage() {
   const [okResult, setOkResult] = useState<SubmitOk | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [errorKind, setErrorKind] = useState<"warn" | "error">("error");
+  const errorRef = useRef<HTMLDivElement | null>(null);
+  // エラー/聞き返しが出たら、その通知へスクロール（下部CTAから送って失敗しても気づける）。
+  useEffect(() => {
+    if (errorMsg) {
+      errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [errorMsg]);
   const [last, setLast] = useState<LastReport | null>(null);
 
   // 冪等キー: 「1件の出面」に対し一意。送信成功・新規入力でローテーションし、
@@ -437,7 +444,7 @@ export default function LiffPage() {
         setErrorKind("warn");
         setErrorMsg(
           data.message ||
-            "入力内容に確認が必要です。修正してもう一度送信してください。",
+            "入力内容のご確認が必要です。修正して再度送信してください。",
         );
         setView("form");
         return;
@@ -604,7 +611,9 @@ export default function LiffPage() {
       <main className="container">
         <div className="card success">
           <div className="success-ico" aria-hidden>
-            ✅
+            <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
           </div>
           <div className="success-title">登録しました</div>
           <div className="summary-list">
@@ -635,7 +644,7 @@ export default function LiffPage() {
               {okResult.askback ? (
                 <p className="notice-pre">{okResult.askback}</p>
               ) : (
-                <span>内容に確認事項があるため、要確認リストに入りました。</span>
+                <span>内容に確認事項があるため、要確認として登録しました。</span>
               )}
             </div>
           )}
@@ -761,7 +770,12 @@ export default function LiffPage() {
       {last && (
         <button type="button" className="repeat-btn" onClick={onRepeat}>
           <span className="repeat-ico" aria-hidden>
-            🔁
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8.1-5" />
+              <path d="M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8.1 5" />
+              <path d="M21 3v5h-5" />
+              <path d="M3 21v-5h5" />
+            </svg>
           </span>
           <span>
             <span className="repeat-main">前回と同じで送る</span>
@@ -779,12 +793,13 @@ export default function LiffPage() {
       )}
       {errorMsg && (
         <div
+          ref={errorRef}
           className={`notice ${
             errorKind === "warn" ? "notice--warn" : "notice--error"
           }`}
         >
           {errorKind === "warn" && (
-            <p className="notice-title">確認してください</p>
+            <p className="notice-title">要確認</p>
           )}
           <p className="notice-pre" style={{ margin: 0 }}>
             {errorMsg}
@@ -904,7 +919,11 @@ export default function LiffPage() {
                   }}
                 >
                   <span className="worker-mark" aria-hidden>
-                    {e.selected ? "✓" : ""}
+                    {e.selected ? (
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    ) : null}
                   </span>
                   {w.name}
                 </div>
