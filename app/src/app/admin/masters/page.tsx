@@ -44,8 +44,17 @@ export default async function MastersPage() {
   const admin = await getAdminContext();
   if (!admin) redirect("/admin?error=login");
 
-  const [clients, sites, rates, workers, orgs, setting, lumps] =
-    await Promise.all([
+  const [
+    clients,
+    sites,
+    rates,
+    workers,
+    orgs,
+    setting,
+    lumps,
+    pendingUsers,
+    tempSiteCount,
+  ] = await Promise.all([
       prisma.client.findMany({ orderBy: { name: "asc" } }),
       prisma.site.findMany({
         orderBy: { name: "asc" },
@@ -68,9 +77,64 @@ export default async function MastersPage() {
         orderBy: [{ yearMonth: "desc" }, { createdAt: "desc" }],
         include: { client: { select: { name: true } } },
       }),
+      prisma.user.count({ where: { approved: false, status: "ACTIVE" } }),
+      prisma.site.count({ where: { isTemporary: true, isActive: true } }),
     ]);
 
   const ym = currentYearMonth();
+
+  // 初期設定チェックリスト（未完了に「次にやる」を出す）。
+  const checklist: {
+    key: string;
+    label: string;
+    href: string;
+    done: boolean;
+    optional?: boolean;
+  }[] = [
+    {
+      key: "setting",
+      label: "発行元（自社情報）を登録",
+      href: "#setting",
+      done: !!setting?.issuerName?.trim(),
+    },
+    {
+      key: "clients",
+      label: "取引先を登録",
+      href: "#clients",
+      done: clients.some((c) => c.active),
+    },
+    { key: "sites", label: "現場を登録", href: "#sites", done: sites.length > 0 },
+    {
+      key: "workers",
+      label: "職人を登録",
+      href: "#workers",
+      done: workers.some((w) => w.active),
+    },
+    { key: "rates", label: "単価を登録", href: "#rates", done: rates.length > 0 },
+    {
+      key: "orgs",
+      label: "パートナー会社を追加（任意）",
+      href: "#orgs",
+      done: orgs.some(
+        (o) => o.kind === "PARTNER" && o.name !== "未割当（承認待ち）",
+      ),
+      optional: true,
+    },
+  ];
+  const requiredItems = checklist.filter((c) => !c.optional);
+  const doneCount = requiredItems.filter((c) => c.done).length;
+  const nextItem = checklist.find((c) => !c.done && !c.optional);
+
+  // セクションナビ。
+  const navItems = [
+    { href: "#setting", label: "発行元" },
+    { href: "#clients", label: "取引先" },
+    { href: "#sites", label: "現場" },
+    { href: "#workers", label: "職人" },
+    { href: "#rates", label: "単価" },
+    { href: "#orgs", label: "自社/パートナー" },
+    { href: "#lumps", label: "請負金額" },
+  ];
 
   return (
     <main className="container">
@@ -96,6 +160,70 @@ export default async function MastersPage() {
         <br />⑤ <b>自社情報</b>（請求書の発行元）は請求書を出す前に一度だけ。請負仕事があるときだけ ⑥{" "}
         <b>請負金額</b>。
         <br />※ 現場は、職人がLIFFで入力したものが自動で増えます。ここでは消したい時に消せます。
+      </div>
+
+      {/* 初期設定チェックリスト（上から順に埋めれば運用開始できる） */}
+      <div className="card setup-card">
+        <div className="setup-head">
+          <b>初期設定</b>
+          <span className="muted">
+            {doneCount}/{requiredItems.length} 完了
+          </span>
+        </div>
+        <div className="setup-list">
+          {checklist.map((c) => (
+            <a
+              key={c.key}
+              href={c.href}
+              className={`setup-item ${c.done ? "is-done" : ""}`}
+            >
+              <span className="setup-check" aria-hidden>
+                {c.done ? "✓" : "○"}
+              </span>
+              <span className="setup-label">{c.label}</span>
+              {!c.done && (
+                <span className="setup-cta">{c.optional ? "追加" : "次にやる →"}</span>
+              )}
+            </a>
+          ))}
+        </div>
+        <p className="muted setup-next">
+          {nextItem
+            ? `まずは「${nextItem.label.replace("を登録", "")}」から。上から順でOKです。`
+            : "必須の初期設定は完了しています。あとは運用するだけ。"}
+        </p>
+        {(pendingUsers > 0 || tempSiteCount > 0) && (
+          <div className="setup-alerts">
+            {pendingUsers > 0 && (
+              <a href="/admin/users" className="badge badge--review">
+                承認待ち {pendingUsers}人
+              </a>
+            )}
+            {tempSiteCount > 0 && (
+              <a href="#sites" className="badge badge--review">
+                要確認スポット現場 {tempSiteCount}件
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* セクションナビ */}
+      <div className="chip-wrap" style={{ marginBottom: 12 }}>
+        {navItems.map((n) => (
+          <a key={n.href} href={n.href} className="chip">
+            {n.label}
+          </a>
+        ))}
+      </div>
+
+      {/* 用語の整理（「自社」の三重混在を解消） */}
+      <div className="help-bubble">
+        <b>用語の整理（ここが分かれば迷いません）</b>
+        <br />・<b>発行元（自社情報）</b>＝請求書に印字するあなたの会社情報（名前・住所・振込先）。
+        <br />・<b>取引先</b>＝請求先の会社。<b>現場</b>＝内部管理用の作業場所（請求書には出ません）。
+        <br />・<b>自社入力</b>（SELF組織）＝出面が自社LINEグループに投稿される入力元。
+        <br />・<b>パートナー会社</b>（PARTNER組織）＝外部協力会社の入力元（グループには投稿されません）。
       </div>
 
       {/* ───────── 取引先 ───────── */}

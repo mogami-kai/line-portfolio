@@ -222,6 +222,68 @@ a {
   height: 18px;
 }
 
+/* ── マスタ: 初期設定チェックリスト ── */
+.setup-card {
+  padding: 14px;
+}
+.setup-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.setup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.setup-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  text-decoration: none;
+}
+.setup-item:hover {
+  background: #f4f6f8;
+}
+.setup-check {
+  width: 20px;
+  text-align: center;
+  font-weight: 800;
+  color: var(--ink-3);
+}
+.setup-item.is-done .setup-check {
+  color: var(--accent);
+}
+.setup-item.is-done .setup-label {
+  color: var(--ink-2);
+}
+.setup-label {
+  flex: 1;
+  font-weight: 700;
+  font-size: 14px;
+}
+.setup-cta {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--accent-dark);
+}
+.setup-next {
+  margin-top: 10px;
+}
+.setup-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.setup-alerts .badge {
+  text-decoration: none;
+}
+
 /* ── セグメント（大トグル：日勤/半日/夜勤・常用/請負） ── */
 .seg {
   display: flex;
