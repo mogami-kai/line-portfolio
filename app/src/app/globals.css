@@ -284,6 +284,73 @@ a {
   text-decoration: none;
 }
 
+/* ── ダッシュボード: 次にやること / 今月の状態 ── */
+.next-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.next-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 700;
+}
+.next-action--warn {
+  border-color: var(--warn-ink);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+.next-action--ok {
+  color: var(--ink-2);
+}
+.na-ico {
+  font-weight: 800;
+}
+.na-text {
+  flex: 1;
+}
+.na-arrow {
+  font-size: 20px;
+  color: var(--ink-3);
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 14px 0;
+}
+.metric {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  padding: 12px;
+  text-align: center;
+  color: var(--ink);
+  text-decoration: none;
+}
+.metric-v {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.metric-k {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+@media (min-width: 1024px) {
+  .metric-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+}
+
 /* ── セグメント（大トグル：日勤/半日/夜勤・常用/請負） ── */
 .seg {
   display: flex;
