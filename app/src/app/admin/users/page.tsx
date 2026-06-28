@@ -121,7 +121,7 @@ export default async function UsersPage({
 
       {tab === "pending" && counts.pending > 0 && (
         <p className="muted" style={{ marginBottom: 10 }}>
-          ※ パートナーは <strong>パートナー会社</strong> に、ADMIN/自社メンバーは{" "}
+          ※ 協力会社のメンバーは <strong>協力会社</strong> に、ADMIN/自社メンバーは{" "}
           <strong>自社</strong> に割り当ててください（ロールと組織の整合が必要です）。
         </p>
       )}
@@ -151,7 +151,7 @@ export default async function UsersPage({
                   className={`badge ${isPartnerOrg ? "badge--partner" : "badge--self"}`}
                   style={{ marginLeft: 4 }}
                 >
-                  {isPartnerOrg ? "パートナー入力" : "自社入力"}
+                  {isPartnerOrg ? "協力会社" : "自社"}
                 </span>
                 <span className="muted" style={{ marginLeft: 8 }}>
                   {ROLE_LABELS[u.role] ?? u.role} / {u.org.name}
@@ -191,7 +191,7 @@ export default async function UsersPage({
                   <div className="field">
                     <label className="label">所属組織</label>
                     <select className="select" name="orgId" defaultValue={u.orgId}>
-                      <optgroup label="パートナー会社">
+                      <optgroup label="協力会社">
                         {partnerOrgs.map((o) => (
                           <option key={o.id} value={o.id}>
                             {o.name}
@@ -207,7 +207,7 @@ export default async function UsersPage({
                       </optgroup>
                     </select>
                     <p className="hint">
-                      ※ パートナー＝パートナー会社、管理者/自社メンバー＝自社、に割り当てます。
+                      ※ 協力会社のメンバーは協力会社に、管理者/自社メンバーは自社に割り当てます。
                     </p>
                   </div>
                   <label className="inline-row" style={{ gap: 8 }}>

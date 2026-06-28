@@ -157,7 +157,7 @@ async function MonthSummary({ ym }: { ym: string }) {
       {/* 自社 取引先別（請求の見方） */}
       <div className="section-head">
         <h3 className="section-subtitle">
-          取引先別（請求の見方）<span className="badge badge--self">SELF</span>
+          取引先別（請求の見方）<span className="badge badge--self">自社</span>
         </h3>
       </div>
       <div className="help-bubble">
@@ -171,16 +171,14 @@ async function MonthSummary({ ym }: { ym: string }) {
 
       {/* パートナー 取引先別 */}
       <div className="section-head">
-        <h3 className="section-subtitle">
-          パートナー <span className="badge badge--partner">PARTNER</span>
-        </h3>
+        <h3 className="section-subtitle">取引先別（協力会社）</h3>
       </div>
       <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
         ※ 管理画面のみで集約（出面グループには投稿されません）。
       </p>
       <ClientAccordion
         rows={partner}
-        emptyLabel="この月のパートナーデータはありません。"
+        emptyLabel="この月の協力会社のデータはありません。"
       />
     </>
   );
@@ -394,7 +392,7 @@ export default async function AdminPage({
         </a>
         <a className="metric" href="/admin">
           <div className="metric-v">{home.metrics.partnerReports}</div>
-          <div className="metric-k">パートナー入力</div>
+          <div className="metric-k">協力会社</div>
         </a>
       </div>
 
@@ -440,7 +438,7 @@ export default async function AdminPage({
                               isPartner ? "badge--partner" : "badge--self"
                             }`}
                           >
-                            {r.org.kind}
+                            {r.org.kind === "SELF" ? "自社" : "協力会社"}
                           </span>
                         </div>
                         <div className="review-meta">
@@ -493,7 +491,7 @@ export default async function AdminPage({
               <div className="empty-state">
                 <div className="es-title">まだ {ym} の出面がありません</div>
                 <p className="es-sub">
-                  LIFF（日報入力フォーム）から送られた出面が、ここに表示されます。
+                  出面入力（LINE）から送られた出面が、ここに表示されます。
                 </p>
                 <div className="es-actions">
                   <a href="/admin/masters" className="btn btn--ghost btn--sm">

@@ -356,7 +356,7 @@ export function buildAskbackMessage(report: ReportResult): string {
   if (!issues.length) return "";
   const head =
     report.status === "hold"
-      ? "【要確認】読み取れない項目があります。確認してください："
-      : "【確認】念のため確認です（違ったら修正してください）：";
+      ? "【要確認】読み取れない項目があります。内容をご確認ください。"
+      : "【確認】以下の項目をご確認ください。誤りがあれば修正してください。";
   return head + "\n" + issues.map((s) => "・" + s).join("\n");
 }

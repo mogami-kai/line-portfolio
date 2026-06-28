@@ -437,7 +437,7 @@ export default function LiffPage() {
         setErrorKind("warn");
         setErrorMsg(
           data.message ||
-            "入力内容に確認が必要です。修正してもう一度送信してください。",
+            "入力内容のご確認が必要です。修正して再度送信してください。",
         );
         setView("form");
         return;
@@ -637,7 +637,7 @@ export default function LiffPage() {
               {okResult.askback ? (
                 <p className="notice-pre">{okResult.askback}</p>
               ) : (
-                <span>内容に確認事項があるため、要確認リストに入りました。</span>
+                <span>内容に確認事項があるため、要確認として登録しました。</span>
               )}
             </div>
           )}
@@ -791,7 +791,7 @@ export default function LiffPage() {
           }`}
         >
           {errorKind === "warn" && (
-            <p className="notice-title">確認してください</p>
+            <p className="notice-title">要確認</p>
           )}
           <p className="notice-pre" style={{ margin: 0 }}>
             {errorMsg}
