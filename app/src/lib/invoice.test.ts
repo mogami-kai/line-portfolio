@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import ExcelJS from "exceljs";
 import {
   aggregateForInvoice,
   buildClientLines,
@@ -225,21 +226,64 @@ describe("toCSV", () => {
   });
 });
 
-describe("toXlsx", () => {
-  it("Workbook を返し、明細セルに金額が入る", async () => {
+describe("toXlsx（テンプレ準拠・数式）", () => {
+  it("件名/宛先/発行元/振込先/明細(数式)/合計(数式) を埋め、再読込で検証できる", async () => {
+    const tlines = buildClientLines(
+      { manDays: 106, otHours: 1, expenses: [{ kind: "駐車", amount: 3000 }] },
+      { unitPrice: 22000, taxRate: 0.1, joyoItemName: "6月委託料" },
+    );
     const wb = toXlsx({
       invoiceNo: "2026-001",
       issueDate: "2026/06/30",
+      yearMonth: "2026-06",
       client: "ダミー商事",
-      address: "ダミー県ダミー市1-2-3",
-      issuer: { issuerName: "ダミー工務店", taxRate: TAX },
-      lines,
-      taxRate: TAX,
+      honorific: "様",
+      address: "ダミー県1-2-3",
+      issuer: { issuerName: "ダミー工務店", bankInfo: "ダミー銀行 ダミー支店 普通 0000000" },
+      lines: tlines,
+      taxRate: 0.1,
     });
-    const ws = wb.getWorksheet("請求書");
-    expect(ws).toBeDefined();
-    // バッファ書き出しが成功する（壊れたワークブックでない）
     const buf = await wb.xlsx.writeBuffer();
-    expect(buf.byteLength).toBeGreaterThan(0);
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.load(buf as ArrayBuffer);
+    const ws = wb2.getWorksheet("請求書")!;
+    const txt = (addr: string) => {
+      const v = ws.getCell(addr).value as unknown;
+      if (v && typeof v === "object" && "richText" in (v as object)) {
+        return (v as { richText: { text: string }[] }).richText.map((t) => t.text).join("");
+      }
+      return v;
+    };
+
+    expect(txt("A2")).toBe("請　求　書");
+    expect(String(txt("A13"))).toContain("2026年6月分");
+    expect(String(txt("A7"))).toContain("ダミー商事");
+    expect(String(txt("A7"))).toContain("様");
+    expect(txt("E7")).toBe("ダミー工務店");
+
+    // 明細1行目＝○月委託料、数量＝人工合計、単価
+    expect(txt("B20")).toBe("6月委託料");
+    expect(ws.getCell("C20").value).toBe(106);
+    expect(ws.getCell("E20").value).toBe(22000);
+    // F20 は「数量×単価」の数式＋計算済み結果
+    const f20 = ws.getCell("F20").value as { formula: string; result: number };
+    expect(f20.formula).toContain("C20*E20");
+    expect(f20.result).toBe(106 * 22000);
+
+    // 三桁区切り（数量・単価・金額すべてカンマ書式）
+    expect(ws.getCell("C20").numFmt).toContain("#,##0");
+    expect(ws.getCell("E20").numFmt).toContain("#,##0");
+    expect(ws.getCell("F20").numFmt).toContain("#,##0");
+
+    // 2行目＝残業、3行目＝立替
+    expect(txt("B21")).toBe("残業");
+    expect(String(txt("B22"))).toContain("立替");
+
+    // 合計（税込）は数式 F36+F37（明細15行→小計36/消費税37/合計38）
+    const total = ws.getCell("F38").value as { formula: string; result: number };
+    expect(total.formula).toBe("F36+F37");
+
+    // 振込先は DB の bankInfo を反映
+    expect(String(txt("A45"))).toContain("ダミー銀行");
   });
 });

@@ -212,14 +212,14 @@ export default async function InvoicesPage({
                   <span style={{ margin: "0 10px", color: "var(--line)" }}>
                     |
                   </span>
-                  <a href={`/api/invoices/${iv.id}/export?format=csv`}>
-                    CSV
+                  <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
+                    📄 請求書(Excel)
                   </a>
                   <span style={{ margin: "0 8px", color: "var(--ink-3)" }}>
                     /
                   </span>
-                  <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
-                    xlsx
+                  <a href={`/api/invoices/${iv.id}/export?format=csv`}>
+                    CSV(会計取込)
                   </a>
                 </div>
               )}
