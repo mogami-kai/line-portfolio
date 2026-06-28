@@ -259,8 +259,8 @@ export default async function MastersPage() {
             <input className="input" name="address" placeholder="例: ダミー県ダミー市1-2-3" />
           </div>
           <div className="field">
-            <label className="label">別名（カンマ/改行区切り・任意）</label>
-            <input className="input" name="aliases" placeholder="例: ダミー商事株式会社, ﾀﾞﾐｰ商事" />
+            <label className="label">常用単価（円 / 人工・任意）</label>
+            <input className="input input--num" name="unitPrice" type="number" min={0} step={100} inputMode="numeric" placeholder="例: 22000" />
           </div>
           <button className="btn btn--primary" type="submit">追加</button>
         </form>
@@ -294,8 +294,8 @@ export default async function MastersPage() {
                 <input className="input" name="address" defaultValue={c.address ?? ""} />
               </div>
               <div className="field">
-                <label className="label">別名</label>
-                <input className="input" name="aliases" defaultValue={c.aliases.join(", ")} />
+                <label className="label">常用単価（円 / 人工）</label>
+                <input className="input input--num" name="unitPrice" type="number" min={0} step={100} inputMode="numeric" defaultValue={c.unitPrice ?? ""} placeholder="例: 22000" />
               </div>
               <label className="inline-row" style={{ gap: 8 }}>
                 <input type="checkbox" name="active" defaultChecked={c.active} />

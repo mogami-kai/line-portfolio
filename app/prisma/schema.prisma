@@ -93,7 +93,8 @@ model Client {
   name      String
   honorific String   @default("御中") // 御中 / 様
   address   String?
-  aliases   String[] @default([]) // 名寄せ（工/興・L/R 等）
+  aliases   String[] @default([]) // 名寄せ（工/興・L/R 等）※v3でUIからは廃止（データは残置）
+  unitPrice Int?     // v3: 常用の人工単価（取引先で設定）。null=未設定→請求時に¥0警告
   active    Boolean  @default(true)
 
   sites    Site[]
@@ -183,7 +184,9 @@ model Report {
   client        Client       @relation(fields: [clientId], references: [id])
   siteId        String?
   site          Site?        @relation(fields: [siteId], references: [id])
+  siteName      String?      // v3: 現場の自由入力名（siteId に依存しない。請求には出ない）
   contractType  ContractType @default(JOYO)
+  contractAmount Int?        // v3: 請負(UKEOI)の契約金額。請求は「○月委託料 数量1」
   source        OrgKind // ルーティング: SELF→グループ投稿 / PARTNER→管理者のみ
   orgId         String
   org           Organization @relation(fields: [orgId], references: [id])

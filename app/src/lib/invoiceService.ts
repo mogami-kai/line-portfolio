@@ -94,6 +94,12 @@ async function resolveDefaultRate(
   clientId: string,
   on: Date,
 ): Promise<number | null> {
+  // v3: 取引先の常用単価を優先。未設定なら旧RateCard既定（過去分維持）。
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { unitPrice: true },
+  });
+  if (client?.unitPrice != null) return client.unitPrice;
   const card = await prisma.rateCard.findFirst({
     where: { clientId, siteId: null, contractType: "JOYO", effectiveFrom: { lte: on } },
     orderBy: { effectiveFrom: "desc" },
@@ -111,6 +117,14 @@ export async function clientsWithDefaultRate(
   on: Date,
 ): Promise<Set<string>> {
   if (clientIds.length === 0) return new Set();
+  const has = new Set<string>();
+  // v3: 取引先に常用単価が入っていれば「登録済み」。
+  const priced = await prisma.client.findMany({
+    where: { id: { in: clientIds }, unitPrice: { not: null } },
+    select: { id: true },
+  });
+  priced.forEach((c) => has.add(c.id));
+  // 未設定分は旧RateCard既定でフォールバック判定（過去分維持）。
   const cards = await prisma.rateCard.findMany({
     where: {
       clientId: { in: clientIds },
@@ -120,7 +134,8 @@ export async function clientsWithDefaultRate(
     },
     select: { clientId: true },
   });
-  return new Set(cards.map((c) => c.clientId));
+  cards.forEach((c) => has.add(c.clientId));
+  return has;
 }
 
 // ============================================================

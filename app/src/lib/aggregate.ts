@@ -55,6 +55,15 @@ export async function rateLookup(
     : null;
   if (siteRate) return siteRate.unitPrice;
 
+  // v3: 常用(JOYO)は取引先の常用単価を優先（未設定なら旧RateCard・過去分維持）。
+  if (contractType === "JOYO") {
+    const client = await prisma.client.findUnique({
+      where: { id: clientId },
+      select: { unitPrice: true },
+    });
+    if (client?.unitPrice != null) return client.unitPrice;
+  }
+
   const defaultRate = await prisma.rateCard.findFirst({
     where: {
       clientId,
@@ -205,6 +214,13 @@ async function loadDefaultJoyoRates(
 ): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (clientIds.length === 0) return map;
+  // v3: 取引先の常用単価を優先（1クエリ）。
+  const clients = await prisma.client.findMany({
+    where: { id: { in: clientIds } },
+    select: { id: true, unitPrice: true },
+  });
+  for (const c of clients) if (c.unitPrice != null) map.set(c.id, c.unitPrice);
+  // 未設定分のみ旧RateCard既定でフォールバック（過去分維持）。
   const cards = await prisma.rateCard.findMany({
     where: {
       clientId: { in: clientIds },
