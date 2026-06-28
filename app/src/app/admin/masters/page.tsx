@@ -103,14 +103,13 @@ export default async function MastersPage() {
       href: "#clients",
       done: clients.some((c) => c.active),
     },
-    { key: "sites", label: "現場を登録", href: "#sites", done: sites.length > 0 },
     {
       key: "workers",
       label: "職人を登録",
       href: "#workers",
       done: workers.some((w) => w.active),
     },
-    { key: "rates", label: "単価を登録", href: "#rates", done: rates.length > 0 },
+    { key: "rates", label: "取引先ごとに単価を登録", href: "#clients", done: clients.some((c) => c.unitPrice != null) },
     {
       key: "orgs",
       label: "協力会社を追加（任意）",
@@ -129,11 +128,8 @@ export default async function MastersPage() {
   const navItems = [
     { href: "#setting", label: "自社情報" },
     { href: "#clients", label: "取引先" },
-    { href: "#sites", label: "現場" },
     { href: "#workers", label: "職人" },
-    { href: "#rates", label: "単価" },
     { href: "#orgs", label: "自社/協力会社" },
-    { href: "#lumps", label: "請負金額" },
   ];
 
   return (
@@ -150,11 +146,10 @@ export default async function MastersPage() {
       {/* ❓ヘルプ ON のとき：最初にやること（順番） */}
       <div className="help-bubble">
         <b>はじめての設定は、この順番でOK。</b>
-        <br />① <b>取引先</b>（仕事をもらう相手・請求先）→ ② <b>現場</b>（その取引先の現場名）→ ③{" "}
-        <b>職人</b>（自社のメンバー）→ ④ <b>単価</b>（取引先ごとの1人工の金額）。
-        <br />⑤ <b>自社情報</b>（請求書に印字）は請求書を出す前に一度だけ。請負仕事があるときだけ ⑥{" "}
-        <b>請負金額</b>。
-        <br />※ 現場は、職人がLIFFで入力したものが自動で増えます。ここでは消したい時に消せます。
+        <br />① <b>取引先</b>（仕事をもらう相手・請求先。<b>常用単価</b>もここで設定）→ ②{" "}
+        <b>職人</b>（自社のメンバー。職人はLIFFからも追加できます）。
+        <br />③ <b>自社情報</b>（請求書に印字）は請求書を出す前に一度だけ。
+        <br />※ 現場は出面入力（LIFF）で自由入力。請負金額も出面入力で「請負」を選んだ時に入れます。
       </div>
 
       {/* 初期設定チェックリスト（上から順に埋めれば運用開始できる） */}
@@ -306,118 +301,6 @@ export default async function MastersPage() {
               </div>
             </form>
           </details>
-        ))}
-      </div>
-
-      {/* ───────── 現場 ───────── */}
-      <div className="section-head" id="sites">
-        <h2 className="section-title">現場（Site）</h2>
-      </div>
-      <div className="help-bubble">
-        <b>取引先ごとの現場名。</b>{" "}
-        例：みなとみらい、橋本、町田 など。職人がLIFFで「＋新規現場」を足すと自動でここに増えます。重複や打ち間違いを消したい時はここで削除。
-      </div>
-      <details className="card">
-        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 現場を追加</summary>
-        <form action={createSiteAction} style={{ marginTop: 12 }}>
-          <div className="field">
-            <label className="label">取引先</label>
-            <select className="select" name="clientId" required defaultValue="">
-              <option value="" disabled>選択してください</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label className="label">現場名</label>
-            <input className="input" name="name" required placeholder="例: ダミー第一現場" />
-          </div>
-          <button className="btn btn--primary" type="submit">追加</button>
-        </form>
-      </details>
-      <div className="list">
-        {sites.length === 0 && <p className="muted">現場がありません。</p>}
-        {sites.map((s) => (
-          <div className="list-row" key={s.id}>
-            <div className="list-main">
-              <div className="list-title">{s.name}</div>
-              <div className="list-meta">{s.client.name}</div>
-            </div>
-            <form action={deleteSiteAction}>
-              <input type="hidden" name="id" value={s.id} />
-              <button className="btn btn--danger-text" type="submit">削除</button>
-            </form>
-          </div>
-        ))}
-      </div>
-
-      {/* ───────── 単価 ───────── */}
-      <div className="section-head" id="rates">
-        <h2 className="section-title">単価（RateCard）</h2>
-      </div>
-      <div className="help-bubble">
-        <b>1人工あたりの金額。</b>{" "}
-        取引先ごとに「常用1人工 = ◯◯円」を登録します。現場は空でOK（取引先の既定単価）。請求書の金額と概算は、この単価 ×
-        人工で計算されます。残業は自動で「単価 ÷ 8 × 1.25 × 時間」。
-      </div>
-      <details className="card">
-        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 単価を追加</summary>
-        <form action={createRateAction} style={{ marginTop: 12 }}>
-          <div className="field">
-            <label className="label">取引先</label>
-            <select className="select" name="clientId" required defaultValue="">
-              <option value="" disabled>選択してください</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label className="label">現場（空＝取引先の既定単価）</label>
-            <select className="select" name="siteId" defaultValue="">
-              <option value="">（取引先の既定単価）</option>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.client.name} / {s.name}
-                </option>
-              ))}
-            </select>
-            <p className="hint">※ 現場を選ぶ場合、その現場は上の取引先に属している必要があります。</p>
-          </div>
-          <div className="field">
-            <label className="label">契約種別</label>
-            <select className="select" name="contractType" defaultValue="JOYO">
-              <option value="JOYO">常用</option>
-              <option value="UKEOI">請負</option>
-            </select>
-          </div>
-          <div className="field">
-            <label className="label">単価（円・税抜）</label>
-            <input className="input" name="unitPrice" type="number" min={0} step={100} required placeholder="例: 22000" />
-          </div>
-          <div className="field">
-            <label className="label">適用開始日（任意）</label>
-            <input className="input" name="effectiveFrom" type="date" />
-          </div>
-          <button className="btn btn--primary" type="submit">追加</button>
-        </form>
-      </details>
-      <div className="list">
-        {rates.length === 0 && <p className="muted">単価がありません。</p>}
-        {rates.map((r) => (
-          <div className="list-row" key={r.id}>
-            <div className="list-main">
-              <div className="list-title">{yen(r.unitPrice)} <span className="muted">/ {contractLabel(r.contractType)}</span></div>
-              <div className="list-meta">
-                {r.client.name} / {r.site?.name ?? "（既定）"} ・ 開始 {r.effectiveFrom.toISOString().slice(0, 10)}
-              </div>
-            </div>
-            <form action={deleteRateAction}>
-              <input type="hidden" name="id" value={r.id} />
-              <button className="btn btn--danger-text" type="submit">削除</button>
-            </form>
-          </div>
         ))}
       </div>
 
@@ -595,74 +478,6 @@ export default async function MastersPage() {
           </div>
           <button className="btn btn--primary" type="submit">保存</button>
         </form>
-      </div>
-
-      {/* ───────── 請負金額 ───────── */}
-      <div className="section-head" id="lumps">
-        <h2 className="section-title">請負金額（LumpContract）</h2>
-      </div>
-      <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
-        ※ 請負（UKEOI）の契約金額を取引先×月で登録。請求書生成時、対象月の <strong>ACTIVE</strong> 契約が「{"{案件}"} 一式」として明細に入ります。
-      </p>
-      <details className="card">
-        <summary className="disclosure-btn" style={{ padding: 0 }}>＋ 請負金額を追加</summary>
-        <form action={createLumpContractAction} style={{ marginTop: 12 }}>
-          <div className="field">
-            <label className="label">取引先</label>
-            <select className="select" name="clientId" required defaultValue="">
-              <option value="" disabled>選択してください</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label className="label">案件名</label>
-            <input className="input" name="name" required placeholder="例: ダミー改修工事" />
-          </div>
-          <div className="inline-row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}>
-              <label className="label">金額（円・税抜）</label>
-              <input className="input input--num" name="amount" type="number" min={1} step={1000} required placeholder="例: 500000" />
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label className="label">対象月</label>
-              <input className="input" name="yearMonth" required defaultValue={ym} placeholder="YYYY-MM" pattern="\d{4}-\d{2}" />
-            </div>
-          </div>
-          <div className="field">
-            <label className="label">メモ（任意）</label>
-            <input className="input" name="note" />
-          </div>
-          <button className="btn btn--primary" type="submit">追加</button>
-        </form>
-      </details>
-      <div className="list">
-        {lumps.length === 0 && <p className="muted">請負金額がありません。</p>}
-        {lumps.map((l) => (
-          <div className="list-row" key={l.id}>
-            <div className="list-main">
-              <div className="list-title">
-                {l.name} {yen(l.amount)}
-                {l.status === "ARCHIVED" && (
-                  <span className="badge" style={{ marginLeft: 6 }}>除外</span>
-                )}
-              </div>
-              <div className="list-meta">{l.client.name} ・ {l.yearMonth}</div>
-            </div>
-            <form action={setLumpContractStatusAction}>
-              <input type="hidden" name="id" value={l.id} />
-              <input
-                type="hidden"
-                name="status"
-                value={l.status === "ACTIVE" ? "ARCHIVED" : "ACTIVE"}
-              />
-              <button className="btn btn--ghost btn--sm" type="submit">
-                {l.status === "ACTIVE" ? "除外" : "戻す"}
-              </button>
-            </form>
-          </div>
-        ))}
       </div>
 
       <p className="muted" style={{ marginTop: 20 }}>
