@@ -140,12 +140,7 @@ export default async function MastersPage() {
     <main className="container">
       <div className="page-head">
         <h1 className="page-title">マスタ管理</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <HelpToggle />
-          <a href="/admin" className="badge">
-            ← 管理
-          </a>
-        </div>
+        <HelpToggle />
       </div>
 
       <p className="page-sub">

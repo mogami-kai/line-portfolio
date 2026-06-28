@@ -153,9 +153,6 @@ export default async function InvoicesPage({
     <main className="container">
       <div className="page-head">
         <h1 className="page-title">請求書</h1>
-        <a href={`/admin?ym=${ym}`} className="badge">
-          ← 集計
-        </a>
       </div>
 
       {/* ステップ（迷わない導線） */}

@@ -89,12 +89,7 @@ export default async function UsersPage({
     <main className="container">
       <div className="page-head">
         <h1 className="page-title">ユーザー承認</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <HelpToggle />
-          <a href="/admin" className="badge">
-            ← 管理
-          </a>
-        </div>
+        <HelpToggle />
       </div>
 
       <div className="help-bubble">
