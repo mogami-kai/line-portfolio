@@ -5,26 +5,27 @@
 //
 //   設計方針（IT 不慣れな職人 / 親方向け・ワンタップ最優先）:
 //     - LIFF SDK を CDN から読み込み → liff.init → アクセストークン取得。
-//     - /api/masters で取引先・現場・職人を取得（Bearer = アクセストークン）。
+//     - /api/masters で取引先・職人を取得（Bearer = アクセストークン）。
 //     - 入力は極力タップだけ:
 //         勤務体系(日勤/半日/夜勤)・常用/請負 = 大きなセグメント／チップ。
-//         取引先・現場 = タップ選択。職人 = 複数選択チップ。
-//         新規現場名のみテキスト入力。
+//         取引先 = タップ選択。職人 = 複数選択チップ（＋自分で職人を追加できる）。
+//         現場 = 自由入力テキスト。
 //     - スマート既定: 日付=今日。取引先/現場/職人/契約 = 前回送信（localStorage）を復元。
 //     - ★「前回と同じで送る」: 画面上部の大ボタン。1タップで前回内容を確認画面へ。
 //     - 送信ボタンは画面下部に固定（親指ゾーン, 56px）。二重送信防止。
-//     - 送信後: ✅成功カード（要約）＋「もう1件入力」「閉じる」。
+//     - 送信後: 成功カード（要約）＋「もう1件入力」「閉じる」。
 //       聞き返し(422 hold / confirm)は notice に bot メッセージを出し、修正→再送できる。
 //
 //   ※ POST /api/reports のボディ形は厳守:
-//      { workDate, clientId, siteId?, contractType, entries[], expenses?[], newSiteName? }
+//      { workDate, clientId, siteName, contractType, contractAmount?, entries[], expenses?[] }
+//        - siteName: 現場の自由入力（siteId は送らない）。空文字可。
+//        - contractAmount: UKEOI(請負)のときだけ送る（税抜・正の整数）。JOYO では送らない。
 //
 //   ※ パートナーも同じこのページを開く。所属 org はサーバ側で解決されるため、
 //      自社/パートナーのトグルは UI に存在しない（本人は source を選ばない）。
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SitePicker } from "./_sitePicker.js";
 
 // 冪等キー生成（二重送信防止）。crypto.randomUUID 優先、無ければ簡易生成。
 function newRequestId(): string {
@@ -60,17 +61,9 @@ const LS_KEY = "demen:lastReport:v1";
 type Shift = "DAY" | "HALF" | "NIGHT";
 type ContractType = "JOYO" | "UKEOI";
 
-interface SiteOption {
-  id: string;
-  name: string;
-  isPinned?: boolean;
-  usageCount?: number;
-  lastUsedAt?: string | null;
-}
 interface ClientOption {
   id: string;
   name: string;
-  sites: SiteOption[];
 }
 interface WorkerOption {
   id: string;
@@ -81,6 +74,15 @@ interface MastersResponse {
   me?: { displayName: string; role: string; orgName: string };
   clients: ClientOption[];
   workers: WorkerOption[];
+  error?: string;
+  message?: string;
+}
+
+// 職人の自己追加 POST /api/workers の返却。
+interface WorkerCreated {
+  ok?: boolean;
+  id?: string;
+  name?: string;
   error?: string;
   message?: string;
 }
@@ -102,8 +104,9 @@ interface ExpenseState {
 // localStorage に保存する「前回送信」スナップショット。
 interface LastReport {
   clientId: string;
-  siteId: string;
+  siteName: string;
   contractType: ContractType;
+  contractAmount?: number;
   workerIds: string[];
   shiftByWorker: Record<string, Shift>;
 }
@@ -177,6 +180,13 @@ interface SubmitOk {
   summary: { date: string; client: string; site: string; count: number };
 }
 
+// 請負金額の文字列を正の整数に正規化（不正なら undefined）。
+function parseContractAmount(s: string): number | undefined {
+  const n = Math.round(Number(s));
+  if (!isFinite(n) || n <= 0) return undefined;
+  return n;
+}
+
 export default function LiffPage() {
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
@@ -187,14 +197,19 @@ export default function LiffPage() {
   // フォーム状態
   const [workDate, setWorkDate] = useState<string>(todayISO());
   const [clientId, setClientId] = useState<string>("");
-  const [siteId, setSiteId] = useState<string>("");
-  const [newSiteName, setNewSiteName] = useState<string>("");
-  const [newSiteTemporary, setNewSiteTemporary] = useState<boolean>(false);
-  const [showNewSite, setShowNewSite] = useState<boolean>(false);
+  // 現場は自由入力（現場マスタ非依存）。送信bodyの siteName。
+  const [siteName, setSiteName] = useState<string>("");
   const [contractType, setContractType] = useState<ContractType>("JOYO");
+  // 請負金額（円・税抜）。UKEOI のときだけ使用。入力は文字列で保持。
+  const [contractAmount, setContractAmount] = useState<string>("");
   const [entries, setEntries] = useState<EntryState[]>([]);
   const [showExpenses, setShowExpenses] = useState<boolean>(false);
   const [expenses, setExpenses] = useState<ExpenseState[]>([]);
+
+  // 職人の自己追加用
+  const [newWorkerName, setNewWorkerName] = useState<string>("");
+  const [addingWorker, setAddingWorker] = useState<boolean>(false);
+  const [workerAddError, setWorkerAddError] = useState<string | null>(null);
 
   const [view, setView] = useState<View>("form");
   const [submitting, setSubmitting] = useState(false);
@@ -279,13 +294,15 @@ export default function LiffPage() {
           : data.clients[0]?.id ?? "";
         setClientId(initialClientId);
 
-        // 現場の既定: 前回（同一取引先内に存在すれば）。
+        // 現場・契約の既定: 前回（同一取引先のとき）。
         if (savedClientValid) {
-          const c = data.clients.find((x) => x.id === saved!.clientId)!;
-          if (saved!.siteId && c.sites.some((s) => s.id === saved!.siteId)) {
-            setSiteId(saved!.siteId);
-          }
+          setSiteName(saved!.siteName ?? "");
           setContractType(saved!.contractType);
+          setContractAmount(
+            saved!.contractType === "UKEOI" && saved!.contractAmount
+              ? String(saved!.contractAmount)
+              : "",
+          );
         }
 
         // 職人行を初期化（前回選択を復元）。
@@ -319,19 +336,15 @@ export default function LiffPage() {
   );
 
   const clientName = currentClient?.name ?? "";
-  const siteName = useMemo(() => {
-    if (siteId) return currentClient?.sites.find((s) => s.id === siteId)?.name ?? "";
-    if (newSiteName.trim()) return newSiteName.trim() + "（新規）";
-    return "(現場未設定)";
-  }, [siteId, newSiteName, currentClient]);
+  // 確認/成功カードの現場表記。
+  const siteLabel = useMemo(() => {
+    const t = siteName.trim();
+    return t || "(現場未設定)";
+  }, [siteName]);
 
-  // 取引先を変えたら現場選択をリセット。
+  // 取引先を変えても現場の自由入力は維持（同じ現場で取引先だけ直す運用に配慮）。
   const onPickClient = useCallback((id: string) => {
     setClientId(id);
-    setSiteId("");
-    setNewSiteName("");
-    setNewSiteTemporary(false);
-    setShowNewSite(false);
   }, []);
 
   const toggleWorker = useCallback((workerId: string) => {
@@ -350,6 +363,69 @@ export default function LiffPage() {
     },
     [],
   );
+
+  // ── 職人を自分で追加（POST /api/workers）──
+  const onAddWorker = useCallback(async () => {
+    const name = newWorkerName.trim();
+    setWorkerAddError(null);
+    if (!name) {
+      setWorkerAddError("職人名を入力してください。");
+      return;
+    }
+    if (!token) {
+      setWorkerAddError("未認証です。");
+      return;
+    }
+    setAddingWorker(true);
+    try {
+      const res = await fetch("/api/workers", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name }),
+      });
+      const data = (await res.json()) as WorkerCreated;
+      if (!res.ok || !data.id || !data.name) {
+        setWorkerAddError(
+          data.message || data.error || "職人の追加に失敗しました。",
+        );
+        return;
+      }
+      const created: WorkerOption = { id: data.id, name: data.name };
+
+      // マスタへ反映（同名の重複追加を避ける）。
+      setMasters((prev) =>
+        prev && !prev.workers.some((w) => w.id === created.id)
+          ? { ...prev, workers: [...prev.workers, created] }
+          : prev,
+      );
+      // 職人行へ追加＋即時選択（既存ならその行を選択にするだけ）。
+      setEntries((prev) => {
+        const exists = prev.some((e) => e.workerId === created.id);
+        if (exists) {
+          return prev.map((e) =>
+            e.workerId === created.id ? { ...e, selected: true } : e,
+          );
+        }
+        return [
+          ...prev,
+          {
+            workerId: created.id,
+            selected: true,
+            shift: "DAY",
+            otHours: "0",
+          },
+        ];
+      });
+      setNewWorkerName("");
+    } catch (e) {
+      setWorkerAddError(e instanceof Error ? e.message : "通信エラー");
+    } finally {
+      setAddingWorker(false);
+    }
+  }, [newWorkerName, token]);
 
   const addExpense = useCallback(() => {
     setExpenses((prev) => [...prev, { kind: "", amount: "", billable: true }]);
@@ -386,6 +462,17 @@ export default function LiffPage() {
       return;
     }
 
+    // 請負のときは請負金額（税抜・正の整数）が必須。
+    let amount: number | undefined;
+    if (contractType === "UKEOI") {
+      amount = parseContractAmount(contractAmount);
+      if (amount === undefined) {
+        setErrorKind("error");
+        setErrorMsg("請負金額（税抜・正の整数）を入力してください。");
+        return;
+      }
+    }
+
     const payloadEntries = selected.map((e) => {
       const ot = Number(e.otHours);
       return {
@@ -407,15 +494,16 @@ export default function LiffPage() {
     const body: Record<string, unknown> = {
       workDate,
       clientId,
+      // 現場は自由入力（空文字可）。siteId は送らない。
+      siteName: siteName.trim(),
       contractType,
       entries: payloadEntries,
       // 二重送信防止の冪等キー（同一内容の再送では同じ値を使う）。
       clientRequestId: requestIdRef.current,
     };
-    if (siteId) body.siteId = siteId;
-    else if (newSiteName.trim()) {
-      body.newSiteName = newSiteName.trim();
-      body.newSiteTemporary = newSiteTemporary;
+    // 請負金額は UKEOI のときだけ送る（JOYO では送らない）。
+    if (contractType === "UKEOI" && amount !== undefined) {
+      body.contractAmount = amount;
     }
     if (payloadExpenses.length) body.expenses = payloadExpenses;
 
@@ -423,7 +511,7 @@ export default function LiffPage() {
     const summarySnapshot = {
       date: workDate,
       client: clientName,
-      site: siteName,
+      site: siteLabel,
       count: selected.length,
     };
 
@@ -459,8 +547,9 @@ export default function LiffPage() {
       // 成功 → 前回送信を保存（次回のスマート既定 / 「前回と同じ」用）。
       const snapshot: LastReport = {
         clientId,
-        siteId,
+        siteName: siteName.trim(),
         contractType,
+        contractAmount: contractType === "UKEOI" ? amount : undefined,
         workerIds: selected.map((e) => e.workerId),
         shiftByWorker: Object.fromEntries(
           selected.map((e) => [e.workerId, e.shift]),
@@ -497,10 +586,10 @@ export default function LiffPage() {
     expenses,
     workDate,
     contractType,
-    siteId,
-    newSiteName,
-    clientName,
+    contractAmount,
     siteName,
+    clientName,
+    siteLabel,
   ]);
 
   // ★「前回と同じで送る」: 前回内容で state を整え、確認画面へ。
@@ -511,10 +600,13 @@ export default function LiffPage() {
     requestIdRef.current = newRequestId();
     setWorkDate(todayISO());
     setClientId(last.clientId);
-    setSiteId(last.siteId || "");
-    setNewSiteName("");
-    setShowNewSite(false);
+    setSiteName(last.siteName ?? "");
     setContractType(last.contractType);
+    setContractAmount(
+      last.contractType === "UKEOI" && last.contractAmount
+        ? String(last.contractAmount)
+        : "",
+    );
     const set = new Set(last.workerIds);
     setEntries(
       masters.workers.map((w) => ({
@@ -698,7 +790,7 @@ export default function LiffPage() {
             </div>
             <div className="summary-row">
               <span className="k">現場</span>
-              <span className="v">{siteName}</span>
+              <span className="v">{siteLabel}</span>
             </div>
             <div className="summary-row">
               <span className="k">契約</span>
@@ -706,6 +798,16 @@ export default function LiffPage() {
                 {contractType === "JOYO" ? "常用" : "請負"}
               </span>
             </div>
+            {contractType === "UKEOI" && (
+              <div className="summary-row">
+                <span className="k">請負金額</span>
+                <span className="v">
+                  {parseContractAmount(contractAmount) !== undefined
+                    ? `${parseContractAmount(contractAmount)!.toLocaleString()}円（税抜）`
+                    : "未入力"}
+                </span>
+              </div>
+            )}
             <div className="summary-row">
               <span className="k">職人</span>
               <span className="v">
@@ -782,7 +884,8 @@ export default function LiffPage() {
             <span className="repeat-sub">
               {(masters.clients.find((c) => c.id === last.clientId)?.name ??
                 "前回の取引先")}
-              ・職人{last.workerIds.length}名 → 確認へ
+              {last.siteName ? `・${last.siteName}` : ""}・職人
+              {last.workerIds.length}名 → 確認へ
             </span>
           </span>
         </button>
@@ -842,20 +945,20 @@ export default function LiffPage() {
           </select>
         </div>
 
-        {/* 現場（最近/よく使う/検索/スポット/＋新規。全件チップは出さない） */}
-        <SitePicker
-          key={clientId}
-          sites={currentClient?.sites ?? []}
-          siteId={siteId}
-          setSiteId={setSiteId}
-          newSiteName={newSiteName}
-          setNewSiteName={setNewSiteName}
-          newSiteTemporary={newSiteTemporary}
-          setNewSiteTemporary={setNewSiteTemporary}
-          showNewSite={showNewSite}
-          setShowNewSite={setShowNewSite}
-          disabled={!currentClient}
-        />
+        {/* 現場（自由入力。現場マスタ非依存） */}
+        <div className="field">
+          <label className="label" htmlFor="siteName">
+            現場
+          </label>
+          <input
+            id="siteName"
+            className="input"
+            type="text"
+            placeholder="現場名を入力（任意）"
+            value={siteName}
+            onChange={(e) => setSiteName(e.target.value)}
+          />
+        </div>
 
         {/* 契約種別（セグメント） */}
         <div className="field">
@@ -881,9 +984,29 @@ export default function LiffPage() {
             </button>
           </div>
         </div>
+
+        {/* 請負金額（請負＝UKEOI のときだけ） */}
+        {contractType === "UKEOI" && (
+          <div className="field">
+            <label className="label" htmlFor="contractAmount">
+              請負金額（円・税抜）
+            </label>
+            <input
+              id="contractAmount"
+              className="input contract-amount"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              step={1}
+              placeholder="例: 300000"
+              value={contractAmount}
+              onChange={(e) => setContractAmount(e.target.value)}
+            />
+          </div>
+        )}
       </div>
 
-      {/* 職人（複数選択チップ＋各人に勤務体系/残業） */}
+      {/* 職人（複数選択チップ＋各人に勤務体系/残業。＋自分で職人を追加） */}
       <div className="card">
         <div className="field" style={{ marginBottom: 8 }}>
           <label className="label">
@@ -897,7 +1020,7 @@ export default function LiffPage() {
         </div>
         {noWorkers ? (
           <p className="muted">
-            職人マスタが空です。管理者に登録を依頼してください。
+            職人がまだありません。下の「職人を追加」で登録できます。
           </p>
         ) : (
           entries.map((e) => {
@@ -974,6 +1097,46 @@ export default function LiffPage() {
               </div>
             );
           })
+        )}
+
+        {/* ＋職人を追加（その場で org に永続化） */}
+        <div className="worker-add">
+          <input
+            className="input worker-add-input"
+            type="text"
+            placeholder="職人名を入力"
+            value={newWorkerName}
+            onChange={(ev) => {
+              setNewWorkerName(ev.target.value);
+              if (workerAddError) setWorkerAddError(null);
+            }}
+            onKeyDown={(ev) => {
+              if (ev.key === "Enter") {
+                ev.preventDefault();
+                if (!addingWorker) onAddWorker();
+              }
+            }}
+            disabled={addingWorker}
+          />
+          <button
+            type="button"
+            className="btn btn--ghost btn--sm"
+            onClick={onAddWorker}
+            disabled={addingWorker || !newWorkerName.trim()}
+          >
+            {addingWorker ? (
+              <>
+                <span className="spinner" aria-hidden /> 追加中…
+              </>
+            ) : (
+              "職人を追加"
+            )}
+          </button>
+        </div>
+        {workerAddError && (
+          <p className="hint" style={{ color: "var(--danger)" }}>
+            {workerAddError}
+          </p>
         )}
       </div>
 

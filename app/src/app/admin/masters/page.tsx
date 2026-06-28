@@ -28,6 +28,7 @@ import {
   deleteRateAction,
   createWorkerAction,
   updateWorkerAction,
+  setWorkerActiveAction,
   createOrganizationAction,
   updateOrganizationAction,
   saveInvoiceSettingAction,
@@ -69,7 +70,7 @@ export default async function MastersPage() {
       }),
       prisma.worker.findMany({
         orderBy: { name: "asc" },
-        include: { org: { select: { name: true } } },
+        include: { org: { select: { name: true, kind: true } } },
       }),
       prisma.organization.findMany({ orderBy: { createdAt: "asc" } }),
       prisma.invoiceSetting.findFirst(),
@@ -131,6 +132,32 @@ export default async function MastersPage() {
     { href: "#workers", label: "職人" },
     { href: "#orgs", label: "自社/協力会社" },
   ];
+
+  // 職人を組織（自社 SELF / 協力会社 PARTNER）でグループ化。
+  //   自社（SELF）を先頭、協力会社（PARTNER）はorg名で安定ソート。
+  //   無効（active:false）も表示してトグルできるようにする。
+  type WorkerRow = (typeof workers)[number];
+  type WorkerGroup = {
+    orgId: string;
+    orgName: string;
+    orgKind: string;
+    items: WorkerRow[];
+  };
+  const workerGroupMap = new Map<string, WorkerGroup>();
+  for (const w of workers) {
+    const g = workerGroupMap.get(w.orgId) ?? {
+      orgId: w.orgId,
+      orgName: w.org.name,
+      orgKind: w.org.kind,
+      items: [],
+    };
+    g.items.push(w);
+    workerGroupMap.set(w.orgId, g);
+  }
+  const workerGroups = Array.from(workerGroupMap.values()).sort((a, b) => {
+    if (a.orgKind !== b.orgKind) return a.orgKind === "SELF" ? -1 : 1;
+    return a.orgName.localeCompare(b.orgName, "ja");
+  });
 
   return (
     <main className="container admin-narrow">
@@ -337,36 +364,67 @@ export default async function MastersPage() {
           <button className="btn btn--primary" type="submit">追加</button>
         </form>
       </details>
-      <div className="list">
-        {workers.length === 0 && <p className="muted">職人がいません。</p>}
-        {workers.map((w) => (
-          <details className="card" key={w.id}>
-            <summary className="list-title" style={{ cursor: "pointer" }}>
-              {w.name}
-              <span className="muted" style={{ marginLeft: 8 }}>{w.org.name}</span>
-              {!w.active && <span className="badge" style={{ marginLeft: 6 }}>無効</span>}
-            </summary>
-            <form action={updateWorkerAction} style={{ marginTop: 12 }}>
-              <input type="hidden" name="id" value={w.id} />
-              <div className="field">
-                <label className="label">職人名</label>
-                <input className="input" name="name" defaultValue={w.name} required />
-              </div>
-              <div className="field">
-                <label className="label">別名</label>
-                <input className="input" name="aliases" defaultValue={w.aliases.join(", ")} />
-              </div>
-              <label className="inline-row" style={{ gap: 8 }}>
-                <input type="checkbox" name="active" defaultChecked={w.active} />
-                <span>有効</span>
-              </label>
-              <div style={{ marginTop: 10 }}>
-                <button className="btn btn--ghost" type="submit">保存</button>
-              </div>
-            </form>
-          </details>
-        ))}
-      </div>
+      {workers.length === 0 && <p className="muted">職人がいません。</p>}
+      {workerGroups.map((g) => {
+        const activeCount = g.items.filter((w) => w.active).length;
+        return (
+          <div key={g.orgId} style={{ marginBottom: 16 }}>
+            <div className="section-head" style={{ marginBottom: 8 }}>
+              <h3 className="section-title" style={{ fontSize: 15 }}>
+                {g.orgKind === "SELF" ? "自社" : "協力会社"}
+                <span className="muted" style={{ marginLeft: 8, fontWeight: 400 }}>
+                  {g.orgName}
+                </span>
+                <span className="muted" style={{ marginLeft: 8, fontWeight: 400 }}>
+                  （有効 {activeCount} / {g.items.length}名）
+                </span>
+              </h3>
+            </div>
+            <div className="list">
+              {g.items.map((w) => (
+                <details className="card" key={w.id}>
+                  <summary className="list-title" style={{ cursor: "pointer" }}>
+                    {w.name}
+                    {!w.active && (
+                      <span className="badge" style={{ marginLeft: 6 }}>無効</span>
+                    )}
+                  </summary>
+                  <form action={updateWorkerAction} style={{ marginTop: 12 }}>
+                    <input type="hidden" name="id" value={w.id} />
+                    <div className="field">
+                      <label className="label">職人名</label>
+                      <input className="input" name="name" defaultValue={w.name} required />
+                    </div>
+                    <div className="field">
+                      <label className="label">別名</label>
+                      <input className="input" name="aliases" defaultValue={w.aliases.join(", ")} />
+                    </div>
+                    <label className="inline-row" style={{ gap: 8 }}>
+                      <input type="checkbox" name="active" defaultChecked={w.active} />
+                      <span>有効</span>
+                    </label>
+                    <div style={{ marginTop: 10 }}>
+                      <button className="btn btn--ghost" type="submit">保存</button>
+                    </div>
+                  </form>
+                  <form action={setWorkerActiveAction} style={{ marginTop: 8 }}>
+                    <input type="hidden" name="id" value={w.id} />
+                    <input type="hidden" name="active" value={w.active ? "false" : "true"} />
+                    <button className="btn btn--ghost" type="submit">
+                      {w.active ? "無効化（削除）" : "有効化（復活）"}
+                    </button>
+                    <p className="hint" style={{ marginTop: 6 }}>
+                      {w.active
+                        ? "※ 無効化すると出面入力（LIFF）の選択肢から外れます。出面記録は残ります。"
+                        : "※ 有効化すると出面入力（LIFF）の選択肢に戻ります。"}
+                    </p>
+                  </form>
+                </details>
+              ))}
+            </div>
+          </div>
+        );
+      })}
 
       {/* ───────── 組織 ───────── */}
       <div className="section-head" id="orgs">

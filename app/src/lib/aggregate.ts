@@ -84,6 +84,8 @@ export interface ReportRowForAgg {
   source: OrgKind;
   manDays: number;
   otHours: number;
+  /** 請負(UKEOI)の契約金額（税抜）。常用は 0。概算金額に反映する。 */
+  contractAmount: number;
 }
 
 /**
@@ -124,6 +126,7 @@ export async function loadMonthRows(
       source: r.source,
       manDays,
       otHours,
+      contractAmount: r.contractType === "UKEOI" ? Number(r.contractAmount) || 0 : 0,
     });
   }
   return rows;
@@ -137,6 +140,8 @@ export function toReportLike(rows: ReportRowForAgg[]): ReportLike[] {
     manDays: r.manDays,
     otHours: r.otHours,
     contractType: r.contractType,
+    // 請負(UKEOI)の契約金額は概算で「一式」として積む（lump に載せる）。
+    lump: r.contractAmount,
   }));
 }
 
@@ -187,9 +192,11 @@ export async function summarizeByClient(
       otHours += s.otHours;
     }
 
-    // 取引先ごとの委託料（人工×単価）＋残業で概算（請求書と同じ作り）。
+    // 取引先ごとの委託料（人工×単価）＋残業＋請負(UKEOI)契約金額で概算（請求書と同じ作り）。
+    // 概算は税抜小計のみ使うため、請負はその月の合算を 1 件にまとめて積めば十分。
+    const ukeoiAmounts = clientAgg.lump > 0 ? [clientAgg.lump] : [];
     const lines: InvoiceLine[] = buildClientLines(
-      { manDays, otHours, expenses: [] },
+      { manDays, otHours, expenses: [], ukeoiAmounts },
       { unitPrice: unit, taxRate: 0 }, // 概算は税抜小計のみ使うので税率0でよい。
     );
     const summary = summarize(lines, 0);

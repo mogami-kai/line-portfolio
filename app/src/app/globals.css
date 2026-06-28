@@ -223,6 +223,29 @@ a {
   height: 18px;
 }
 
+/* ── 職人を自分で追加（LIFF）── */
+.worker-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.worker-add-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.worker-add .btn {
+  flex: 0 0 auto;
+}
+
+/* ── 請負金額（LIFF・UKEOI時のみ）── */
+.contract-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── マスタ: 初期設定チェックリスト ── */
 .setup-card {
   padding: 14px;

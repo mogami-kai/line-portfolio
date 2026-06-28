@@ -57,17 +57,29 @@ const expenseSchema = z.object({
 const bodySchema = z.object({
   workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "workDate must be yyyy-MM-dd"),
   clientId: z.string().min(1),
+  // v3: 現場は自由入力（現場マスタに依存しない）。Report.siteName に保存する。
+  // 空文字可（現場未記入の出面を許容）。siteId はもう送られない想定だが、
+  // 過去クライアント互換のため受理は残す（後方互換・現場マスタ自動作成はしない）。
+  siteName: z.string().trim().max(200).optional(),
   siteId: z.string().min(1).optional(),
   contractType: z.enum(["JOYO", "UKEOI"]).default("JOYO"),
+  // v3: 請負(UKEOI)の請負金額（税抜・正の整数）。請求は「○月委託料 数量1 単価=金額」。
+  // JOYO 時は無し。下の superRefine で contractType との整合を強制する。
+  contractAmount: z.number().int().positive().max(1_000_000_000).optional(),
   entries: z.array(entrySchema).min(1, "at least one entry required"),
   expenses: z.array(expenseSchema).optional(),
-  // 任意: クライアントが新規現場名を渡してきた場合の補助（NEEDS_REVIEW 材料）。
-  newSiteName: z.string().trim().min(1).optional(),
-  // 任意: スポット現場（一回だけ）。true なら現場を isTemporary で作成し、選択肢に残さない。
-  newSiteTemporary: z.boolean().optional(),
   // 任意: 二重送信防止の冪等キー（クライアント生成）。同一キーの再POSTは
   // 既存レポートを返し、新規作成しない（リトライ/連打の安全網）。
   clientRequestId: z.string().trim().min(1).max(100).optional(),
+}).superRefine((v, ctx) => {
+  // 請負金額は UKEOI 専用。JOYO に金額が付いていたら弾く（誤入力の遮断）。
+  if (v.contractType === "JOYO" && v.contractAmount !== undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["contractAmount"],
+      message: "contractAmount is only allowed for UKEOI",
+    });
+  }
 });
 
 type Body = z.infer<typeof bodySchema>;
@@ -150,38 +162,20 @@ export async function POST(req: Request) {
     return json(400, { ok: false, error: "client_not_found" });
   }
 
+  // v3: 現場は自由入力（Report.siteName）に一本化。現場マスタ自動作成はしない。
+  // siteId は基本 null。過去クライアント互換で siteId が来た場合のみ存在確認して
+  // 紐付ける（無ければ無視＝siteName だけで保存し、出面自体は通す）。
   let site: { id: string; name: string } | null = null;
   if (body.siteId) {
     site = await prisma.site.findFirst({
       where: { id: body.siteId, clientId: body.clientId },
       select: { id: true, name: true },
     });
-    if (!site) {
-      return json(400, { ok: false, error: "site_not_found" });
-    }
   }
 
-  // 新規現場名が来たら（既存 siteId 無し）、その取引先配下に現場を find-or-create して恒久化する。
-  // 「ユーザーが現場を自由に追加でき、一度追加したら以後ずっと選択肢に残る」要件。
-  // 同名は再利用して重複を防ぐ。管理者は /admin/masters から追加/削除できる。
-  if (!site && body.newSiteName) {
-    const name = body.newSiteName.trim();
-    // 同名があれば再利用（重複を避ける）。無ければ作成。スポット指定時は isTemporary で作り、
-    // LIFFの選択肢には出さず（api/masters で除外）、管理画面の要確認で正式化を判断する。
-    site =
-      (await prisma.site.findFirst({
-        where: { clientId: body.clientId, name },
-        select: { id: true, name: true },
-      })) ??
-      (await prisma.site.create({
-        data: {
-          clientId: body.clientId,
-          name,
-          isTemporary: body.newSiteTemporary ?? false,
-        },
-        select: { id: true, name: true },
-      }));
-  }
+  // 保存・投稿・検証に使う現場表記。siteName（自由入力）を最優先。
+  // 互換で来た siteId が解決できた場合のみその名前にフォールバック。空文字可。
+  const siteName = (body.siteName ?? site?.name ?? "").trim();
 
   const workerIds = body.entries.map((e) => e.workerId);
   const workers = await prisma.worker.findMany({
@@ -201,7 +195,6 @@ export async function POST(req: Request) {
   // ── 3b) 聞き返し判定（@/lib/validate）──
   // 構造化入力なので取引先/職人は確定。日付・人工・残業・重複を精査する。
   const refDate = new Date();
-  const siteName = site?.name ?? body.newSiteName ?? "";
   const rows: RowInput[] = body.entries.map((e) => ({
     client: client.name,
     site: siteName,
@@ -228,7 +221,7 @@ export async function POST(req: Request) {
   }
 
   // confirm → 管理者承認キュー（NEEDS_REVIEW）。ok → CONFIRMED。
-  // 新規現場は上で恒久化済み（自由追加方針）なので、新規現場ゲートは設けない。
+  // 現場は自由入力（Report.siteName）なので、新規現場ゲートは設けない。
   const status = report.status === "confirm" ? "NEEDS_REVIEW" : "CONFIRMED";
 
   // ── 4) 保存（Report + entries + expenses）──
@@ -241,7 +234,15 @@ export async function POST(req: Request) {
         workDate: dayStart,
         clientId: client.id,
         siteId: site?.id ?? null,
+        // v3: 現場は自由入力。空文字は null として保存（未記入と区別しやすく）。
+        siteName: siteName || null,
         contractType: body.contractType,
+        // v3: 請負(UKEOI)のみ請負金額を保存。常用(JOYO)は null。
+        // 上の superRefine で JOYO×contractAmount は弾いているので二重ガード。
+        contractAmount:
+          body.contractType === "UKEOI"
+            ? (body.contractAmount ?? null)
+            : null,
         source: org.kind,
         orgId: org.id,
         createdById: user.id,
@@ -271,7 +272,8 @@ export async function POST(req: Request) {
       },
       include: {
         client: { select: { name: true } },
-        site: { select: { name: true } },
+        // site 関係は v3 では投稿に使わない（現場は scalar の siteName を使う）。
+        // siteName / contractAmount は scalar なので include 無しで返る。
         entries: { include: { worker: { select: { name: true } } } },
         expenses: { select: { kind: true, amount: true } },
       },
@@ -325,11 +327,20 @@ export async function POST(req: Request) {
   if (org.kind === "SELF") {
     // 自社 → 出面グループへ整形ログ投稿。
     try {
+      // v3: 現場表記は自由入力（Report.siteName）を使う（現場マスタ名ではない）。
+      // 請負(UKEOI)は請負金額が分かるよう現場行に「（請負 ¥1,234,000）」を併記する。
+      // 空なら null を渡し、formatReportLog 側の「(現場未設定)」表記に委ねる。
+      const baseSiteName = created.siteName ?? "";
+      const ukeoiNote =
+        created.contractType === "UKEOI" && created.contractAmount != null
+          ? `（請負 ¥${created.contractAmount.toLocaleString("ja-JP")}）`
+          : "";
+      const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
       const logInput: ReportLogInput = {
         workDate: created.workDate,
         contractType: created.contractType,
         client: created.client,
-        site: created.site,
+        site: displaySiteName ? { name: displaySiteName } : null,
         entries: created.entries.map((e) => ({
           shift: e.shift,
           manDays: e.manDays,

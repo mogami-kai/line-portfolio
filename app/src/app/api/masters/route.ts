@@ -3,9 +3,9 @@
 //
 //   Authorization: Bearer <LIFF access token> → User+Org 解決。
 //   返却:
-//     - clients : 取引先（active）＋紐づく現場（sites）
+//     - clients : 取引先（active）。v3 で現場は自由入力化したため sites は返さない。
 //     - workers : 呼び出しユーザーの org に属する職人（active）
-//   ※ 取引先・現場は全社共通マスタ。職人は org スコープ。
+//   ※ 取引先は全社共通マスタ。職人は org スコープ（自社/協力会社で分離）。
 //   未承認ユーザーは 403（フォームを使わせない）。
 // ============================================================
 
@@ -53,32 +53,18 @@ export async function GET(req: Request) {
   const { org, user } = resolved;
 
   const [clients, workers] = await Promise.all([
+    // 取引先（請求先）は全社共通マスタ。有効なもののみ。
+    // v3: 現場は LIFF 側で自由入力（Report.siteName）になったため、
+    // 現場ピッカー用の sites サブ取得は廃止（payload 縮小）。
     prisma.client.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
       select: {
         id: true,
         name: true,
-        // LIFFの現場ピッカー用: 有効・非スポットのみ。ピン→最近→よく使う→名前 の順。
-        // クライアント側で「最近使った/よく使う/検索」に振り分けるため使用情報も返す。
-        sites: {
-          where: { isActive: true, isTemporary: false },
-          orderBy: [
-            { isPinned: "desc" },
-            { lastUsedAt: { sort: "desc", nulls: "last" } },
-            { usageCount: "desc" },
-            { name: "asc" },
-          ],
-          select: {
-            id: true,
-            name: true,
-            isPinned: true,
-            usageCount: true,
-            lastUsedAt: true,
-          },
-        },
       },
     }),
+    // 職人は org スコープ（自社は自社、協力会社はその会社のみ）＋active のみ。
     prisma.worker.findMany({
       where: { active: true, orgId: org.id },
       orderBy: { name: "asc" },

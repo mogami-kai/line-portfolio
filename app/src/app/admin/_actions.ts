@@ -223,6 +223,28 @@ export async function updateWorkerAction(fd: FormData): Promise<void> {
   revalidatePath(MASTERS_PATH);
 }
 
+// 職人の「削除（無効化）」＝有効/無効トグル。
+//   ReportEntry の FK があるため物理削除はせず active を切り替える。
+//   無効化＝LIFF の選択肢（active のみ返す masters）から除外される。
+const workerActiveSchema = z.object({
+  id: z.string().min(1, "id がありません"),
+  active: z.boolean(),
+});
+
+export async function setWorkerActiveAction(fd: FormData): Promise<void> {
+  await requireAdminAction();
+  const parsed = workerActiveSchema.safeParse({
+    id: str(fd, "id"),
+    active: fd.get("active") === "on" || fd.get("active") === "true",
+  });
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  await prisma.worker.update({
+    where: { id: parsed.data.id },
+    data: { active: parsed.data.active },
+  });
+  revalidatePath(MASTERS_PATH);
+}
+
 // ============================================================
 // 組織（Organization）: 自社（SELF）/ パートナー（PARTNER）
 // ============================================================

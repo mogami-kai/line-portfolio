@@ -180,6 +180,71 @@ describe("buildClientLines（取引先単位・自動計算）", () => {
   });
 });
 
+// v3 P2/P3: 請負(UKEOI) = ukeoiAmounts → 各 Report 1 行「○月委託料 数量1 単位=式 単価=金額」。
+// 常用(JOYO) = 人工×単価。両系統を並べても二重計上しないことの回帰テスト。
+describe("buildClientLines（v3: 請負=数量1委託料 / 常用=人工×単価）", () => {
+  it("請負(ukeoiAmounts)は案件ごとに「{joyoItemName} 一式扱い」数量1・単位=式・単価=金額", () => {
+    const lines = buildClientLines(
+      { manDays: 0, otHours: 0, expenses: [], ukeoiAmounts: [300000, 150000, 0] },
+      { unitPrice: 0, taxRate: 0.1, joyoItemName: "6月委託料" },
+    );
+    // 0 円は出さない → 2 行。
+    expect(lines).toHaveLength(2);
+    for (const l of lines) {
+      expect(l.itemName).toBe("6月委託料"); // 品目名は常用と共通（写真の体裁）
+      expect(l.qty).toBe(1);
+      expect(l.unitLabel).toBe("式");
+      expect(l.taxRate).toBe(0.1);
+      // 数量1なので単価=金額（検算一致）。
+      expect(l.amount).toBe(l.unitPrice * l.qty);
+    }
+    expect(lines[0].unitPrice).toBe(300000);
+    expect(lines[0].amount).toBe(300000);
+    expect(lines[1].unitPrice).toBe(150000);
+    expect(lines[1].amount).toBe(150000);
+    expect(lines.map((l) => l.sortNo)).toEqual([1, 2]);
+  });
+
+  it("常用(人工×単価)＋請負(数量1)を並べても二重計上せず、独立して積まれる", () => {
+    // 常用 12 人工 × 21000 = 252000、請負 2 件（300000 + 150000）。
+    const lines = buildClientLines(
+      { manDays: 12, otHours: 0, expenses: [], ukeoiAmounts: [300000, 150000] },
+      { unitPrice: 21000, taxRate: 0.1, joyoItemName: "6月委託料" },
+    );
+    // 委託料(常用) 1 行 + 請負 2 行 = 3 行（残業・立替なし）。
+    expect(lines).toHaveLength(3);
+
+    const joyo = lines[0];
+    expect(joyo.itemName).toBe("6月委託料");
+    expect(joyo.qty).toBe(12); // 人工合計（請負の数量1は混ざらない）
+    expect(joyo.unitLabel).toBe("人工");
+    expect(joyo.unitPrice).toBe(21000);
+    expect(joyo.amount).toBe(252000); // 12×21000、請負額は混ざらない
+
+    // 請負 2 行は数量1・式。
+    expect(lines[1].amount).toBe(300000);
+    expect(lines[2].amount).toBe(150000);
+
+    // 二重計上していない＝小計は 252000 + 300000 + 150000。
+    const s = summarize(lines, 0.1);
+    expect(s.subtotal).toBe(702000);
+    expect(s.tax).toBe(70200);
+    expect(s.exempt).toBe(0);
+    expect(s.total).toBe(702000 + 70200);
+  });
+
+  it("joyoItemName 未指定なら請負は既定の「委託料」で計上", () => {
+    const lines = buildClientLines(
+      { manDays: 0, otHours: 0, expenses: [], ukeoiAmounts: [500000] },
+      { unitPrice: 0, taxRate: 0.1 },
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].itemName).toBe("委託料");
+    expect(lines[0].qty).toBe(1);
+    expect(lines[0].amount).toBe(500000);
+  });
+});
+
 describe("summarize", () => {
   it("subtotal=課税合計, tax=round(subtotal*0.1), exempt=立替, total一致", () => {
     const s = summarize(lines, TAX);
