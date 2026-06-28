@@ -538,6 +538,16 @@ a {
   padding: 0;
   margin: 0;
 }
+/* フォーム系ページは可読幅に制限（480px設計が広い領域で間延びするのを防ぐ） */
+.app-content .container.admin-narrow {
+  max-width: 820px;
+}
+/* 入力欄は最大幅を設け、1行が極端に伸びないように（業務SaaSのフォーム体裁） */
+.app-content .field .input,
+.app-content .field .select,
+.app-content .field textarea {
+  max-width: 520px;
+}
 .app-drawer {
   position: fixed;
   inset: 0;
@@ -562,6 +572,7 @@ a {
   display: flex;
   flex-direction: column;
   padding: 12px;
+  outline: none;
 }
 .app-drawer-head {
   display: flex;

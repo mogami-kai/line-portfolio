@@ -150,7 +150,7 @@ export default async function InvoicesPage({
   const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
 
   return (
-    <main className="container">
+    <main className="container admin-narrow">
       <div className="page-head">
         <h1 className="page-title">請求書</h1>
       </div>

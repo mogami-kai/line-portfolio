@@ -137,7 +137,7 @@ export default async function MastersPage() {
   ];
 
   return (
-    <main className="container">
+    <main className="container admin-narrow">
       <div className="page-head">
         <h1 className="page-title">マスタ管理</h1>
         <HelpToggle />

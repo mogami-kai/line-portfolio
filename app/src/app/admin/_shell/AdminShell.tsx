@@ -7,7 +7,7 @@
 //   現在地をハイライト。アイコンは依存なしの最小インラインSVG（テキスト併記）。
 // ============================================================
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
 interface NavItem {
@@ -123,7 +123,24 @@ export function AdminShell({
 }) {
   const pathname = usePathname() || "/admin";
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
   const current = NAV.find((n) => n.match(pathname))?.label ?? "管理";
+
+  // ドロワー: 開いている間は背面スクロールを止め、Esc で閉じ、パネルへフォーカス。
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    panelRef.current?.focus();
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   return (
     <div className="app-shell">
@@ -169,7 +186,7 @@ export function AdminShell({
             aria-label="閉じる"
             onClick={() => setOpen(false)}
           />
-          <div className="app-drawer-panel">
+          <div className="app-drawer-panel" ref={panelRef} tabIndex={-1}>
             <div className="app-drawer-head">
               <Brand />
               <button

@@ -86,7 +86,7 @@ export default async function UsersPage({
         : "無効化したユーザーはいません。";
 
   return (
-    <main className="container">
+    <main className="container admin-narrow">
       <div className="page-head">
         <h1 className="page-title">ユーザー承認</h1>
         <HelpToggle />
