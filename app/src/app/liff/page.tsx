@@ -24,6 +24,7 @@
 // ============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SitePicker } from "./_sitePicker.js";
 
 // 冪等キー生成（二重送信防止）。crypto.randomUUID 優先、無ければ簡易生成。
 function newRequestId(): string {
@@ -62,6 +63,9 @@ type ContractType = "JOYO" | "UKEOI";
 interface SiteOption {
   id: string;
   name: string;
+  isPinned?: boolean;
+  usageCount?: number;
+  lastUsedAt?: string | null;
 }
 interface ClientOption {
   id: string;
@@ -185,6 +189,7 @@ export default function LiffPage() {
   const [clientId, setClientId] = useState<string>("");
   const [siteId, setSiteId] = useState<string>("");
   const [newSiteName, setNewSiteName] = useState<string>("");
+  const [newSiteTemporary, setNewSiteTemporary] = useState<boolean>(false);
   const [showNewSite, setShowNewSite] = useState<boolean>(false);
   const [contractType, setContractType] = useState<ContractType>("JOYO");
   const [entries, setEntries] = useState<EntryState[]>([]);
@@ -318,6 +323,7 @@ export default function LiffPage() {
     setClientId(id);
     setSiteId("");
     setNewSiteName("");
+    setNewSiteTemporary(false);
     setShowNewSite(false);
   }, []);
 
@@ -400,7 +406,10 @@ export default function LiffPage() {
       clientRequestId: requestIdRef.current,
     };
     if (siteId) body.siteId = siteId;
-    else if (newSiteName.trim()) body.newSiteName = newSiteName.trim();
+    else if (newSiteName.trim()) {
+      body.newSiteName = newSiteName.trim();
+      body.newSiteTemporary = newSiteTemporary;
+    }
     if (payloadExpenses.length) body.expenses = payloadExpenses;
 
     // 成功時の要約スナップショット。
@@ -818,55 +827,20 @@ export default function LiffPage() {
           </select>
         </div>
 
-        {/* 現場（タップ選択 ＋ 新規） */}
-        <div className="field">
-          <label className="label">現場</label>
-          <div className="chip-wrap">
-            {currentClient?.sites.map((s) => {
-              const on = siteId === s.id;
-              return (
-                <button
-                  key={s.id}
-                  type="button"
-                  className={`chip ${on ? "chip--on" : ""}`}
-                  onClick={() => {
-                    setSiteId(on ? "" : s.id);
-                    setShowNewSite(false);
-                    setNewSiteName("");
-                  }}
-                >
-                  {s.name}
-                </button>
-              );
-            })}
-            <button
-              type="button"
-              className={`chip ${showNewSite ? "chip--on" : ""}`}
-              onClick={() => {
-                setShowNewSite((v) => !v);
-                setSiteId("");
-              }}
-              disabled={!currentClient}
-            >
-              ＋ 新規現場
-            </button>
-          </div>
-          {showNewSite && (
-            <>
-              <input
-                className="input"
-                style={{ marginTop: 8 }}
-                type="text"
-                placeholder="新しい現場名を入力"
-                value={newSiteName}
-                onChange={(e) => setNewSiteName(e.target.value)}
-              />
-              <p className="hint">
-                ※ 追加した現場は次回からこの一覧に残ります。
-              </p>
-            </>
-          )}
-        </div>
+        {/* 現場（最近/よく使う/検索/スポット/＋新規。全件チップは出さない） */}
+        <SitePicker
+          key={clientId}
+          sites={currentClient?.sites ?? []}
+          siteId={siteId}
+          setSiteId={setSiteId}
+          newSiteName={newSiteName}
+          setNewSiteName={setNewSiteName}
+          newSiteTemporary={newSiteTemporary}
+          setNewSiteTemporary={setNewSiteTemporary}
+          showNewSite={showNewSite}
+          setShowNewSite={setShowNewSite}
+          disabled={!currentClient}
+        />
 
         {/* 契約種別（セグメント） */}
         <div className="field">

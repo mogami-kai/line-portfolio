@@ -123,6 +123,113 @@ export async function clientsWithDefaultRate(
   return new Set(cards.map((c) => c.clientId));
 }
 
+// ============================================================
+// 内訳（確認用）: 取引先×月を「現場別・職人別・日別」に展開
+//   外向き請求書には出さないが、管理者が「内訳を見る」で根拠を確認するための集計。
+//   委託料は常用(JOYO)のみ（請求と同規約）。要確認件数は契約種別に依らず数える。
+//   当月の全 Report を 1 クエリで取り、メモリで取引先ごとに畳む（N+1回避）。
+// ============================================================
+export interface BreakdownRow {
+  name: string;
+  manDays: number;
+  otHours: number;
+}
+export interface ClientMonthDetails {
+  manDays: number;
+  otHours: number;
+  needsReview: number;
+  bySite: BreakdownRow[];
+  byWorker: BreakdownRow[];
+  byDay: BreakdownRow[];
+}
+
+export async function getMonthClientDetails(
+  yearMonth: string,
+): Promise<Map<string, ClientMonthDetails>> {
+  const { from, to } = monthRange(yearMonth);
+  const reports = await prisma.report.findMany({
+    where: { workDate: { gte: from, lt: to } },
+    select: {
+      clientId: true,
+      status: true,
+      contractType: true,
+      workDate: true,
+      site: { select: { name: true } },
+      entries: {
+        select: {
+          shift: true,
+          manDays: true,
+          otHours: true,
+          worker: { select: { name: true } },
+        },
+      },
+    },
+  });
+
+  type Acc = {
+    manDays: number;
+    otHours: number;
+    needsReview: number;
+    site: Map<string, BreakdownRow>;
+    worker: Map<string, BreakdownRow>;
+    day: Map<string, BreakdownRow>;
+  };
+  const accs = new Map<string, Acc>();
+  const ensure = (id: string): Acc => {
+    let a = accs.get(id);
+    if (!a) {
+      a = {
+        manDays: 0,
+        otHours: 0,
+        needsReview: 0,
+        site: new Map(),
+        worker: new Map(),
+        day: new Map(),
+      };
+      accs.set(id, a);
+    }
+    return a;
+  };
+  const bump = (m: Map<string, BreakdownRow>, name: string, md: number, ot: number) => {
+    const r = m.get(name) ?? { name, manDays: 0, otHours: 0 };
+    r.manDays += md;
+    r.otHours += ot;
+    m.set(name, r);
+  };
+
+  for (const r of reports) {
+    const a = ensure(r.clientId);
+    if (r.status === "NEEDS_REVIEW") a.needsReview += 1;
+    if (r.contractType !== "JOYO") continue; // 委託料の内訳は常用のみ。
+    const siteName = r.site?.name ?? "(現場未設定)";
+    const dateStr = `${r.workDate.getUTCMonth() + 1}/${r.workDate.getUTCDate()}`;
+    for (const e of r.entries) {
+      const md = resolveManDays(e.shift as Shift, e.manDays);
+      const ot = Number(e.otHours) || 0;
+      a.manDays += md;
+      a.otHours += ot;
+      bump(a.site, siteName, md, ot);
+      bump(a.worker, e.worker?.name ?? "(不明)", md, ot);
+      bump(a.day, dateStr, md, ot);
+    }
+  }
+
+  const out = new Map<string, ClientMonthDetails>();
+  for (const [id, a] of accs) {
+    out.set(id, {
+      manDays: a.manDays,
+      otHours: a.otHours,
+      needsReview: a.needsReview,
+      bySite: Array.from(a.site.values()).sort((x, y) => y.manDays - x.manDays),
+      byWorker: Array.from(a.worker.values()).sort((x, y) => y.manDays - x.manDays),
+      byDay: Array.from(a.day.values()).sort(
+        (x, y) => parseInt(x.name) - parseInt(y.name),
+      ),
+    });
+  }
+  return out;
+}
+
 /**
  * 請求書番号 "YYYY-NNN" を採番（年内の通番＝count+1）。
  * offset は採番衝突時のリトライ用（衝突した番号を飛ばして次を試す）。

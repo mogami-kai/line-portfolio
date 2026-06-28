@@ -59,9 +59,23 @@ export async function GET(req: Request) {
       select: {
         id: true,
         name: true,
+        // LIFFの現場ピッカー用: 有効・非スポットのみ。ピン→最近→よく使う→名前 の順。
+        // クライアント側で「最近使った/よく使う/検索」に振り分けるため使用情報も返す。
         sites: {
-          orderBy: { name: "asc" },
-          select: { id: true, name: true },
+          where: { isActive: true, isTemporary: false },
+          orderBy: [
+            { isPinned: "desc" },
+            { lastUsedAt: { sort: "desc", nulls: "last" } },
+            { usageCount: "desc" },
+            { name: "asc" },
+          ],
+          select: {
+            id: true,
+            name: true,
+            isPinned: true,
+            usageCount: true,
+            lastUsedAt: true,
+          },
         },
       },
     }),

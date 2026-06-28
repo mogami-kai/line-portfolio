@@ -23,14 +23,42 @@ import {
   buildClientInvoiceLines,
   clientsWithDefaultRate,
   generateInvoice,
+  getMonthClientDetails,
 } from "@/lib/invoiceService.js";
-import { summarize } from "@/lib/invoice.js";
+import { summarize, type InvoiceLine } from "@/lib/invoice.js";
 
 export const dynamic = "force-dynamic";
 
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
 const ymStr = (d: Date) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+/** 内訳の小表（現場別/職人別/日別）。確認用。 */
+function BreakdownTable({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: { name: string; manDays: number; otHours: number }[];
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <div className="bd-block">
+      <div className="bd-title">{title}</div>
+      <table className="mini-table">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.name}>
+              <td>{r.name}</td>
+              <td className="num">{r.manDays} 人工</td>
+              <td className="num">{r.otHours ? `残 ${r.otHours}h` : ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // ── Server Action: 請求書生成/再生成 ──
 async function generateInvoiceAction(formData: FormData) {
@@ -87,22 +115,24 @@ export default async function InvoicesPage({
   );
 
   // 既定単価が登録済みの取引先（未登録＝委託料/残業が0円になる→警告表示用）。
-  const ratedClients = await clientsWithDefaultRate(
-    Array.from(clientMap.keys()),
-    to,
-  );
+  // 内訳（現場別/職人別/日別・要確認件数）も当月1クエリでまとめ取り。
+  const [ratedClients, details] = await Promise.all([
+    clientsWithDefaultRate(Array.from(clientMap.keys()), to),
+    getMonthClientDetails(ym),
+  ]);
 
-  // 各取引先の概算合計（税込）。exempt＝立替（対象外）ぶん。
+  // 各取引先の概算合計（税込）。exempt＝立替（対象外）ぶん。lines＝プレビュー用の外向き明細。
   const summaries = await Promise.all(
     Array.from(clientMap.entries()).map(async ([clientId, name]) => {
       const lines = await buildClientInvoiceLines(clientId, ym, taxRate);
       const s = summarize(lines, taxRate);
       const hasLabor = lines.some(
-        (l) => l.itemName === "委託料" || l.itemName === "残業",
+        (l) => l.itemName.endsWith("委託料") || l.itemName === "残業",
       );
       return {
         clientId,
         name,
+        lines,
         total: s.total,
         subtotal: s.subtotal,
         exempt: s.exempt,
@@ -127,6 +157,22 @@ export default async function InvoicesPage({
           ← 集計
         </a>
       </div>
+
+      {/* ステップ（迷わない導線） */}
+      <ol className="steps">
+        <li className="step is-on">
+          <span className="step-n">1</span>月を選択
+        </li>
+        <li className="step">
+          <span className="step-n">2</span>取引先を確認
+        </li>
+        <li className="step">
+          <span className="step-n">3</span>プレビュー
+        </li>
+        <li className="step">
+          <span className="step-n">4</span>発行 / 出力
+        </li>
+      </ol>
 
       {sp.error === "generate" && (
         <div className="notice notice--error" style={{ marginBottom: 12 }}>
@@ -172,11 +218,20 @@ export default async function InvoicesPage({
       ) : (
         summaries.map((s) => {
           const iv = invoiceByClient.get(s.clientId);
+          const d = details.get(s.clientId);
           return (
             <div className="card" key={s.clientId}>
               <div className="list-row" style={{ padding: 0, border: "none" }}>
                 <div className="list-main">
                   <div className="list-title">{s.name}</div>
+                  <div className="list-meta">
+                    人工 <b>{d?.manDays ?? 0}</b> ・ 残業 <b>{d?.otHours ?? 0}</b>h
+                    {d && d.needsReview > 0 && (
+                      <span className="badge badge--review" style={{ marginLeft: 6 }}>
+                        要確認 {d.needsReview}
+                      </span>
+                    )}
+                  </div>
                   <div className="list-meta">
                     概算（税込）{" "}
                     <strong style={{ color: "var(--ink)" }}>
@@ -202,6 +257,55 @@ export default async function InvoicesPage({
                   )}
                 </div>
               </div>
+
+              {/* プレビュー（外向き明細・現場名は出ない） */}
+              <details className="acc" style={{ marginTop: 10 }}>
+                <summary>プレビュー（請求書の明細）</summary>
+                <div className="acc-body">
+                  {s.lines.length === 0 ? (
+                    <p className="muted">明細がありません（単価・出面を確認）。</p>
+                  ) : (
+                    <table className="mini-table">
+                      <thead>
+                        <tr>
+                          <th>品目</th>
+                          <th className="num">数量</th>
+                          <th className="num">単価</th>
+                          <th className="num">金額</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {s.lines.map((l) => (
+                          <tr key={l.sortNo}>
+                            <td>{l.itemName}</td>
+                            <td className="num">
+                              {l.qty}
+                              {l.unitLabel}
+                            </td>
+                            <td className="num">{yen(l.unitPrice)}</td>
+                            <td className="num">{yen(l.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  <p className="hint">
+                    ※ 現場名は外向き請求書に出ません。根拠は下の「内訳を見る」で確認できます。
+                  </p>
+                </div>
+              </details>
+
+              {/* 内訳を見る（現場別・職人別・日別／確認用） */}
+              {d && (d.bySite.length > 0 || d.byWorker.length > 0) && (
+                <details className="acc">
+                  <summary>内訳を見る（現場別・職人別・日別）</summary>
+                  <div className="acc-body">
+                    <BreakdownTable title="現場別" rows={d.bySite} />
+                    <BreakdownTable title="職人別" rows={d.byWorker} />
+                    <BreakdownTable title="日別" rows={d.byDay} />
+                  </div>
+                </details>
+              )}
 
               {iv && (
                 <div

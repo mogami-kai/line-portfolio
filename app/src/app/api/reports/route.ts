@@ -63,6 +63,8 @@ const bodySchema = z.object({
   expenses: z.array(expenseSchema).optional(),
   // 任意: クライアントが新規現場名を渡してきた場合の補助（NEEDS_REVIEW 材料）。
   newSiteName: z.string().trim().min(1).optional(),
+  // 任意: スポット現場（一回だけ）。true なら現場を isTemporary で作成し、選択肢に残さない。
+  newSiteTemporary: z.boolean().optional(),
   // 任意: 二重送信防止の冪等キー（クライアント生成）。同一キーの再POSTは
   // 既存レポートを返し、新規作成しない（リトライ/連打の安全網）。
   clientRequestId: z.string().trim().min(1).max(100).optional(),
@@ -164,13 +166,19 @@ export async function POST(req: Request) {
   // 同名は再利用して重複を防ぐ。管理者は /admin/masters から追加/削除できる。
   if (!site && body.newSiteName) {
     const name = body.newSiteName.trim();
+    // 同名があれば再利用（重複を避ける）。無ければ作成。スポット指定時は isTemporary で作り、
+    // LIFFの選択肢には出さず（api/masters で除外）、管理画面の要確認で正式化を判断する。
     site =
       (await prisma.site.findFirst({
         where: { clientId: body.clientId, name },
         select: { id: true, name: true },
       })) ??
       (await prisma.site.create({
-        data: { clientId: body.clientId, name },
+        data: {
+          clientId: body.clientId,
+          name,
+          isTemporary: body.newSiteTemporary ?? false,
+        },
         select: { id: true, name: true },
       }));
   }
@@ -299,6 +307,18 @@ export async function POST(req: Request) {
 
   // 新規出面が増えたので、管理ダッシュボードの月次集計キャッシュを無効化。
   revalidateTag("reports");
+
+  // 現場の利用統計を更新（LIFFの「最近使った/よく使う」並び順用）。失敗は無視（保存は確定済み）。
+  if (site) {
+    try {
+      await prisma.site.update({
+        where: { id: site.id },
+        data: { usageCount: { increment: 1 }, lastUsedAt: dayStart },
+      });
+    } catch (e) {
+      console.error("[reports] site usage update failed", e);
+    }
+  }
 
   // ── 5) ★2系統ルーティング（org.kind で1分岐）★ ──
   let postedToGroup = false;

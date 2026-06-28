@@ -145,6 +145,7 @@ export function isAdmin(u: ResolvedUser): boolean {
  */
 export function requireAdmin(u: ResolvedUser | null): ResolvedUser {
   if (!u) throw new Error("UNAUTHENTICATED");
+  if (u.user.status === "DISABLED") throw new Error("DISABLED");
   if (!u.user.approved) throw new Error("NOT_APPROVED");
   if (u.user.role !== "ADMIN") throw new Error("FORBIDDEN");
   return u;
@@ -152,9 +153,11 @@ export function requireAdmin(u: ResolvedUser | null): ResolvedUser {
 
 /**
  * 承認済みを要求（入力 API 用）。違反時は Error。
+ * 無効化（status=DISABLED）ユーザーは承認状態に関わらず拒否。
  */
 export function requireApproved(u: ResolvedUser | null): ResolvedUser {
   if (!u) throw new Error("UNAUTHENTICATED");
+  if (u.user.status === "DISABLED") throw new Error("DISABLED");
   if (!u.user.approved) throw new Error("NOT_APPROVED");
   return u;
 }
@@ -178,7 +181,7 @@ export async function findApprovedAdminByLineUserId(
 ): Promise<ResolvedUser | null> {
   if (!lineUserId) return null;
   const admin = await prisma.user.findFirst({
-    where: { lineUserId, role: "ADMIN", approved: true },
+    where: { lineUserId, role: "ADMIN", approved: true, status: "ACTIVE" },
     include: { org: true },
   });
   if (!admin) return null;
