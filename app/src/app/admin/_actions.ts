@@ -433,3 +433,25 @@ export async function approveUserAction(fd: FormData): Promise<void> {
   revalidatePath(USERS_PATH);
   revalidatePath("/admin");
 }
+
+// 在籍状態（拒否/無効化・復活）。DISABLED は承認状態に関わらず入室不可。
+const statusSchema = z.object({
+  userId: z.string().min(1),
+  status: z.enum(["ACTIVE", "DISABLED"]),
+});
+
+export async function setUserStatusAction(fd: FormData): Promise<void> {
+  await requireAdminAction();
+  const parsed = statusSchema.safeParse({
+    userId: str(fd, "userId"),
+    status: (str(fd, "status") || "ACTIVE") as "ACTIVE" | "DISABLED",
+  });
+  if (!parsed.success)
+    throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  await prisma.user.update({
+    where: { id: parsed.data.userId },
+    data: { status: parsed.data.status },
+  });
+  revalidatePath(USERS_PATH);
+  revalidatePath("/admin");
+}
