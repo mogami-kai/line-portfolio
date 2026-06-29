@@ -42,9 +42,21 @@ async function ensureSelfOrg(): Promise<Organization> {
     orderBy: { createdAt: "asc" },
   });
   if (existing) return existing;
-  return prisma.organization.create({
-    data: { name: "自社", kind: "SELF" },
-  });
+  // SELF は DB の部分ユニークインデックス（Organization_one_self_idx）で1件に制限。
+  // 初回ログインがほぼ同時に走ると、片方の create は競合で失敗する。その場合は
+  // 例外にせず、既に作られた1件を取得して返す（重複は構造的に作れない）。
+  try {
+    return await prisma.organization.create({
+      data: { name: "自社", kind: "SELF" },
+    });
+  } catch {
+    const again = await prisma.organization.findFirst({
+      where: { kind: "SELF" },
+      orderBy: { createdAt: "asc" },
+    });
+    if (again) return again;
+    throw new Error("SELF 組織の作成に失敗しました。");
+  }
 }
 
 /**

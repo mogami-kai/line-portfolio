@@ -256,6 +256,11 @@ export async function createOrganizationAction(fd: FormData): Promise<void> {
   const kind = str(fd, "kind");
   if (!name) throw new Error("組織名は必須です");
   if (kind !== "SELF" && kind !== "PARTNER") throw new Error("種別が不正です");
+  // 自社（SELF）はここから追加させない（自社は1件のみ。DB の部分ユニーク制約と整合）。
+  // UI は kind=PARTNER 固定だが、直接 POST されても2件目の自社を作らせないため二重で防ぐ。
+  if (kind === "SELF") {
+    throw new Error("自社は1件のみです。自社（SELF）を追加することはできません。");
+  }
   await prisma.organization.create({ data: { name, kind } });
   revalidatePath(MASTERS_PATH);
 }
