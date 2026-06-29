@@ -33,17 +33,6 @@ function isAdminLineUserId(lineUserId: string): boolean {
 }
 
 /**
- * 一時開放モード。環境変数 OPEN_ADMIN が真の間は、LINE ログインした人を
- * 全員「管理者」として管理画面に通す（承認済み ADMIN でなくてもよい）。
- *   ・デモ/検証用の一時フラグ。実データが見える状態になるため運用注意。
- *   ・解除は Vercel で OPEN_ADMIN を外す（＝既定の「承認済み ADMIN のみ」へ即復帰）。
- */
-export function isOpenAdmin(): boolean {
-  const v = (process.env.OPEN_ADMIN ?? "").trim().toLowerCase();
-  return v === "1" || v === "true" || v === "yes" || v === "on";
-}
-
-/**
  * 既定の SELF 組織を取得（無ければ作成）。
  * 初回 ADMIN ユーザーの所属先として使う。SELF が複数ある場合は最初の1件。
  */
@@ -208,14 +197,6 @@ export async function getAdminContextFromSession(
   session: SessionPayload | null,
 ): Promise<ResolvedUser | null> {
   if (!session) return null;
-  // 一時開放（OPEN_ADMIN）: 署名済みセッションがあれば、その実ユーザー（無ければ
-  //   作成）を管理者として通す。未承認/非 ADMIN でも可。ただし明示的に無効化された
-  //   ユーザー（status=DISABLED）は開放中でも拒否（締め出しの意図を尊重）。
-  if (isOpenAdmin()) {
-    const resolved = await resolveUser(session.lineUserId);
-    if (!resolved || resolved.user.status === "DISABLED") return null;
-    return resolved;
-  }
   return findApprovedAdminByLineUserId(session.lineUserId);
 }
 

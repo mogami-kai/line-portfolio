@@ -4,7 +4,7 @@
 //   フロー:
 //     1) state を demen_oauth_state クッキーと照合（CSRF 対策）。
 //     2) code → access_token（exchangeCode）。
-//     3) access_token → プロフィール（lineUserId / displayName）。
+//     3) access_token → プロフィール（lineUserId）。
 //     4) lineUserId が「承認済み ADMIN の実ユーザー」かを DB で確認。
 //          OK   → demen_session（署名付き）を発行して /admin へ 302。
 //          NG   → /admin?error=forbidden（権限なし）へ 302。
@@ -15,11 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { getProfile, exchangeCode } from "@/lib/line.js";
-import {
-  findApprovedAdminByLineUserId,
-  isOpenAdmin,
-  resolveUser,
-} from "@/lib/auth.js";
+import { findApprovedAdminByLineUserId } from "@/lib/auth.js";
 import {
   signSession,
   sessionCookieHeader,
@@ -69,11 +65,9 @@ export async function GET(req: Request) {
 
   // ── 3) token → profile ──
   let lineUserId = "";
-  let displayName = "";
   try {
     const profile = await getProfile(token.accessToken);
     lineUserId = profile.userId;
-    displayName = profile.displayName;
   } catch {
     return NextResponse.redirect(redirectToAdmin(req, "?error=profile"), 302);
   }
@@ -81,13 +75,9 @@ export async function GET(req: Request) {
     return NextResponse.redirect(redirectToAdmin(req, "?error=profile"), 302);
   }
 
-  // ── 4) 承認済み ADMIN か（OPEN_ADMIN の間は誰でもログイン可） ──
-  //   既定: 承認済み ADMIN のみ。OPEN_ADMIN が真なら、未登録/未承認でも
-  //   ユーザーを解決（無ければ作成）してログインさせる（getAdminContext も開放）。
-  let sessionUser = await findApprovedAdminByLineUserId(lineUserId);
-  if (!sessionUser && isOpenAdmin()) {
-    sessionUser = await resolveUser(lineUserId, displayName);
-  }
+  // ── 4) 承認済み ADMIN か ──
+  //   承認済み ADMIN のみログイン可（未承認 / 非 ADMIN / 未登録は弾く）。
+  const sessionUser = await findApprovedAdminByLineUserId(lineUserId);
   if (!sessionUser) {
     // 権限なし（未承認 / 非 ADMIN / 未登録）。セッションは発行しない。
     const res = NextResponse.redirect(
