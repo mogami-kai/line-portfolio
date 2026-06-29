@@ -31,6 +31,12 @@ const IconHome = () => (
     <path d="M5 9.5V21h14V9.5" />
   </svg>
 );
+const IconAggregate = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" {...stroke} aria-hidden>
+    <path d="M4 4v16h16" />
+    <path d="M8 16v-4M12 16V8M16 16v-6" />
+  </svg>
+);
 const IconInvoice = () => (
   <svg viewBox="0 0 24 24" width="20" height="20" {...stroke} aria-hidden>
     <path d="M6 3h9l4 4v14H6z" />
@@ -53,6 +59,12 @@ const IconUsers = () => (
 
 const NAV: NavItem[] = [
   { href: "/admin", label: "ホーム", icon: IconHome, match: (p) => p === "/admin" },
+  {
+    href: "/admin/aggregate",
+    label: "集計",
+    icon: IconAggregate,
+    match: (p) => p.startsWith("/admin/aggregate"),
+  },
   {
     href: "/admin/invoices",
     label: "請求書",
