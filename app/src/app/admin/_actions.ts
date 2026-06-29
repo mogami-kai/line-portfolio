@@ -649,23 +649,31 @@ export async function setUserStatusAction(fd: FormData): Promise<void> {
 //       事前に件数を数えて分かりやすいメッセージで弾く。）
 // ============================================================
 
+// 削除アクションの戻り値。
+//   ※ Server Action で throw した Error メッセージは本番ビルドではマスクされ、
+//     クライアントには汎用文言（"An error occurred in the Server Components render…"）
+//     しか届かない。理由（無効化してください 等）を確実に伝えるため、想定内の失敗は
+//     throw せず { ok:false, error } を「返す」。呼び出し側（ConfirmDeleteButton）が表示する。
+type DeleteResult = { ok: boolean; error?: string };
+
 /**
  * 取引先（Client）を削除。出面/請求書に使われている場合は不可（無効化へ誘導）。
  *   参照なしなら 単価(RateCard)→現場(Site)→請負契約(LumpContract) を消してから本体削除。
  *   （これらは Client への onDelete 未指定リレーション＝先に消さないと本体削除が失敗する）
  */
-export async function deleteClientAction(fd: FormData): Promise<void> {
+export async function deleteClientAction(fd: FormData): Promise<DeleteResult> {
   await requireAdminAction();
   const id = str(fd, "id");
-  if (!id) throw new Error("id がありません");
+  if (!id) return { ok: false, error: "id がありません" };
   const [reports, invoices] = await Promise.all([
     prisma.report.count({ where: { clientId: id } }),
     prisma.invoice.count({ where: { clientId: id } }),
   ]);
   if (reports > 0 || invoices > 0) {
-    throw new Error(
-      "この取引先は出面/請求書に使われているため削除できません。無効化してください。",
-    );
+    return {
+      ok: false,
+      error: `この取引先は 出面${reports}件・請求書${invoices}件 に使われているため削除できません。無効化してください。`,
+    };
   }
   await prisma.$transaction([
     prisma.rateCard.deleteMany({ where: { clientId: id } }),
@@ -674,56 +682,65 @@ export async function deleteClientAction(fd: FormData): Promise<void> {
     prisma.client.delete({ where: { id } }),
   ]);
   revalidatePath(MASTERS_PATH);
+  return { ok: true };
 }
 
 /**
  * 職人（Worker）を削除。出面（ReportEntry）に使われている場合は不可（無効化へ誘導）。
  */
-export async function deleteWorkerAction(fd: FormData): Promise<void> {
+export async function deleteWorkerAction(fd: FormData): Promise<DeleteResult> {
   await requireAdminAction();
   const id = str(fd, "id");
-  if (!id) throw new Error("id がありません");
+  if (!id) return { ok: false, error: "id がありません" };
   const used = await prisma.reportEntry.count({ where: { workerId: id } });
   if (used > 0) {
-    throw new Error(
-      "この職人は出面に使われているため削除できません。無効化してください。",
-    );
+    return {
+      ok: false,
+      error: `この職人は 出面${used}件 に使われているため削除できません。無効化してください。`,
+    };
   }
   await prisma.worker.delete({ where: { id } });
   revalidatePath(MASTERS_PATH);
+  return { ok: true };
 }
 
 /**
  * 組織（Organization）を削除。ユーザー/職人/出面が紐づく場合は不可（無効化へ誘導）。
  *   ※ 「自社（SELF）が2つある」等の重複組織を、参照ゼロのものに限り掃除できる。
+ *     紐づき件数をメッセージに含め、どちらが空（削除可）か分かるようにする。
  */
-export async function deleteOrganizationAction(fd: FormData): Promise<void> {
+export async function deleteOrganizationAction(
+  fd: FormData,
+): Promise<DeleteResult> {
   await requireAdminAction();
   const id = str(fd, "id");
-  if (!id) throw new Error("id がありません");
+  if (!id) return { ok: false, error: "id がありません" };
   const [users, workers, reports] = await Promise.all([
     prisma.user.count({ where: { orgId: id } }),
     prisma.worker.count({ where: { orgId: id } }),
     prisma.report.count({ where: { orgId: id } }),
   ]);
   if (users > 0 || workers > 0 || reports > 0) {
-    throw new Error(
-      "この組織にはユーザー/職人/出面が紐づくため削除できません。無効化してください。",
-    );
+    return {
+      ok: false,
+      error: `この組織には ユーザー${users}・職人${workers}・出面${reports} が紐づくため削除できません。先に職人やユーザーを別の組織へ移すか、無効化してください。`,
+    };
   }
   await prisma.organization.delete({ where: { id } });
   revalidatePath(MASTERS_PATH);
+  return { ok: true };
 }
 
 /**
  * 請求書（Invoice）を削除。明細（InvoiceLine）は onDelete: Cascade で自動削除。
  */
-export async function deleteInvoiceAction(fd: FormData): Promise<void> {
+export async function deleteInvoiceAction(fd: FormData): Promise<DeleteResult> {
   await requireAdminAction();
   const id = str(fd, "id");
-  if (!id) throw new Error("id がありません");
+  if (!id) return { ok: false, error: "id がありません" };
   await prisma.invoice.delete({ where: { id } });
   revalidatePath(INVOICES_PATH);
+  return { ok: true };
 }
 
 /**
@@ -731,14 +748,15 @@ export async function deleteInvoiceAction(fd: FormData): Promise<void> {
  *   User は他モデルから FK 参照されない（Report.createdById は String・リレーション未定義）
  *   ため、件数チェックは不要でそのまま削除できる。
  */
-export async function deleteUserAction(fd: FormData): Promise<void> {
+export async function deleteUserAction(fd: FormData): Promise<DeleteResult> {
   await requireAdminAction();
   const id = str(fd, "id");
-  if (!id) throw new Error("id がありません");
+  if (!id) return { ok: false, error: "id がありません" };
   const admin = await getAdminContext();
   if (admin && admin.user.id === id) {
-    throw new Error("自分自身は削除できません。");
+    return { ok: false, error: "自分自身は削除できません。" };
   }
   await prisma.user.delete({ where: { id } });
   revalidatePath(USERS_PATH);
+  return { ok: true };
 }
