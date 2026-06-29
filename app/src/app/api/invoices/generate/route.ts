@@ -8,8 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { getAdminContext } from "@/lib/auth.js";
-import { toXlsx } from "@/lib/invoice.js";
-import { generateInvoice, loadInvoiceForExport } from "@/lib/invoiceService.js";
+import { generateInvoice } from "@/lib/invoiceService.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,43 +32,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "bad_input" }, { status: 400 });
   }
 
-  // 作成/再作成（既存があれば明細を作り直す）。
-  let invoiceId: string;
+  // 作成/再作成（既存があれば明細を作り直す）。作成結果の id だけを返す。
+  //   ダウンロードは GET /api/invoices/[id]/export?format=xlsx に委ねる。
+  //   理由: iOS Safari は fetch→blob→a.download のプログラム的ダウンロードが不安定で
+  //   ファイルが保存されないことがある。確実な「添付レスポンスへの遷移(GET)」で落とす。
   try {
     const inv = await generateInvoice(clientId, ym);
-    invoiceId = inv.id;
+    return NextResponse.json({ ok: true, id: inv.id, invoiceNo: inv.invoiceNo });
   } catch (e) {
     console.error("[invoices/generate] generateInvoice failed", e);
     return NextResponse.json({ ok: false, error: "generate_failed" }, { status: 500 });
   }
-
-  const data = await loadInvoiceForExport(invoiceId);
-  if (!data) {
-    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
-  }
-
-  const wb = toXlsx({
-    invoiceNo: data.invoiceNo,
-    issueDate: data.issueDate,
-    yearMonth: data.yearMonth,
-    client: data.client,
-    honorific: data.honorific,
-    address: data.address,
-    issuer: data.issuer,
-    lines: data.lines,
-    taxRate: data.taxRate,
-  });
-  const buffer = await wb.xlsx.writeBuffer();
-  const bytes = new Uint8Array(buffer);
-  const safeNo = data.invoiceNo.replace(/[^\w.-]/g, "_");
-  return new NextResponse(bytes, {
-    status: 200,
-    headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="invoice_${safeNo}.xlsx"`,
-      "X-Invoice-No": safeNo,
-      "Cache-Control": "no-store",
-    },
-  });
 }
