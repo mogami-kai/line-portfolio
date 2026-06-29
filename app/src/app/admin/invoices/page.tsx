@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
+import { GenerateInvoiceButton } from "./_generateButton.js";
 import {
   currentYearMonth,
   loadMonthRows,
@@ -319,16 +320,7 @@ export default async function InvoicesPage({
                 </div>
               )}
 
-              <form action={generateInvoiceAction} style={{ marginTop: 12 }}>
-                <input type="hidden" name="clientId" value={s.clientId} />
-                <input type="hidden" name="ym" value={ym} />
-                <button
-                  type="submit"
-                  className={`btn ${iv ? "btn--ghost" : "btn--primary"}`}
-                >
-                  請求書作成
-                </button>
-              </form>
+              <GenerateInvoiceButton clientId={s.clientId} ym={ym} />
             </div>
           );
         })
