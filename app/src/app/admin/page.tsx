@@ -243,8 +243,7 @@ function LoginScreen({ error }: { error?: string }) {
         </span>
       </a>
       <p className="muted center" style={{ marginTop: 24 }}>
-        ※ 初回 ADMIN は <code>ADMIN_LINE_USER_IDS</code> で付与し、一度 LIFF
-        を開いて登録（role=ADMIN・承認済み）すると、ここからログインできます。
+        ログインできない場合は、管理者にご連絡ください。
       </p>
     </main>
   );
