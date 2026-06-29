@@ -20,7 +20,12 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Drawer } from "./_drawer.js";
 import type { ClientRow } from "./_mastersTypes.js";
-import { createClientAction, updateClientAction } from "../_actions.js";
+import {
+  createClientAction,
+  deleteClientAction,
+  updateClientAction,
+} from "../_actions.js";
+import { ConfirmDeleteButton } from "../_confirmDelete.js";
 
 /** 常用単価の表示（円。未設定は「未設定」）。 */
 function priceLabel(unitPrice: number | null): string {
@@ -210,6 +215,13 @@ function ClientDrawer({
           >
             キャンセル
           </button>
+          {isEdit && row !== null && (
+            <ConfirmDeleteButton
+              action={deleteClientAction}
+              id={row.id}
+              confirmText="この取引先を削除します。関連する現場/単価も消えます。よろしいですか？"
+            />
+          )}
         </>
       }
     >

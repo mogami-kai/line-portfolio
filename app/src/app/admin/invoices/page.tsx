@@ -16,6 +16,8 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { GenerateInvoiceButton } from "./_generateButton.js";
 import { InvoiceTable, type InvoiceTableRow } from "./_invoiceTable.js";
+import { ConfirmDeleteButton } from "../_confirmDelete.js";
+import { deleteInvoiceAction } from "../_actions.js";
 import {
   currentYearMonth,
   loadMonthRows,
@@ -120,12 +122,19 @@ function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
   );
 }
 
-// 既存 Invoice の番号。PC テーブルの操作セル / スマホカード共用。
+// 既存 Invoice の番号＋削除。PC テーブルの操作セル / スマホカード共用。
 //   ダウンロードは「請求書作成」ボタンに一本化（押すと作成＋Excel ダウンロード）。
+//   削除は控えめ（btn--danger-text）。InvoiceLine は onDelete:Cascade で自動削除。
 function InvoiceMeta({ iv }: { iv: ExistingInvoice }) {
   return (
     <div className="inv-no-line">
       請求書番号 <strong>{iv.invoiceNo}</strong>
+      <ConfirmDeleteButton
+        action={deleteInvoiceAction}
+        id={iv.id}
+        label="請求書を削除"
+        confirmText="この請求書を削除します。番号や明細のスナップショットが消えます。よろしいですか？"
+      />
     </div>
   );
 }

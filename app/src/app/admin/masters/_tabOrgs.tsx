@@ -5,18 +5,24 @@
 //
 //   freee / マネーフォワード 風。一覧中心 ＋ ドロワー編集。
 //   ・「組織」という英語/内部語は画面に出さない（自社 / 協力会社で表記）。
-//   ・自社（SELF）は固定表示で追加不可。協力会社（PARTNER）のみ追加できる。
+//   ・追加できるのは協力会社（PARTNER）のみ。自社（SELF）はここから作らない
+//     （自社は通常1つ）。ただし自社が重複している場合に片方を掃除できるよう、
+//     自社も協力会社と同じく行クリックで編集ドロワーを開け、削除もできる。
 //       自社＝出面が自社グループに自動投稿される入力元。
 //       協力会社＝管理画面の集計のみに使う相手先。
 //   ・上部に短い説明 ＋ .mst-toolbar の右に「協力会社を追加」（primary）。
 //   ・一覧: PC は table.mst-table（組織名 / 種別 / 状態）、
-//     スマホは .mst-cards のコンパクトカード。協力会社の行はタップで編集ドロワー。
-//     自社の行は編集対象外（種別・状態を変えると入力導線が壊れるため読み取り専用）。
+//     スマホは .mst-cards のコンパクトカード。自社・協力会社いずれの行も
+//     タップで編集ドロワーを開く。
 //   ・追加 / 編集はすべて Drawer の中（一覧の中にフォームを展開しない）。
 //
 //   Server Action は ../_actions.js を再利用（DB / ロジックは変更しない）。
 //   追加は kind=PARTNER 固定で createOrganizationAction、編集は
-//   updateOrganizationAction（name ＋ active ＋ hidden id）。種別変更は不可。
+//   updateOrganizationAction（name ＋ active ＋ hidden id）。種別（SELF/PARTNER）
+//   は不可逆のため編集UIには出さない。削除は deleteOrganizationAction で、
+//   編集ドロワー footer の ConfirmDeleteButton から呼ぶ（確認必須）。
+//   ユーザー/職人/出面が紐づく組織はアクション側が日本語 throw → ボタンが
+//   alert 表示するので、UI 側で件数判定はしない（無効化トグルは併設）。
 //   送信は <form action={submit}> のラッパ内でアクションに FormData を渡し、
 //   成功で router.refresh()＋ドロワーを閉じる。
 // ============================================================
@@ -26,9 +32,11 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Drawer } from "./_drawer.js";
 import type { OrgRow } from "./_mastersTypes.js";
+import { ConfirmDeleteButton } from "../_confirmDelete.js";
 import {
   createOrganizationAction,
   updateOrganizationAction,
+  deleteOrganizationAction,
 } from "../_actions.js";
 
 /** 種別ラベル（英語表記は画面に出さない）。 */
@@ -107,7 +115,7 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
         </div>
       ) : (
         <>
-          {/* PC: テーブル（組織名 / 種別 / 状態）。協力会社の行のみクリックで編集。 */}
+          {/* PC: テーブル（組織名 / 種別 / 状態）。自社・協力会社いずれの行もクリックで編集。 */}
           <div className="mst-table-wrap">
             <table className="mst-table">
               <thead>
@@ -123,8 +131,8 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
                   return (
                     <tr
                       key={o.id}
-                      onClick={isSelf ? undefined : () => setEditing(o)}
-                      style={isSelf ? undefined : { cursor: "pointer" }}
+                      onClick={() => setEditing(o)}
+                      style={{ cursor: "pointer" }}
                     >
                       <td>{o.name}</td>
                       <td>
@@ -150,29 +158,10 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
             </table>
           </div>
 
-          {/* スマホ: コンパクトカード。自社は span（非操作）、協力会社は button。 */}
+          {/* スマホ: コンパクトカード。自社・協力会社いずれもタップで編集ドロワー。 */}
           <div className="mst-cards">
             {sorted.map((o) => {
-              const isSelf = o.kind === "SELF";
               const sub = `${kindLabel(o.kind)} / ${o.active ? "有効" : "無効"}`;
-              if (isSelf) {
-                return (
-                  // 自社は読み取り専用。.mst-card は既定で cursor:pointer のため
-                  // クリック可能に見えないよう default に上書き（globals.css は触らない）。
-                  <div
-                    key={o.id}
-                    className="mst-card"
-                    aria-disabled
-                    style={{ cursor: "default" }}
-                  >
-                    <span className="mst-card-main">
-                      {o.name}
-                      <span className="mst-card-sub">{sub}</span>
-                    </span>
-                    <span className="badge badge--self">自社</span>
-                  </div>
-                );
-              }
               return (
                 <button
                   key={o.id}
@@ -206,8 +195,11 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
 // 追加 / 編集ドロワー
 //   row=null は協力会社の追加（kind=PARTNER 固定で createOrganizationAction）、
 //   row 指定は編集（updateOrganizationAction。name ＋ active ＋ hidden id）。
-//   種別は変更不可（hint で明示）。送信は <form action={submit}>。
-//   成功で router.refresh()→onClose()。
+//   種別（SELF/PARTNER）は不可逆なので編集UIには出さない（hint で明示）。
+//   編集時は footer に削除（deleteOrganizationAction）を併設。確認必須。
+//   ユーザー/職人/出面が紐づく組織はアクション側が日本語 throw → 無効化へ誘導。
+//   自社（SELF）も編集・削除の対象（重複自社の片方を掃除できる）。
+//   送信は <form action={submit}>。成功で router.refresh()→onClose()。
 // ============================================================
 function OrgDrawer({
   row,
@@ -238,15 +230,29 @@ function OrgDrawer({
   return (
     <Drawer
       open
-      title={isEdit ? "協力会社を編集" : "協力会社を追加"}
+      title={
+        isEdit
+          ? `${kindLabel(row.kind)}を編集`
+          : "協力会社を追加"
+      }
       onClose={onClose}
       footer={
         <>
+          {/* 編集時のみ削除を併設。左寄せの危険操作 ＋ 右に保存/キャンセル。
+              FK 参照がある組織は action 側が日本語 throw → 無効化へ誘導される。 */}
+          {isEdit && (
+            <ConfirmDeleteButton
+              action={deleteOrganizationAction}
+              id={row.id}
+              confirmText="この組織を削除します。よろしいですか？（取り消せません）"
+            />
+          )}
           <button
             type="submit"
             form="org-form"
             className="btn btn--primary"
             disabled={pending}
+            style={isEdit ? { marginLeft: "auto" } : undefined}
           >
             {pending ? "保存中…" : isEdit ? "保存する" : "追加する"}
           </button>
@@ -307,7 +313,11 @@ function OrgDrawer({
 
         <p className="hint">
           {isEdit
-            ? "種別（協力会社）は変更できません。協力会社は管理画面の集計のみに使います。"
+            ? `種別（${kindLabel(row.kind)}）は変更できません。${
+                row.kind === "SELF"
+                  ? "自社は出面が自社グループへ自動投稿される入力元です。"
+                  : "協力会社は管理画面の集計のみに使います。"
+              }`
             : "協力会社として登録します。種別は協力会社で固定です（自社はここから追加できません）。"}
         </p>
       </form>

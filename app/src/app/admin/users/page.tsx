@@ -11,7 +11,8 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
-import { approveUserAction, setUserStatusAction } from "../_actions.js";
+import { approveUserAction, setUserStatusAction, deleteUserAction } from "../_actions.js";
+import { ConfirmDeleteButton } from "../_confirmDelete.js";
 import { HelpToggle } from "../_help.js";
 import {
   ROLE_LABELS,
@@ -229,21 +230,41 @@ export default async function UsersPage({
                 </form>
               )}
 
-              {/* 無効化 / 復活 */}
-              <form action={setUserStatusAction} style={{ marginTop: 10 }}>
-                <input type="hidden" name="userId" value={u.id} />
-                <input
-                  type="hidden"
-                  name="status"
-                  value={isDisabled(u) ? "ACTIVE" : "DISABLED"}
-                />
-                <button
-                  type="submit"
-                  className={isDisabled(u) ? "btn btn--ghost btn--sm" : "btn btn--danger-text btn--sm"}
-                >
-                  {isDisabled(u) ? "復活（有効化）" : "拒否 / 無効化"}
-                </button>
-              </form>
+              {/* 無効化 / 復活 / 削除 */}
+              <div
+                style={{
+                  marginTop: 10,
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <form action={setUserStatusAction}>
+                  <input type="hidden" name="userId" value={u.id} />
+                  <input
+                    type="hidden"
+                    name="status"
+                    value={isDisabled(u) ? "ACTIVE" : "DISABLED"}
+                  />
+                  <button
+                    type="submit"
+                    className={isDisabled(u) ? "btn btn--ghost btn--sm" : "btn btn--danger-text btn--sm"}
+                  >
+                    {isDisabled(u) ? "復活（有効化）" : "拒否 / 無効化"}
+                  </button>
+                </form>
+
+                {/* 物理削除（取り消し不可）。自分自身の行には出さない。 */}
+                {admin.user.id !== u.id && (
+                  <ConfirmDeleteButton
+                    action={deleteUserAction}
+                    id={u.id}
+                    label="削除"
+                    confirmText="このユーザーを削除します。よろしいですか？（取り消せません）"
+                  />
+                )}
+              </div>
             </details>
           );
         })}
