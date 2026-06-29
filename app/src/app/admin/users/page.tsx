@@ -122,8 +122,8 @@ export default async function UsersPage({
 
       {tab === "pending" && counts.pending > 0 && (
         <p className="muted" style={{ marginBottom: 10 }}>
-          ※ 協力会社のメンバーは <strong>協力会社</strong> に、ADMIN/自社メンバーは{" "}
-          <strong>自社</strong> に割り当ててください（ロールと組織の整合が必要です）。
+          ※ 協力会社の方は <strong>協力会社</strong> に、管理者・自社の方は{" "}
+          <strong>自社</strong> に割り当ててください。
         </p>
       )}
 
@@ -161,9 +161,7 @@ export default async function UsersPage({
 
               <div className="list-meta" style={{ marginTop: 8 }}>
                 初回登録: {fmtDateTime(u.createdAt)}　/　入口:{" "}
-                {u.role === "ADMIN" ? "管理者登録" : "LIFF（出面フォーム）"}
-                <br />
-                lineUserId: <code>{u.lineUserId}</code>
+                {u.role === "ADMIN" ? "管理者登録" : "出面フォーム"}
               </div>
 
               {/* 現在の割り当てでできること */}
@@ -180,7 +178,7 @@ export default async function UsersPage({
                 <form action={approveUserAction} style={{ marginTop: 12 }}>
                   <input type="hidden" name="userId" value={u.id} />
                   <div className="field">
-                    <label className="label">権限（ロール）</label>
+                    <label className="label">権限</label>
                     <select className="select" name="role" defaultValue={u.role}>
                       {ROLE_OPTIONS.map((r) => (
                         <option key={r} value={r}>

@@ -237,7 +237,8 @@ export default function LiffPage() {
     (async () => {
       const liffId = process.env.NEXT_PUBLIC_LIFF_ID;
       if (!liffId) {
-        setLoadError("NEXT_PUBLIC_LIFF_ID が未設定です。");
+        console.warn("[liff] NEXT_PUBLIC_LIFF_ID is not set");
+        setLoadError("アプリの設定に問題があります。管理者にご連絡ください。");
         return;
       }
       try {
@@ -255,9 +256,10 @@ export default function LiffPage() {
         setToken(t);
         setReady(true);
       } catch (e) {
+        console.error("[liff] init failed", e);
         if (!cancelled)
           setLoadError(
-            e instanceof Error ? e.message : "LIFF 初期化に失敗しました。",
+            "読み込みに失敗しました。電波の良い場所で、LINE からもう一度開き直してください。",
           );
       }
     })();
