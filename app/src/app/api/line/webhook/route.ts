@@ -55,6 +55,22 @@ function verifySignature(rawBody: string, signature: string | null): boolean {
   return crypto.timingSafeEqual(a, b);
 }
 
+async function replyText(replyToken: string, text: string) {
+  const token = process.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN || process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) return;
+  await fetch("https://api.line.me/v2/bot/message/reply", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      replyToken,
+      messages: [{ type: "text", text }],
+    }),
+  });
+}
+
 export async function POST(req: Request) {
   // 署名検証のため raw text を読む。
   const rawBody = await req.text();
@@ -68,48 +84,25 @@ export async function POST(req: Request) {
   try {
     payload = JSON.parse(rawBody) as { events?: LineEvent[] };
   } catch {
-    // 不正 JSON でも 200（LINE 側のリトライ抑止）。
     return NextResponse.json({ ok: true });
   }
 
   const events = payload.events ?? [];
   for (const ev of events) {
     const src = ev.source ?? {};
-    // ★ グループ ID を採取できるようログ出力（管理者が LINE_GROUP_ID を控える）。
     if (src.groupId) {
-      console.log(
-        `[webhook] event=${ev.type} groupId=${src.groupId} (← これを LINE_GROUP_ID に設定)`,
-      );
-    } else {
-      console.log(
-        `[webhook] event=${ev.type} sourceType=${src.type ?? "?"} userId=${src.userId ?? "-"}`,
-      );
+      console.log(`[webhook] event=${ev.type} groupId=${src.groupId}`);
     }
 
     switch (ev.type) {
       case "join":
-        // bot がグループ/ルームに参加 → groupId を採取（LINE_GROUP_ID 設定用）。
-        console.log(
-          `[webhook] joined ${src.type ?? "group"}: groupId=${
-            src.groupId ?? "-"
-          } roomId=${src.roomId ?? "-"}`,
-        );
-        break;
-      case "follow":
-        // 友だち追加 → 初回ユーザー。ここでは登録/応答せず即 200 を優先。
-        // ユーザー作成・ロール付与は LIFF 初回オープン時 or 管理画面の承認で行う。
-        console.log(`[webhook] followed by user: ${src.userId ?? "-"}`);
-        break;
-      case "unfollow":
-        console.log(`[webhook] unfollowed by user: ${src.userId ?? "-"}`);
+        if (src.groupId && ev.replyToken) {
+          await replyText(ev.replyToken, `[GROUP ID取得用]\nこのグループのIDは:\n${src.groupId}`);
+        }
         break;
       case "message":
-        // 当面はメッセージに自動応答しない（LIFF 入力に一本化）。
-        // ただしグループからのメッセージなら groupId を採取できるようログする。
-        if (src.groupId) {
-          console.log(
-            `[webhook] group message: groupId=${src.groupId} (← LINE_GROUP_ID 候補)`,
-          );
+        if (src.groupId && ev.replyToken) {
+          await replyText(ev.replyToken, `[GROUP ID取得用]\nこのグループのIDは:\n${src.groupId}`);
         }
         break;
       default:
@@ -117,7 +110,6 @@ export async function POST(req: Request) {
     }
   }
 
-  // 速やかに 200。
   return NextResponse.json({ ok: true });
 }
 
