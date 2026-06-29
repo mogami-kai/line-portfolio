@@ -55,10 +55,16 @@ function verifySignature(rawBody: string, signature: string | null): boolean {
   return crypto.timingSafeEqual(a, b);
 }
 
+// 取得用: 直近に観測した groupId を保持（GET で確認できる）。
+const seenGroupIds: string[] = [];
+
 async function replyText(replyToken: string, text: string) {
   const token = process.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN || process.env.LINE_CHANNEL_ACCESS_TOKEN;
-  if (!token) return;
-  await fetch("https://api.line.me/v2/bot/message/reply", {
+  if (!token) {
+    console.warn("[webhook] no access token");
+    return;
+  }
+  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -69,6 +75,9 @@ async function replyText(replyToken: string, text: string) {
       messages: [{ type: "text", text }],
     }),
   });
+  if (!res.ok) {
+    console.error(`[webhook] reply failed: ${res.status} ${await res.text()}`);
+  }
 }
 
 export async function POST(req: Request) {
@@ -92,6 +101,7 @@ export async function POST(req: Request) {
     const src = ev.source ?? {};
     if (src.groupId) {
       console.log(`[webhook] event=${ev.type} groupId=${src.groupId}`);
+      if (!seenGroupIds.includes(src.groupId)) seenGroupIds.unshift(src.groupId);
     }
 
     switch (ev.type) {
@@ -113,7 +123,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-// GET は疎通確認用（LINE の Verify ボタンは POST だが、ブラウザ確認向けに 200）。
+// GET は疎通確認用 + 取得した groupId 確認用。
 export async function GET() {
-  return NextResponse.json({ ok: true, service: "line-webhook" });
+  return NextResponse.json({ ok: true, service: "line-webhook", seenGroupIds });
 }
