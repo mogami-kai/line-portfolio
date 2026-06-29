@@ -27,7 +27,6 @@ import {
   deleteReportAction,
 } from "./_actions.js";
 import { currentYearMonth, monthRange } from "@/lib/aggregate.js";
-import { getAdminHome } from "@/lib/adminInsights.js";
 
 export const dynamic = "force-dynamic";
 
@@ -101,9 +100,9 @@ export default async function AdminPage({
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
   const { from, to } = monthRange(ym);
 
-  // 「日々のチェック」の主役データだけを取得（要確認＋当月フィード＋ホーム指標）。
+  // 「日々のチェック」の主役データだけを取得（要確認＋当月フィード）。
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。
-  const [needsReview, recent, home] = await Promise.all([
+  const [needsReview, recent] = await Promise.all([
     prisma.report.findMany({
       where: { status: "NEEDS_REVIEW" },
       orderBy: { createdAt: "desc" },
@@ -132,7 +131,6 @@ export default async function AdminPage({
         },
       },
     }),
-    getAdminHome(ym),
   ]);
 
   // 月ナビ。
@@ -182,55 +180,6 @@ export default async function AdminPage({
         <a className="month-nav" href={`/admin?ym=${ymStr(next)}`} aria-label="翌月">
           ▶
         </a>
-      </div>
-
-      {/* 次にやること（最優先導線） */}
-      <section className="block">
-        <div className="section-head">
-          <h2 className="section-title">次にやること</h2>
-        </div>
-        <div className="next-actions">
-          {home.nextActions.map((a) => (
-            <a
-              key={a.key}
-              href={a.href}
-              className={`next-action next-action--${a.level}`}
-            >
-              <span className="na-text">{a.text}</span>
-              <span className="na-arrow" aria-hidden>
-                ›
-              </span>
-            </a>
-          ))}
-        </div>
-      </section>
-
-      {/* 今月の状態（カード） */}
-      <div className="metric-grid">
-        <div className="metric">
-          <div className="metric-v">{home.metrics.monthReports}</div>
-          <div className="metric-k">今月の入力</div>
-        </div>
-        <div className="metric">
-          <div className="metric-v">{home.metrics.needsReview}</div>
-          <div className="metric-k">要確認</div>
-        </div>
-        <a className="metric" href="/admin/users?tab=pending">
-          <div className="metric-v">{home.metrics.pendingUsers}</div>
-          <div className="metric-k">承認待ち</div>
-        </a>
-        <a className="metric" href={`/admin/invoices?ym=${ym}`}>
-          <div className="metric-v">{home.metrics.invoiceCandidates}</div>
-          <div className="metric-k">請求候補</div>
-        </a>
-        <a className="metric" href={`/admin/invoices?ym=${ym}`}>
-          <div className="metric-v">{home.metrics.draftInvoices}</div>
-          <div className="metric-k">未発行</div>
-        </a>
-        <div className="metric">
-          <div className="metric-v">{home.metrics.partnerReports}</div>
-          <div className="metric-k">協力会社</div>
-        </div>
       </div>
 
       {/* PC は 2 カラム（左=日々のチェック / 右=集計・請求）。モバイルは縦 1 列。 */}
