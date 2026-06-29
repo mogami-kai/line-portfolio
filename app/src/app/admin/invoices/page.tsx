@@ -174,31 +174,48 @@ export default async function InvoicesPage({
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
   const { from, to } = monthRange(ym);
 
-  // 当月に出面のある取引先（id, name）を抽出。
-  const rows = await loadMonthRows(ym);
-  const clientMap = new Map<string, string>();
-  for (const r of rows) {
-    if (!clientMap.has(r.clientId)) clientMap.set(r.clientId, r.clientName);
-  }
-
   const setting = await prisma.invoiceSetting.findFirst();
   const taxRate = setting?.taxRate ?? 0.1;
 
-  // 既存 Invoice（この月）。
-  const existingInvoices = await prisma.invoice.findMany({
-    where: { yearMonth: ym },
-    select: { id: true, clientId: true, invoiceNo: true, status: true },
-  });
+  // 当月の請求候補となる取引先 = 次の和集合（漏れ防止）:
+  //   ・確定済み出面がある取引先（loadMonthRows）
+  //   ・要確認も含め何らかの出面がある取引先（getMonthClientDetails）
+  //   ・有効な請負契約(LumpContract)がある取引先
+  //   ・既に請求書がある取引先
+  // これで「請負契約だけ」「既存請求書だけ」「要確認だけ」の取引先も漏れず出る。
+  const [rows, existingInvoices, lumps, details] = await Promise.all([
+    loadMonthRows(ym),
+    prisma.invoice.findMany({
+      where: { yearMonth: ym },
+      select: { id: true, clientId: true, invoiceNo: true, status: true },
+    }),
+    prisma.lumpContract.findMany({
+      where: { yearMonth: ym, status: "ACTIVE" },
+      select: { clientId: true },
+    }),
+    getMonthClientDetails(ym),
+  ]);
   const invoiceByClient = new Map(
     existingInvoices.map((iv) => [iv.clientId, iv]),
   );
 
+  // 候補 clientId の和集合 → 名前をまとめ取りして id→name の Map に。
+  const candidateIds = new Set<string>();
+  for (const r of rows) candidateIds.add(r.clientId);
+  for (const id of details.keys()) candidateIds.add(id);
+  for (const iv of existingInvoices) candidateIds.add(iv.clientId);
+  for (const l of lumps) candidateIds.add(l.clientId);
+  const clientRecords = await prisma.client.findMany({
+    where: { id: { in: Array.from(candidateIds) } },
+    select: { id: true, name: true },
+  });
+  const clientMap = new Map(clientRecords.map((c) => [c.id, c.name]));
+
   // 既定単価が登録済みの取引先（未登録＝委託料/残業が0円になる→警告表示用）。
-  // 内訳（現場別/職人別/日別・要確認件数）も当月1クエリでまとめ取り。
-  const [ratedClients, details] = await Promise.all([
-    clientsWithDefaultRate(Array.from(clientMap.keys()), to),
-    getMonthClientDetails(ym),
-  ]);
+  const ratedClients = await clientsWithDefaultRate(
+    Array.from(clientMap.keys()),
+    to,
+  );
 
   // 各取引先の概算合計（税込）。exempt＝立替（対象外）ぶん。lines＝プレビュー用の外向き明細。
   const summaries = await Promise.all(

@@ -34,10 +34,10 @@ export function GenerateInvoiceButton({
         body: JSON.stringify({ clientId, ym }),
       });
       const data = (await res.json().catch(() => null)) as
-        | { ok?: boolean; id?: string }
+        | { ok?: boolean; id?: string; message?: string }
         | null;
       if (!res.ok || !data?.ok || !data.id) {
-        setError("作成に失敗しました。もう一度お試しください。");
+        setError(data?.message || "作成に失敗しました。もう一度お試しください。");
         return;
       }
       // 請求書番号・状態の表示を更新。

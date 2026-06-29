@@ -238,20 +238,23 @@ export default async function UsersPage({
                   flexWrap: "wrap",
                 }}
               >
-                <form action={setUserStatusAction}>
-                  <input type="hidden" name="userId" value={u.id} />
-                  <input
-                    type="hidden"
-                    name="status"
-                    value={isDisabled(u) ? "ACTIVE" : "DISABLED"}
-                  />
-                  <button
-                    type="submit"
-                    className={isDisabled(u) ? "btn btn--ghost btn--sm" : "btn btn--danger-text btn--sm"}
-                  >
-                    {isDisabled(u) ? "復活（有効化）" : "拒否 / 無効化"}
-                  </button>
-                </form>
+                {/* 自分自身の行には危険操作（無効化）を出さない（サーバ側でも禁止済み）。 */}
+                {admin.user.id !== u.id && (
+                  <form action={setUserStatusAction}>
+                    <input type="hidden" name="userId" value={u.id} />
+                    <input
+                      type="hidden"
+                      name="status"
+                      value={isDisabled(u) ? "ACTIVE" : "DISABLED"}
+                    />
+                    <button
+                      type="submit"
+                      className={isDisabled(u) ? "btn btn--ghost btn--sm" : "btn btn--danger-text btn--sm"}
+                    >
+                      {isDisabled(u) ? "復活（有効化）" : "拒否 / 無効化"}
+                    </button>
+                  </form>
+                )}
 
                 {/* 物理削除（取り消し不可）。自分自身の行には出さない。 */}
                 {admin.user.id !== u.id && (

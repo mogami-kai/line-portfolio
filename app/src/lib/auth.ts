@@ -5,12 +5,12 @@
 //   - requireApproved(...)           : 承認済みチェック
 //   - requireAdmin(...)              : ADMIN ロールチェック
 //
-// 初回ユーザーは未承認（approved=false）で作成。
-//   ADMIN_LINE_USER_IDS に含まれる lineUserId → role=ADMIN・SELF 組織に所属。
-//   それ以外                              → role=PARTNER（管理者が後で org/role 承認）。
+// オープンアクセス（ローンチ要件）: 初回ユーザーは承認不要で「自社(SELF)・管理者(ADMIN)・
+//   approved=true」として作成し、誰でも管理画面・入力フォームを使える。後から管理者が
+//   ユーザー承認画面でロール/所属（協力会社=PARTNER 等）に変更して制限できる。
 // ============================================================
 
-import type { Organization, Role, User } from "@prisma/client";
+import type { Organization, User } from "@prisma/client";
 import { prisma } from "./db.js";
 import { resolveLineUserFromToken } from "./line.js";
 import { verifySession, type SessionPayload } from "./session.js";
@@ -18,18 +18,6 @@ import { verifySession, type SessionPayload } from "./session.js";
 export interface ResolvedUser {
   user: User;
   org: Organization;
-}
-
-/** ADMIN_LINE_USER_IDS（カンマ区切り）を配列で返す。 */
-function adminLineUserIds(): string[] {
-  return (process.env.ADMIN_LINE_USER_IDS ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function isAdminLineUserId(lineUserId: string): boolean {
-  return adminLineUserIds().includes(lineUserId);
 }
 
 /**
@@ -60,25 +48,11 @@ async function ensureSelfOrg(): Promise<Organization> {
 }
 
 /**
- * 非ADMIN初回ユーザーの暫定所属先（PARTNER）。SELFには絶対入れないための受け皿。
- * 承認漏れでも自社グループに漏れないことを構造で担保する。管理者が後で正式な
- * パートナー組織へ付け替える。
- */
-async function ensurePendingPartnerOrg(): Promise<Organization> {
-  const name = "未割当（承認待ち）";
-  const existing = await prisma.organization.findFirst({
-    where: { kind: "PARTNER", name },
-  });
-  if (existing) return existing;
-  return prisma.organization.create({ data: { name, kind: "PARTNER" } });
-}
-
-/**
  * lineUserId から User+Organization を解決する。
- * 未登録なら初回ユーザーとして作成（未承認）。
- *   - ADMIN_LINE_USER_IDS に一致 → role=ADMIN / approved=true / SELF 組織
- *   - それ以外                    → role=PARTNER / approved=false / 暫定 SELF 組織
- *     （管理者が後で org（パートナー）/role を割り当てる）
+ * 未登録なら初回ユーザーとして作成する。
+ *   オープンアクセス（ローンチ要件）: 新規は誰でも「自社(SELF)・管理者(ADMIN)・
+ *   approved=true」で作成し、即座に管理画面・入力フォームを使える。後から管理者が
+ *   ユーザー承認画面でロール/所属（協力会社=PARTNER 等）へ変更して制限できる。
  *
  * @param displayName  初回作成時の表示名（無ければ仮名）。
  */
@@ -93,23 +67,30 @@ export async function resolveUser(
     include: { org: true },
   });
   if (found) {
+    // オープンアクセス: 旧フローで作られた未承認(approved=false)の在籍ユーザーも、
+    // ログイン時に自社(SELF)・管理者(ADMIN)・承認済みへ引き上げて入れるようにする
+    // （新規IDだけでなく既存の保留ユーザーも「誰でも入れる」を満たす）。
+    // 既に承認済み（管理者が PARTNER 等へ割り当て済みを含む）と無効化(DISABLED)は尊重する。
+    if (found.status === "ACTIVE" && !found.approved) {
+      const org = await ensureSelfOrg();
+      const promoted = await prisma.user.update({
+        where: { id: found.id },
+        data: { role: "ADMIN", approved: true, orgId: org.id },
+        include: { org: true },
+      });
+      return { user: promoted, org: promoted.org };
+    }
     return { user: found, org: found.org };
   }
 
-  // 初回ユーザー作成。
-  const isAdmin = isAdminLineUserId(lineUserId);
-  const role: Role = isAdmin ? "ADMIN" : "PARTNER";
-  // ★不可視性の担保: 非ADMINは絶対にSELF組織に入れない（承認漏れでも自社に出ない）。
-  //   ADMIN → SELF / それ以外 → PARTNER「未割当（承認待ち）」。管理者が後で正式orgへ。
-  const org = isAdmin ? await ensureSelfOrg() : await ensurePendingPartnerOrg();
-
+  // 初回ユーザー作成（オープンアクセス）。全員 自社(SELF)・管理者(ADMIN)・承認済み。
+  const org = await ensureSelfOrg();
   const created = await prisma.user.create({
     data: {
       lineUserId,
       displayName: displayName?.trim() || "未設定ユーザー",
-      role,
-      // ADMIN は即時利用可。一般初回ユーザーは管理者承認待ち。
-      approved: isAdmin,
+      role: "ADMIN",
+      approved: true,
       orgId: org.id,
     },
     include: { org: true },

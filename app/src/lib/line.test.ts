@@ -76,4 +76,18 @@ describe("formatReportLog（出面グループ投稿フォーマット）", () =
       "2月8日(日)\nMALU　常用\nKアリーナ\n石渡（夜勤）　久保（夜勤）",
     );
   });
+
+  it("ローンチ動作確認: 6/29(月) 辻濱興業 常用 綱島 / 斎・山口", () => {
+    const r: ReportLogInput = {
+      workDate: new Date("2026-06-29T00:00:00.000Z"),
+      contractType: "JOYO",
+      client: { name: "辻濱興業" },
+      site: { name: "綱島" },
+      entries: [W("斎"), W("山口")],
+    };
+    // 自社(SELF)の送信時、この文面が bot から LINE_GROUP_ID のグループへ投稿される。
+    expect(formatReportLog(r)).toBe(
+      "6月29日(月)\n辻濱興業　常用\n綱島\n斎　山口",
+    );
+  });
 });

@@ -30,7 +30,14 @@ export async function buildClientInvoiceLines(
   const { from, to } = monthRange(yearMonth);
 
   const reports = await prisma.report.findMany({
-    where: { clientId, workDate: { gte: from, lt: to } },
+    where: {
+      clientId,
+      workDate: { gte: from, lt: to },
+      // 確定済みのみ請求対象（要確認 NEEDS_REVIEW は承認されるまで金額に乗せない）。
+      status: "CONFIRMED",
+      // 無効化した組織の出面は請求から除外。
+      org: { active: true },
+    },
     select: {
       contractType: true,
       contractAmount: true,
@@ -173,12 +180,13 @@ export async function getMonthClientDetails(
 ): Promise<Map<string, ClientMonthDetails>> {
   const { from, to } = monthRange(yearMonth);
   const reports = await prisma.report.findMany({
-    where: { workDate: { gte: from, lt: to } },
+    where: { workDate: { gte: from, lt: to }, org: { active: true } },
     select: {
       clientId: true,
       status: true,
       contractType: true,
       workDate: true,
+      siteName: true,
       site: { select: { name: true } },
       entries: {
         select: {
@@ -225,8 +233,11 @@ export async function getMonthClientDetails(
   for (const r of reports) {
     const a = ensure(r.clientId);
     if (r.status === "NEEDS_REVIEW") a.needsReview += 1;
+    // 確定済みのみ内訳に積む（要確認は件数だけ数え、人工/金額には入れない）。
+    if (r.status !== "CONFIRMED") continue;
     if (r.contractType !== "JOYO") continue; // 委託料の内訳は常用のみ。
-    const siteName = r.site?.name ?? "(現場未設定)";
+    // v3: 自由入力の現場名(Report.siteName)を最優先。無ければ旧現場マスタ名。
+    const siteName = r.siteName?.trim() || r.site?.name || "(現場未設定)";
     const dateStr = `${r.workDate.getUTCMonth() + 1}/${r.workDate.getUTCDate()}`;
     for (const e of r.entries) {
       const md = resolveManDays(e.shift as Shift, e.manDays);
@@ -298,6 +309,11 @@ export async function generateInvoice(
   const existing = await prisma.invoice.findUnique({
     where: { clientId_yearMonth: { clientId, yearMonth } },
   });
+
+  // 新規で明細ゼロ（請求対象が無い）の請求書は作らない。理由は呼び出し側で表示する。
+  if (!existing && lines.length === 0) {
+    throw new Error("EMPTY_INVOICE");
+  }
 
   if (existing) {
     // 明細を作り直す（発行前の下書き更新を想定）。

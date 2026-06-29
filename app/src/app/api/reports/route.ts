@@ -66,18 +66,19 @@ const bodySchema = z.object({
   // v3: 請負(UKEOI)の請負金額（税抜・正の整数）。請求は「○月委託料 数量1 単価=金額」。
   // JOYO 時は無し。下の superRefine で contractType との整合を強制する。
   contractAmount: z.number().int().positive().max(1_000_000_000).optional(),
-  entries: z.array(entrySchema).min(1, "at least one entry required"),
+  entries: z.array(entrySchema).min(1, "出面が1件もありません。職人を1人以上入力してください。"),
   expenses: z.array(expenseSchema).optional(),
   // 任意: 二重送信防止の冪等キー（クライアント生成）。同一キーの再POSTは
   // 既存レポートを返し、新規作成しない（リトライ/連打の安全網）。
   clientRequestId: z.string().trim().min(1).max(100).optional(),
 }).superRefine((v, ctx) => {
   // 請負金額は UKEOI 専用。JOYO に金額が付いていたら弾く（誤入力の遮断）。
+  // ※ 請負金額はフォームからは送らず、管理側で入力・管理する運用（API は optional 受理）。
   if (v.contractType === "JOYO" && v.contractAmount !== undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["contractAmount"],
-      message: "contractAmount is only allowed for UKEOI",
+      message: "請負金額は請負（UKEOI）のときだけ指定できます。",
     });
   }
 });
@@ -113,15 +114,29 @@ export async function POST(req: Request) {
 
   const { user, org } = resolved;
 
+  // 無効化された組織のユーザーは送信不可（古い LIFF / 直叩き対策）。
+  if (!org.active) {
+    return json(403, {
+      ok: false,
+      error: "org_disabled",
+      message: "所属組織が無効化されています。管理者にご確認ください。",
+    });
+  }
+
   // ── 3a) ボディ検証（zod）──
   let body: Body;
   try {
     const raw = await req.json();
     const parsed = bodySchema.safeParse(raw);
     if (!parsed.success) {
+      // 先頭の検証エラー文を人が読めるメッセージとして返す（「invalid_body だけ」を避ける）。
+      const firstMsg =
+        parsed.error.issues.find((i) => i.message)?.message ??
+        "入力内容に誤りがあります。もう一度ご確認ください。";
       return json(400, {
         ok: false,
         error: "invalid_body",
+        message: firstMsg,
         issues: parsed.error.flatten(),
       });
     }
@@ -153,13 +168,17 @@ export async function POST(req: Request) {
     }
   }
 
-  // 参照整合性: clientId / siteId / workerId が DB に存在するか。
-  const client = await prisma.client.findUnique({
-    where: { id: body.clientId },
+  // 参照整合性: clientId / siteId / workerId が DB に存在し、かつ有効(active)か。
+  const client = await prisma.client.findFirst({
+    where: { id: body.clientId, active: true },
     select: { id: true, name: true },
   });
   if (!client) {
-    return json(400, { ok: false, error: "client_not_found" });
+    return json(400, {
+      ok: false,
+      error: "client_not_found",
+      message: "取引先が見つからないか、無効化されています。",
+    });
   }
 
   // v3: 現場は自由入力（Report.siteName）に一本化。現場マスタ自動作成はしない。
@@ -179,7 +198,7 @@ export async function POST(req: Request) {
 
   const workerIds = body.entries.map((e) => e.workerId);
   const workers = await prisma.worker.findMany({
-    where: { id: { in: workerIds }, orgId: org.id },
+    where: { id: { in: workerIds }, orgId: org.id, active: true },
     select: { id: true, name: true },
   });
   const workerById = new Map(workers.map((w) => [w.id, w]));
@@ -188,7 +207,7 @@ export async function POST(req: Request) {
     return json(400, {
       ok: false,
       error: "worker_not_found",
-      message: "職人が自組織に見つかりません。",
+      message: "職人が見つからないか、無効化されています。",
     });
   }
 

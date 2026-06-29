@@ -351,4 +351,47 @@ describe("toXlsx（テンプレ準拠・数式）", () => {
     // 振込先は DB の bankInfo を反映
     expect(String(txt("A45"))).toContain("ダミー銀行");
   });
+
+  it("保存済み amount を金額の正とし、税は round（画面/CSV と一致）", async () => {
+    // qty×unitPrice = 0.5×3131 = 1565.5 だが、保存 amount は 1566（round 済み）。
+    // XLSX は再計算（数量×単価＝1565.5）ではなく保存 amount（1566）を採用すること。
+    // さらに税は floor(156.6)=156 ではなく round(156.6)=157 を採用する。
+    const lines = [
+      {
+        sortNo: 1,
+        itemName: "残業",
+        qty: 0.5,
+        unitLabel: "時間",
+        unitPrice: 3131,
+        amount: 1566,
+        taxRate: 0.1,
+      },
+    ];
+    const wb = toXlsx({
+      invoiceNo: "2026-001",
+      issueDate: "2026/06/30",
+      client: "ダミー商事",
+      lines,
+      taxRate: 0.1,
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.load(buf as ArrayBuffer);
+    const ws = wb2.getWorksheet("請求書")!;
+    const cell = (addr: string) =>
+      ws.getCell(addr).value as { formula: string; result: number };
+
+    // 明細金額 F20 は保存 amount（1566）であって 1565.5 ではない。
+    expect(cell("F20").result).toBe(1566);
+    // 小計（F36）も保存 amount の合計。
+    expect(cell("F36").result).toBe(1566);
+    // 消費税（F37）は round(1566×0.1)=157（floor の 156 ではない）。
+    expect(cell("F37").result).toBe(157);
+    // 合計（F38）= 小計 + 税 = 1723。
+    expect(cell("F38").result).toBe(1723);
+    // 税率別内訳の消費税式は ROUND（ROUNDDOWN ではない）。
+    expect(cell("E42").formula).toContain("ROUND(");
+    expect(cell("E42").formula).not.toContain("ROUNDDOWN");
+    expect(cell("E42").result).toBe(157);
+  });
 });

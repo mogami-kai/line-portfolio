@@ -82,26 +82,25 @@ export async function POST(req: Request) {
 
   const name = body.name;
 
-  // ── 4) 既存（同 org・同名・active）があればそれを返す（重複作成しない）──
-  // Worker に (orgId,name) の一意制約は無いため、アプリ側で名寄せする。
-  const existing = await prisma.worker.findFirst({
-    where: { orgId: org.id, name, active: true },
-    select: { id: true, name: true },
+  // ── 4) 既存（同 org・同名・active）があればそれを返す。無ければ作成（重複作成しない）──
+  // Worker に (orgId,name) の一意制約は無い（本番データに既存重複があり得るため migration を避ける）。
+  // 代わりに Postgres の advisory xact lock で「同 org・同名」の同時追加を直列化し、
+  // スマホの再送・二重タップでも同名職人が増えないようにする（pgbouncer 互換）。
+  const lockKey = `worker:${org.id}:${name}`;
+  const result = await prisma.$transaction(async (tx) => {
+    // このトランザクション内だけ有効なロック（commit/rollback で自動解放）。
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+    const existing = await tx.worker.findFirst({
+      where: { orgId: org.id, name, active: true },
+      select: { id: true, name: true },
+    });
+    if (existing) return existing;
+    // 新規作成（org スコープ）。永続化されるので以後の masters にも出る。
+    return tx.worker.create({
+      data: { name, active: true, aliases: [], orgId: org.id },
+      select: { id: true, name: true },
+    });
   });
-  if (existing) {
-    return json(200, { id: existing.id, name: existing.name });
-  }
 
-  // 新規作成（org スコープ）。永続化されるので以後の masters にも出る。
-  const created = await prisma.worker.create({
-    data: {
-      name,
-      active: true,
-      aliases: [],
-      orgId: org.id,
-    },
-    select: { id: true, name: true },
-  });
-
-  return json(200, { id: created.id, name: created.name });
+  return json(200, { id: result.id, name: result.name });
 }

@@ -27,6 +27,7 @@ export interface ClientRow {
 export interface WorkerRow {
   id: string;
   name: string;
+  aliases: string[]; // 表記揺れ吸収。編集ドロワーの別名欄の初期値に使う。
   active: boolean;
   orgId: string;
   orgName: string;

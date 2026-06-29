@@ -101,6 +101,10 @@ export async function loadMonthRows(
   const reports = await prisma.report.findMany({
     where: {
       workDate: { gte: from, lt: to },
+      // 確定済みのみ集計（要確認 NEEDS_REVIEW は承認されるまで金額・集計に乗せない）。
+      status: "CONFIRMED",
+      // 無効化した組織の出面は集計・請求から除外。
+      org: { active: true },
       ...(opts?.source ? { source: opts.source } : {}),
     },
     include: {
@@ -121,7 +125,8 @@ export async function loadMonthRows(
     rows.push({
       clientId: r.client.id,
       clientName: r.client.name,
-      siteName: r.site?.name ?? "(現場未設定)",
+      // v3: 自由入力の現場名(Report.siteName)を最優先。無ければ旧現場マスタ名。
+      siteName: r.siteName?.trim() || r.site?.name || "(現場未設定)",
       contractType: r.contractType,
       source: r.source,
       manDays,
@@ -262,6 +267,9 @@ export async function summarizeByWorker(
   const reports = await prisma.report.findMany({
     where: {
       workDate: { gte: from, lt: to },
+      // 確定済みのみ（要確認は職人別集計にも乗せない）／無効化組織は除外。
+      status: "CONFIRMED",
+      org: { active: true },
       ...(opts?.source ? { source: opts.source } : {}),
     },
     select: {

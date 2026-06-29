@@ -14,13 +14,14 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db.js";
-import { getAdminContext } from "@/lib/auth.js";
+import { getAdminContext, type ResolvedUser } from "@/lib/auth.js";
 import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
-/** ADMIN を要求。違反時は throw（Server Action はエラーをそのまま表面化）。 */
-async function requireAdminAction(): Promise<void> {
+/** ADMIN を要求し、実行中の管理者コンテキストを返す。違反時は throw。 */
+async function requireAdminAction(): Promise<ResolvedUser> {
   const admin = await getAdminContext();
   if (!admin) throw new Error("FORBIDDEN: 管理者ログインが必要です。");
+  return admin;
 }
 
 /** FormData の文字列取得（trim）。 */
@@ -584,7 +585,7 @@ const approveSchema = z.object({
 });
 
 export async function approveUserAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const parsed = approveSchema.safeParse({
     userId: str(fd, "userId"),
     role: (str(fd, "role") || "PARTNER") as
@@ -612,13 +613,32 @@ export async function approveUserAction(fd: FormData): Promise<void> {
     throw new Error("ADMIN/OWNER/VIEWER は自社（SELF）組織に割り当ててください。");
   }
 
-  await prisma.user.update({
-    where: { id: parsed.data.userId },
-    data: {
-      role: parsed.data.role,
-      orgId: parsed.data.orgId,
-      approved: parsed.data.approved,
-    },
+  // 安全弁: 自分自身を管理者から外す/未承認にすると即ロックアウトするので禁止。
+  const isSelf = parsed.data.userId === admin.user.id;
+  if (isSelf && (parsed.data.role !== "ADMIN" || !parsed.data.approved)) {
+    throw new Error("自分自身の管理者権限・承認は外せません（ロックアウト防止）。");
+  }
+  // 安全弁: 最後の有効な管理者を 0 人にしない。並行リクエストでの取りこぼし(TOCTOU)を
+  // 防ぐため、管理者変更系を advisory xact lock で直列化し、更新後の有効ADMIN数を
+  // 同一トランザクション内で再カウントして 0 ならロールバック（throw）する。
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('admin-guard'))`;
+    await tx.user.update({
+      where: { id: parsed.data.userId },
+      data: {
+        role: parsed.data.role,
+        orgId: parsed.data.orgId,
+        approved: parsed.data.approved,
+      },
+    });
+    const admins = await tx.user.count({
+      where: { role: "ADMIN", approved: true, status: "ACTIVE" },
+    });
+    if (admins < 1) {
+      throw new Error(
+        "最後の管理者は降格できません。先に別の管理者を作成してください。",
+      );
+    }
   });
   revalidatePath(USERS_PATH);
   revalidatePath("/admin");
@@ -631,16 +651,31 @@ const statusSchema = z.object({
 });
 
 export async function setUserStatusAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const parsed = statusSchema.safeParse({
     userId: str(fd, "userId"),
     status: (str(fd, "status") || "ACTIVE") as "ACTIVE" | "DISABLED",
   });
   if (!parsed.success)
     throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
-  await prisma.user.update({
-    where: { id: parsed.data.userId },
-    data: { status: parsed.data.status },
+  // 安全弁: 自分自身の無効化を禁止（ロックアウト防止）。
+  if (parsed.data.status === "DISABLED" && parsed.data.userId === admin.user.id) {
+    throw new Error("自分自身は無効化できません（ロックアウト防止）。");
+  }
+  // 更新を advisory xact lock で直列化し、最後の有効ADMINが 0 人になる更新は
+  // 同一トランザクション内の再カウントで検知してロールバックする（TOCTOU 対策）。
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('admin-guard'))`;
+    await tx.user.update({
+      where: { id: parsed.data.userId },
+      data: { status: parsed.data.status },
+    });
+    const admins = await tx.user.count({
+      where: { role: "ADMIN", approved: true, status: "ACTIVE" },
+    });
+    if (admins < 1) {
+      throw new Error("最後の管理者は無効化できません。");
+    }
   });
   revalidatePath(USERS_PATH);
   revalidatePath("/admin");
@@ -761,7 +796,32 @@ export async function deleteUserAction(fd: FormData): Promise<DeleteResult> {
   if (admin && admin.user.id === id) {
     return { ok: false, error: "自分自身は削除できません。" };
   }
-  await prisma.user.delete({ where: { id } });
+  // 最後の有効な管理者は削除できない（ロックアウト防止）。並行リクエストでの取りこぼし
+  // (TOCTOU)を防ぐため、advisory xact lock で直列化し、削除前に同一トランザクション内で
+  // 有効ADMIN数を確認する。
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('admin-guard'))`;
+      const target = await tx.user.findUnique({
+        where: { id },
+        select: { role: true, approved: true, status: true },
+      });
+      const wasActiveAdmin =
+        target?.role === "ADMIN" && target.approved && target.status === "ACTIVE";
+      if (wasActiveAdmin) {
+        const admins = await tx.user.count({
+          where: { role: "ADMIN", approved: true, status: "ACTIVE" },
+        });
+        if (admins <= 1) throw new Error("LAST_ADMIN");
+      }
+      await tx.user.delete({ where: { id } });
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message === "LAST_ADMIN") {
+      return { ok: false, error: "最後の管理者は削除できません。" };
+    }
+    throw e;
+  }
   revalidatePath(USERS_PATH);
   return { ok: true };
 }
