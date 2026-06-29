@@ -15,7 +15,11 @@
 
 import { NextResponse } from "next/server";
 import { getProfile, exchangeCode } from "@/lib/line.js";
-import { findApprovedAdminByLineUserId } from "@/lib/auth.js";
+import {
+  findApprovedAdminByLineUserId,
+  isOpenAdmin,
+  resolveUser,
+} from "@/lib/auth.js";
 import {
   signSession,
   sessionCookieHeader,
@@ -65,9 +69,11 @@ export async function GET(req: Request) {
 
   // ── 3) token → profile ──
   let lineUserId = "";
+  let displayName = "";
   try {
     const profile = await getProfile(token.accessToken);
     lineUserId = profile.userId;
+    displayName = profile.displayName;
   } catch {
     return NextResponse.redirect(redirectToAdmin(req, "?error=profile"), 302);
   }
@@ -75,9 +81,14 @@ export async function GET(req: Request) {
     return NextResponse.redirect(redirectToAdmin(req, "?error=profile"), 302);
   }
 
-  // ── 4) 承認済み ADMIN か ──
-  const admin = await findApprovedAdminByLineUserId(lineUserId);
-  if (!admin) {
+  // ── 4) 承認済み ADMIN か（OPEN_ADMIN の間は誰でもログイン可） ──
+  //   既定: 承認済み ADMIN のみ。OPEN_ADMIN が真なら、未登録/未承認でも
+  //   ユーザーを解決（無ければ作成）してログインさせる（getAdminContext も開放）。
+  let sessionUser = await findApprovedAdminByLineUserId(lineUserId);
+  if (!sessionUser && isOpenAdmin()) {
+    sessionUser = await resolveUser(lineUserId, displayName);
+  }
+  if (!sessionUser) {
     // 権限なし（未承認 / 非 ADMIN / 未登録）。セッションは発行しない。
     const res = NextResponse.redirect(
       redirectToAdmin(req, "?error=forbidden"),
@@ -94,8 +105,8 @@ export async function GET(req: Request) {
   let cookie: string;
   try {
     const value = signSession({
-      lineUserId: admin.user.lineUserId,
-      role: admin.user.role,
+      lineUserId: sessionUser.user.lineUserId,
+      role: sessionUser.user.role,
     });
     cookie = sessionCookieHeader(value);
   } catch {
