@@ -1750,3 +1750,188 @@ html.help-on .help-bubble b {
   justify-content: center;
   flex-wrap: wrap;
 }
+
+/* ============================================================
+   請求書 一覧テーブル（PC ≥1024px）/ カード（スマホ）切替
+   ・モバイル既定: テーブルは隠し、カード（.inv-cards）を表示。
+   ・≥1024px: テーブル（.inv-table-wrap）を表示、カードを隠す。
+   freee / マネーフォワード 風。フラット・境界線主体・絵文字なし。
+   ============================================================ */
+.inv-table-wrap {
+  display: none;
+}
+.inv-cards {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .inv-table-wrap {
+    display: block;
+  }
+  .inv-cards {
+    display: none;
+  }
+}
+
+.inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.inv-table thead th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+  background: #f7f9fb;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.inv-table .inv-row > td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  vertical-align: middle;
+}
+/* 最終 tbody の通常行の下線は消し、テーブル外周に溶け込ませる。 */
+.inv-table .inv-tbody:last-child .inv-row:last-child > td {
+  border-bottom: none;
+}
+
+/* 列ごとの体裁。数値は右寄せ・等幅数字。 */
+.inv-table th.inv-c-num,
+.inv-table td.inv-c-num {
+  text-align: right;
+  white-space: nowrap;
+}
+.inv-table th.inv-c-status,
+.inv-table td.inv-c-status {
+  width: 1%;
+  white-space: nowrap;
+}
+.inv-table th.inv-c-ops,
+.inv-table td.inv-c-ops {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+.inv-c-total {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* 取引先セル: 開閉トグル（行頭の三角）＋ 取引先名。 */
+.inv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: left;
+}
+.inv-toggle:hover .inv-name-text {
+  text-decoration: underline;
+}
+.inv-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--ink-3);
+  transition: transform 0.15s;
+  flex: 0 0 auto;
+}
+.inv-caret.is-open {
+  transform: rotate(180deg);
+}
+.inv-row.is-open .inv-name-text {
+  color: var(--accent-dark);
+}
+.inv-rate-warn {
+  margin-left: 8px;
+}
+.inv-review-badge {
+  margin-left: 6px;
+}
+/* 立替の補足は金額の下に小さく。 */
+.inv-exempt {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+/* 操作セル内のボタンはコンパクトに（行内で間延びさせない）。 */
+.inv-c-ops .inv-no-line {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.inv-c-ops .inv-no-line .inv-sep {
+  margin: 0 8px;
+  color: var(--line-strong);
+}
+/* GenerateInvoiceButton は <div style="margin-top:12px"> でラップされる。
+   テーブル内では余白を詰め、ボタンを自動幅・小型に。 */
+.inv-c-ops .inv-no-line + div {
+  margin-top: 0 !important;
+}
+.inv-c-ops .btn {
+  width: auto;
+  min-height: 36px;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+
+/* 展開行（プレビュー明細・内訳）。全幅・ソフト背景で区別。 */
+.inv-detail-row > td {
+  padding: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.inv-detail {
+  padding: 14px 14px 16px;
+}
+.inv-detail-block {
+  margin-bottom: 14px;
+}
+.inv-detail-block:last-child {
+  margin-bottom: 0;
+}
+.inv-detail-h {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-2);
+  margin: 0 0 6px;
+}
+/* 展開内の小表は白カードに載せて読みやすく。 */
+.inv-detail .mini-table {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.inv-detail .mini-table th {
+  background: #f7f9fb;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.inv-detail .mini-table th,
+.inv-detail .mini-table td {
+  padding: 6px 10px;
+}
+.inv-detail .hint {
+  margin-top: 6px;
+}

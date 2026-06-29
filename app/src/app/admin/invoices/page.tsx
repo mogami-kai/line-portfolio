@@ -15,6 +15,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { GenerateInvoiceButton } from "./_generateButton.js";
+import { InvoiceTable, type InvoiceTableRow } from "./_invoiceTable.js";
 import {
   currentYearMonth,
   loadMonthRows,
@@ -57,6 +58,75 @@ function BreakdownTable({
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// 型: summaries の 1 要素（プレビュー明細つき）。
+type ClientSummary = {
+  clientId: string;
+  name: string;
+  lines: InvoiceLine[];
+  total: number;
+  subtotal: number;
+  exempt: number;
+  rateMissing: boolean;
+};
+type ClientDetail = {
+  manDays: number;
+  otHours: number;
+  needsReview: number;
+  bySite: { name: string; manDays: number; otHours: number }[];
+  byWorker: { name: string; manDays: number; otHours: number }[];
+  byDay: { name: string; manDays: number; otHours: number }[];
+};
+type ExistingInvoice = { id: string; invoiceNo: string; status: string };
+
+// プレビュー明細（外向き・現場名は出ない）。PC テーブルの展開行 / スマホカード共用。
+function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
+  return (
+    <>
+      {lines.length === 0 ? (
+        <p className="muted">明細がありません（単価・出面を確認）。</p>
+      ) : (
+        <table className="mini-table">
+          <thead>
+            <tr>
+              <th>品目</th>
+              <th className="num">数量</th>
+              <th className="num">単価</th>
+              <th className="num">金額</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l) => (
+              <tr key={l.sortNo}>
+                <td>{l.itemName}</td>
+                <td className="num">
+                  {l.qty}
+                  {l.unitLabel}
+                </td>
+                <td className="num">{yen(l.unitPrice)}</td>
+                <td className="num">{yen(l.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <p className="hint">
+        ※ 現場名は外向き請求書に出ません。根拠は下の「内訳」で確認できます。
+      </p>
+    </>
+  );
+}
+
+// 既存 Invoice の番号 + Excel リンク。PC テーブルの操作セル / スマホカード共用。
+function InvoiceMeta({ iv }: { iv: ExistingInvoice }) {
+  return (
+    <div className="inv-no-line">
+      請求書番号 <strong>{iv.invoiceNo}</strong>
+      <span className="inv-sep">|</span>
+      <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>請求書(Excel)</a>
     </div>
   );
 }
@@ -150,6 +220,46 @@ export default async function InvoicesPage({
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
   const next = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() + 1, 1));
 
+  // PC（≥1024px）一覧テーブル用の行データ。展開行・操作セルの中身は
+  // サーバ側で組み立て、クライアント側 InvoiceTable へ ReactNode として渡す。
+  const invoiceRows: InvoiceTableRow[] = summaries.map((s: ClientSummary) => {
+    const iv = invoiceByClient.get(s.clientId);
+    const d: ClientDetail | undefined = details.get(s.clientId);
+    return {
+      clientId: s.clientId,
+      name: s.name,
+      status: iv ? iv.status : null,
+      manDays: d?.manDays ?? 0,
+      otHours: d?.otHours ?? 0,
+      needsReview: d?.needsReview ?? 0,
+      total: s.total,
+      exempt: s.exempt,
+      rateMissing: s.rateMissing,
+      detail: (
+        <>
+          <div className="inv-detail-block">
+            <div className="inv-detail-h">プレビュー（請求書の明細）</div>
+            <PreviewBlock lines={s.lines} />
+          </div>
+          {d && (d.bySite.length > 0 || d.byWorker.length > 0) && (
+            <div className="inv-detail-block">
+              <div className="inv-detail-h">内訳（現場別・職人別・日別）</div>
+              <BreakdownTable title="現場別" rows={d.bySite} />
+              <BreakdownTable title="職人別" rows={d.byWorker} />
+              <BreakdownTable title="日別" rows={d.byDay} />
+            </div>
+          )}
+        </>
+      ),
+      actions: (
+        <>
+          {iv && <InvoiceMeta iv={iv} />}
+          <GenerateInvoiceButton clientId={s.clientId} ym={ym} />
+        </>
+      ),
+    };
+  });
+
   return (
     <main className="container admin-narrow">
       <div className="page-head">
@@ -214,116 +324,89 @@ export default async function InvoicesPage({
       {summaries.length === 0 ? (
         <p className="muted">この月に出面データのある取引先はありません。</p>
       ) : (
-        summaries.map((s) => {
-          const iv = invoiceByClient.get(s.clientId);
-          const d = details.get(s.clientId);
-          return (
-            <div className="card" key={s.clientId}>
-              <div className="list-row" style={{ padding: 0, border: "none" }}>
-                <div className="list-main">
-                  <div className="list-title">{s.name}</div>
-                  <div className="list-meta">
-                    人工 <b>{d?.manDays ?? 0}</b> ・ 残業 <b>{d?.otHours ?? 0}</b>h
-                    {d && d.needsReview > 0 && (
-                      <span className="badge badge--review" style={{ marginLeft: 6 }}>
-                        要確認 {d.needsReview}
-                      </span>
-                    )}
-                  </div>
-                  <div className="list-meta">
-                    概算（税込）{" "}
-                    <strong style={{ color: "var(--ink)" }}>
-                      {yen(s.total)}
-                    </strong>
-                    {s.exempt > 0 && (
-                      <span className="muted">　うち立替 {yen(s.exempt)}</span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  {iv ? (
-                    <span className="badge badge--self">{iv.status}</span>
-                  ) : (
-                    <span className="badge">未作成</span>
-                  )}
-                  {s.rateMissing && (
-                    <div>
-                      <span className="badge badge--review" style={{ marginTop: 4 }}>
-                        単価未登録
-                      </span>
+        <>
+          {/* PC（≥1024px）: 一覧テーブル。各行から「詳細」で展開。 */}
+          <InvoiceTable rows={invoiceRows} />
+
+          {/* スマホ（<1024px）: 既存のカード表示を維持。 */}
+          <div className="inv-cards">
+            {summaries.map((s) => {
+              const iv = invoiceByClient.get(s.clientId);
+              const d = details.get(s.clientId);
+              return (
+                <div className="card" key={s.clientId}>
+                  <div className="list-row" style={{ padding: 0, border: "none" }}>
+                    <div className="list-main">
+                      <div className="list-title">{s.name}</div>
+                      <div className="list-meta">
+                        人工 <b>{d?.manDays ?? 0}</b> ・ 残業{" "}
+                        <b>{d?.otHours ?? 0}</b>h
+                        {d && d.needsReview > 0 && (
+                          <span
+                            className="badge badge--review"
+                            style={{ marginLeft: 6 }}
+                          >
+                            要確認 {d.needsReview}
+                          </span>
+                        )}
+                      </div>
+                      <div className="list-meta">
+                        概算（税込）{" "}
+                        <strong style={{ color: "var(--ink)" }}>
+                          {yen(s.total)}
+                        </strong>
+                        {s.exempt > 0 && (
+                          <span className="muted">　うち立替 {yen(s.exempt)}</span>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* プレビュー（外向き明細・現場名は出ない） */}
-              <details className="acc" style={{ marginTop: 10 }}>
-                <summary>プレビュー（請求書の明細）</summary>
-                <div className="acc-body">
-                  {s.lines.length === 0 ? (
-                    <p className="muted">明細がありません（単価・出面を確認）。</p>
-                  ) : (
-                    <table className="mini-table">
-                      <thead>
-                        <tr>
-                          <th>品目</th>
-                          <th className="num">数量</th>
-                          <th className="num">単価</th>
-                          <th className="num">金額</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {s.lines.map((l) => (
-                          <tr key={l.sortNo}>
-                            <td>{l.itemName}</td>
-                            <td className="num">
-                              {l.qty}
-                              {l.unitLabel}
-                            </td>
-                            <td className="num">{yen(l.unitPrice)}</td>
-                            <td className="num">{yen(l.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  )}
-                  <p className="hint">
-                    ※ 現場名は外向き請求書に出ません。根拠は下の「内訳を見る」で確認できます。
-                  </p>
-                </div>
-              </details>
-
-              {/* 内訳を見る（現場別・職人別・日別／確認用） */}
-              {d && (d.bySite.length > 0 || d.byWorker.length > 0) && (
-                <details className="acc">
-                  <summary>内訳を見る（現場別・職人別・日別）</summary>
-                  <div className="acc-body">
-                    <BreakdownTable title="現場別" rows={d.bySite} />
-                    <BreakdownTable title="職人別" rows={d.byWorker} />
-                    <BreakdownTable title="日別" rows={d.byDay} />
+                    <div style={{ textAlign: "right" }}>
+                      {iv ? (
+                        <span className="badge badge--self">{iv.status}</span>
+                      ) : (
+                        <span className="badge">未作成</span>
+                      )}
+                      {s.rateMissing && (
+                        <div>
+                          <span
+                            className="badge badge--review"
+                            style={{ marginTop: 4 }}
+                          >
+                            単価未登録
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </details>
-              )}
 
-              {iv && (
-                <div
-                  className="list-meta"
-                  style={{ marginTop: 10, marginBottom: 4 }}
-                >
-                  請求書番号 <strong>{iv.invoiceNo}</strong>
-                  <span style={{ margin: "0 10px", color: "var(--line)" }}>
-                    |
-                  </span>
-                  <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>
-                    請求書(Excel)
-                  </a>
+                  {/* プレビュー（外向き明細・現場名は出ない） */}
+                  <details className="acc" style={{ marginTop: 10 }}>
+                    <summary>プレビュー（請求書の明細）</summary>
+                    <div className="acc-body">
+                      <PreviewBlock lines={s.lines} />
+                    </div>
+                  </details>
+
+                  {/* 内訳を見る（現場別・職人別・日別／確認用） */}
+                  {d && (d.bySite.length > 0 || d.byWorker.length > 0) && (
+                    <details className="acc">
+                      <summary>内訳を見る（現場別・職人別・日別）</summary>
+                      <div className="acc-body">
+                        <BreakdownTable title="現場別" rows={d.bySite} />
+                        <BreakdownTable title="職人別" rows={d.byWorker} />
+                        <BreakdownTable title="日別" rows={d.byDay} />
+                      </div>
+                    </details>
+                  )}
+
+                  {iv && <InvoiceMeta iv={iv} />}
+
+                  <GenerateInvoiceButton clientId={s.clientId} ym={ym} />
                 </div>
-              )}
-
-              <GenerateInvoiceButton clientId={s.clientId} ym={ym} />
-            </div>
-          );
-        })
+              );
+            })}
+          </div>
+        </>
       )}
 
       <p className="muted" style={{ marginTop: 16 }}>

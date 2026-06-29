@@ -210,6 +210,8 @@ export default function LiffPage() {
   const [newWorkerName, setNewWorkerName] = useState<string>("");
   const [addingWorker, setAddingWorker] = useState<boolean>(false);
   const [workerAddError, setWorkerAddError] = useState<string | null>(null);
+  // 職人の絞り込み（多人数のとき・名前で部分一致／大文字小文字無視）。
+  const [workerQuery, setWorkerQuery] = useState<string>("");
 
   const [view, setView] = useState<View>("form");
   const [submitting, setSubmitting] = useState(false);
@@ -334,6 +336,41 @@ export default function LiffPage() {
     () => entries.filter((e) => e.selected),
     [entries],
   );
+
+  // 職人 id → 名前（並び替え/絞り込みで参照）。
+  const workerNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const w of masters?.workers ?? []) m.set(w.id, w.name);
+    return m;
+  }, [masters]);
+
+  // 検索欄は人数が多いときだけ出す（少人数では邪魔しない）。
+  const showWorkerSearch = (masters?.workers.length ?? 0) >= 8;
+
+  // 表示用の職人行: 選択済みを先頭へまとめ、検索クエリで絞り込み。
+  // 並びは安定（元の登録順）を保ちつつ、選択/未選択でグループ化する。
+  const visibleEntries = useMemo(() => {
+    const q = workerQuery.trim().toLowerCase();
+    const matched = q
+      ? entries.filter((e) =>
+          (workerNameById.get(e.workerId) ?? "").toLowerCase().includes(q),
+        )
+      : entries;
+    // 選択済みは検索でも常に残す（選択を見失わないように）。
+    const base = q
+      ? Array.from(
+          new Map(
+            [...matched, ...entries.filter((e) => e.selected)].map((e) => [
+              e.workerId,
+              e,
+            ]),
+          ).values(),
+        )
+      : matched;
+    const sel = base.filter((e) => e.selected);
+    const rest = base.filter((e) => !e.selected);
+    return [...sel, ...rest];
+  }, [entries, workerQuery, workerNameById]);
 
   const clientName = currentClient?.name ?? "";
   // 確認/成功カードの現場表記。
@@ -945,19 +982,20 @@ export default function LiffPage() {
           </select>
         </div>
 
-        {/* 現場（自由入力。現場マスタ非依存） */}
+        {/* 現場メモ（任意・自由入力。現場マスタ非依存。siteName 仕様は不変） */}
         <div className="field">
           <label className="label" htmlFor="siteName">
-            現場
+            現場メモ（任意）
           </label>
           <input
             id="siteName"
             className="input"
             type="text"
-            placeholder="現場名を入力（任意）"
+            placeholder="例: ○○邸 / 1階内装（任意）"
             value={siteName}
             onChange={(e) => setSiteName(e.target.value)}
           />
+          <p className="hint">任意・管理用のメモです。請求書には出ません。</p>
         </div>
 
         {/* 契約種別（セグメント） */}
@@ -1018,12 +1056,29 @@ export default function LiffPage() {
             )}
           </label>
         </div>
+
+        {/* 職人が多いときだけ検索欄を出す（少人数では非表示） */}
+        {showWorkerSearch && (
+          <div className="field" style={{ marginBottom: 8 }}>
+            <input
+              className="input"
+              type="text"
+              inputMode="search"
+              placeholder="職人を検索（名前）"
+              value={workerQuery}
+              onChange={(ev) => setWorkerQuery(ev.target.value)}
+            />
+          </div>
+        )}
+
         {noWorkers ? (
           <p className="muted">
             職人がまだありません。下の「職人を追加」で登録できます。
           </p>
+        ) : visibleEntries.length === 0 ? (
+          <p className="muted">「{workerQuery.trim()}」に一致する職人がいません。</p>
         ) : (
-          entries.map((e) => {
+          visibleEntries.map((e) => {
             const w = masters.workers.find((x) => x.id === e.workerId);
             if (!w) return null;
             return (
