@@ -30,9 +30,21 @@ async function ensureSelfOrg(): Promise<Organization> {
     orderBy: { createdAt: "asc" },
   });
   if (existing) return existing;
-  return prisma.organization.create({
-    data: { name: "自社", kind: "SELF" },
-  });
+  // SELF は DB の部分ユニークインデックス（Organization_one_self_idx）で1件に制限。
+  // 初回ログインがほぼ同時に走ると、片方の create は競合で失敗する。その場合は
+  // 例外にせず、既に作られた1件を取得して返す（重複は構造的に作れない）。
+  try {
+    return await prisma.organization.create({
+      data: { name: "自社", kind: "SELF" },
+    });
+  } catch {
+    const again = await prisma.organization.findFirst({
+      where: { kind: "SELF" },
+      orderBy: { createdAt: "asc" },
+    });
+    if (again) return again;
+    throw new Error("SELF 組織の作成に失敗しました。");
+  }
 }
 
 /**
@@ -55,6 +67,19 @@ export async function resolveUser(
     include: { org: true },
   });
   if (found) {
+    // オープンアクセス: 旧フローで作られた未承認(approved=false)の在籍ユーザーも、
+    // ログイン時に自社(SELF)・管理者(ADMIN)・承認済みへ引き上げて入れるようにする
+    // （新規IDだけでなく既存の保留ユーザーも「誰でも入れる」を満たす）。
+    // 既に承認済み（管理者が PARTNER 等へ割り当て済みを含む）と無効化(DISABLED)は尊重する。
+    if (found.status === "ACTIVE" && !found.approved) {
+      const org = await ensureSelfOrg();
+      const promoted = await prisma.user.update({
+        where: { id: found.id },
+        data: { role: "ADMIN", approved: true, orgId: org.id },
+        include: { org: true },
+      });
+      return { user: promoted, org: promoted.org };
+    }
     return { user: found, org: found.org };
   }
 

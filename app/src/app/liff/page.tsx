@@ -17,9 +17,9 @@
 //       聞き返し(422 hold / confirm)は notice に bot メッセージを出し、修正→再送できる。
 //
 //   ※ POST /api/reports のボディ形は厳守:
-//      { workDate, clientId, siteName, contractType, contractAmount?, entries[], expenses?[] }
+//      { workDate, clientId, siteName, contractType, entries[], expenses?[] }
 //        - siteName: 現場の自由入力（siteId は送らない）。空文字可。
-//        - contractAmount: UKEOI(請負)のときだけ送る（税抜・正の整数）。JOYO では送らない。
+//        - 請負金額（contractAmount）はフォームからは送らない（管理側でのみ入力）。
 //
 //   ※ パートナーも同じこのページを開く。所属 org はサーバ側で解決されるため、
 //      自社/パートナーのトグルは UI に存在しない（本人は source を選ばない）。
@@ -106,7 +106,6 @@ interface LastReport {
   clientId: string;
   siteName: string;
   contractType: ContractType;
-  contractAmount?: number;
   workerIds: string[];
   shiftByWorker: Record<string, Shift>;
 }
@@ -180,13 +179,6 @@ interface SubmitOk {
   summary: { date: string; client: string; site: string; count: number };
 }
 
-// 請負金額の文字列を正の整数に正規化（不正なら undefined）。
-function parseContractAmount(s: string): number | undefined {
-  const n = Math.round(Number(s));
-  if (!isFinite(n) || n <= 0) return undefined;
-  return n;
-}
-
 export default function LiffPage() {
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
@@ -200,8 +192,6 @@ export default function LiffPage() {
   // 現場は自由入力（現場マスタ非依存）。送信bodyの siteName。
   const [siteName, setSiteName] = useState<string>("");
   const [contractType, setContractType] = useState<ContractType>("JOYO");
-  // 請負金額（円・税抜）。UKEOI のときだけ使用。入力は文字列で保持。
-  const [contractAmount, setContractAmount] = useState<string>("");
   const [entries, setEntries] = useState<EntryState[]>([]);
   const [showExpenses, setShowExpenses] = useState<boolean>(false);
   const [expenses, setExpenses] = useState<ExpenseState[]>([]);
@@ -302,11 +292,6 @@ export default function LiffPage() {
         if (savedClientValid) {
           setSiteName(saved!.siteName ?? "");
           setContractType(saved!.contractType);
-          setContractAmount(
-            saved!.contractType === "UKEOI" && saved!.contractAmount
-              ? String(saved!.contractAmount)
-              : "",
-          );
         }
 
         // 職人行を初期化（前回選択を復元）。
@@ -501,17 +486,6 @@ export default function LiffPage() {
       return;
     }
 
-    // 請負のときは請負金額（税抜・正の整数）が必須。
-    let amount: number | undefined;
-    if (contractType === "UKEOI") {
-      amount = parseContractAmount(contractAmount);
-      if (amount === undefined) {
-        setErrorKind("error");
-        setErrorMsg("請負金額（税抜・正の整数）を入力してください。");
-        return;
-      }
-    }
-
     const payloadEntries = selected.map((e) => {
       const ot = Number(e.otHours);
       return {
@@ -540,10 +514,6 @@ export default function LiffPage() {
       // 二重送信防止の冪等キー（同一内容の再送では同じ値を使う）。
       clientRequestId: requestIdRef.current,
     };
-    // 請負金額は UKEOI のときだけ送る（JOYO では送らない）。
-    if (contractType === "UKEOI" && amount !== undefined) {
-      body.contractAmount = amount;
-    }
     if (payloadExpenses.length) body.expenses = payloadExpenses;
 
     // 成功時の要約スナップショット。
@@ -588,7 +558,6 @@ export default function LiffPage() {
         clientId,
         siteName: siteName.trim(),
         contractType,
-        contractAmount: contractType === "UKEOI" ? amount : undefined,
         workerIds: selected.map((e) => e.workerId),
         shiftByWorker: Object.fromEntries(
           selected.map((e) => [e.workerId, e.shift]),
@@ -625,7 +594,6 @@ export default function LiffPage() {
     expenses,
     workDate,
     contractType,
-    contractAmount,
     siteName,
     clientName,
     siteLabel,
@@ -641,11 +609,6 @@ export default function LiffPage() {
     setClientId(last.clientId);
     setSiteName(last.siteName ?? "");
     setContractType(last.contractType);
-    setContractAmount(
-      last.contractType === "UKEOI" && last.contractAmount
-        ? String(last.contractAmount)
-        : "",
-    );
     const set = new Set(last.workerIds);
     setEntries(
       masters.workers.map((w) => ({
@@ -837,16 +800,6 @@ export default function LiffPage() {
                 {contractType === "JOYO" ? "常用" : "請負"}
               </span>
             </div>
-            {contractType === "UKEOI" && (
-              <div className="summary-row">
-                <span className="k">請負金額</span>
-                <span className="v">
-                  {parseContractAmount(contractAmount) !== undefined
-                    ? `${parseContractAmount(contractAmount)!.toLocaleString()}円（税抜）`
-                    : "未入力"}
-                </span>
-              </div>
-            )}
             <div className="summary-row">
               <span className="k">職人</span>
               <span className="v">
@@ -1024,26 +977,6 @@ export default function LiffPage() {
             </button>
           </div>
         </div>
-
-        {/* 請負金額（請負＝UKEOI のときだけ） */}
-        {contractType === "UKEOI" && (
-          <div className="field">
-            <label className="label" htmlFor="contractAmount">
-              請負金額（円・税抜）
-            </label>
-            <input
-              id="contractAmount"
-              className="input contract-amount"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              step={1}
-              placeholder="例: 300000"
-              value={contractAmount}
-              onChange={(e) => setContractAmount(e.target.value)}
-            />
-          </div>
-        )}
       </div>
 
       {/* 職人（複数選択チップ＋各人に勤務体系/残業。＋自分で職人を追加） */}

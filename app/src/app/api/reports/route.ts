@@ -73,22 +73,12 @@ const bodySchema = z.object({
   clientRequestId: z.string().trim().min(1).max(100).optional(),
 }).superRefine((v, ctx) => {
   // 請負金額は UKEOI 専用。JOYO に金額が付いていたら弾く（誤入力の遮断）。
+  // ※ 請負金額はフォームからは送らず、管理側で入力・管理する運用（API は optional 受理）。
   if (v.contractType === "JOYO" && v.contractAmount !== undefined) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["contractAmount"],
       message: "請負金額は請負（UKEOI）のときだけ指定できます。",
-    });
-  }
-  // 請負(UKEOI)は請負金額が必須。無いと請求時に明細なし/0円になるのを防ぐ。
-  if (
-    v.contractType === "UKEOI" &&
-    (v.contractAmount === undefined || v.contractAmount <= 0)
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["contractAmount"],
-      message: "請負（UKEOI）のときは請負金額（1円以上）を入力してください。",
     });
   }
 });
