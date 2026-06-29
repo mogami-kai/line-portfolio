@@ -15,7 +15,7 @@
 //
 //   ※ 凍結 CSS クラスのみ使用。グループ見出し等、凍結クラスに無い構造の余白は
 //     CSS 変数を参照したインラインスタイルで最小限に補う（globals.css は触らない）。
-//   ※ WorkerRow は別名（aliases）を持たないため、編集ドロワーの別名欄は空から始まる。
+//   ※ 編集ドロワーの別名欄は WorkerRow.aliases の既存値で初期化する（空保存で別名が消えない）。
 //     送信すると別名は入力値で上書きされる旨を hint で明示する（取り違え防止）。
 // ============================================================
 
@@ -434,6 +434,7 @@ export function WorkersTab({
                     className="input"
                     type="text"
                     autoComplete="off"
+                    defaultValue={(row.aliases ?? []).join("、")}
                     placeholder="例: たろう、田中太郎"
                   />
                   <p className="hint">

@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
+  // maximumScale は指定しない（モバイルでの拡大を許可＝アクセシビリティ・実用性）。
   themeColor: "#2b5fb3",
 };
 

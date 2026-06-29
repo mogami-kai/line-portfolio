@@ -50,6 +50,7 @@ export default async function MastersPage() {
   const workers: WorkerRow[] = workerRows.map((w) => ({
     id: w.id,
     name: w.name,
+    aliases: w.aliases,
     active: w.active,
     orgId: w.orgId,
     orgName: w.org.name,

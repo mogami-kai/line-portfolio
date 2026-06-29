@@ -474,12 +474,15 @@ export function toXlsx(data: {
   const R_NOTE = R_SUB + 13;
 
   // ── 計算済み（cached result。再計算なしでも数字が出るように）──
-  const lineAmt = (l: InvoiceLine) => l.qty * l.unitPrice;
+  // 金額は「保存済みの明細 amount」を正とする（画面/CSVと完全一致させるため。
+  // 数量×単価の再計算は丸め差で 1 円ズレることがあるので使わない）。
+  // 税も summarize と同じ Math.round で算出（floor だと 1 円ズレる）。
+  const lineAmt = (l: InvoiceLine) => l.amount;
   const subtotalAll = lines.reduce((a, l) => a + lineAmt(l), 0);
   const base10 = lines.filter((l) => l.taxRate === 0.1).reduce((a, l) => a + lineAmt(l), 0);
   const base8 = lines.filter((l) => l.taxRate === 0.08).reduce((a, l) => a + lineAmt(l), 0);
-  const tax10 = Math.floor(base10 * 0.1);
-  const tax8 = Math.floor(base8 * 0.08);
+  const tax10 = Math.round(base10 * 0.1);
+  const tax8 = Math.round(base8 * 0.08);
   const total = subtotalAll + tax10 + tax8;
 
   // ── タイトル ──
@@ -595,12 +598,12 @@ export function toXlsx(data: {
   ws.mergeCells(`C${R_BRK10}:D${R_BRK10}`);
   set(`C${R_BRK10}`, { formula: `SUMIF(G${FIRST}:G${LAST},0.1,F${FIRST}:F${LAST})`, result: base10 }, { numFmt: MONEY, align: RIGHT });
   ws.mergeCells(`E${R_BRK10}:F${R_BRK10}`);
-  set(`E${R_BRK10}`, { formula: `ROUNDDOWN(C${R_BRK10}*0.1,0)`, result: tax10 }, { numFmt: MONEY, align: RIGHT });
+  set(`E${R_BRK10}`, { formula: `ROUND(C${R_BRK10}*0.1,0)`, result: tax10 }, { numFmt: MONEY, align: RIGHT });
   set(`B${R_BRK8}`, "8% 対象（軽減）");
   ws.mergeCells(`C${R_BRK8}:D${R_BRK8}`);
   set(`C${R_BRK8}`, { formula: `SUMIF(G${FIRST}:G${LAST},0.08,F${FIRST}:F${LAST})`, result: base8 }, { numFmt: MONEY, align: RIGHT });
   ws.mergeCells(`E${R_BRK8}:F${R_BRK8}`);
-  set(`E${R_BRK8}`, { formula: `ROUNDDOWN(C${R_BRK8}*0.08,0)`, result: tax8 }, { numFmt: MONEY, align: RIGHT });
+  set(`E${R_BRK8}`, { formula: `ROUND(C${R_BRK8}*0.08,0)`, result: tax8 }, { numFmt: MONEY, align: RIGHT });
 
   // ── 振込先（DBの bankInfo）／ 備考 ──
   ws.mergeCells(`A${R_BANK}:G${R_BANK}`);

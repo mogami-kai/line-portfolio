@@ -5,17 +5,18 @@
 //     1) state を demen_oauth_state クッキーと照合（CSRF 対策）。
 //     2) code → access_token（exchangeCode）。
 //     3) access_token → プロフィール（lineUserId）。
-//     4) lineUserId が「承認済み ADMIN の実ユーザー」かを DB で確認。
+//     4) lineUserId を解決。既存の承認済み ADMIN はそのまま、未登録は自動作成
+//        （オープンアクセス: 自社ADMIN・承認済み）してログインさせる。
 //          OK   → demen_session（署名付き）を発行して /admin へ 302。
-//          NG   → /admin?error=forbidden（権限なし）へ 302。
+//          NG   → /admin?error=forbidden（PARTNER 等へ降格済み）へ 302。
 //
-//   ※ ここではユーザーを新規作成しない（LIFF と違い、管理ログインは
-//     既存の承認済み ADMIN のみ通す）。初期 ADMIN は seed / LIFF 初回登録で作る。
+//   ※ オープンアクセス: 未登録ユーザーはここで自動作成して通す。管理者に
+//     PARTNER 等へ降格された既存ユーザーは ADMIN でないため弾く。
 // ============================================================
 
 import { NextResponse } from "next/server";
 import { getProfile, exchangeCode } from "@/lib/line.js";
-import { findApprovedAdminByLineUserId } from "@/lib/auth.js";
+import { findApprovedAdminByLineUserId, resolveUser } from "@/lib/auth.js";
 import {
   signSession,
   sessionCookieHeader,
@@ -65,9 +66,11 @@ export async function GET(req: Request) {
 
   // ── 3) token → profile ──
   let lineUserId = "";
+  let displayName = "";
   try {
     const profile = await getProfile(token.accessToken);
     lineUserId = profile.userId;
+    displayName = profile.displayName;
   } catch {
     return NextResponse.redirect(redirectToAdmin(req, "?error=profile"), 302);
   }
@@ -75,11 +78,24 @@ export async function GET(req: Request) {
     return NextResponse.redirect(redirectToAdmin(req, "?error=profile"), 302);
   }
 
-  // ── 4) 承認済み ADMIN か ──
-  //   承認済み ADMIN のみログイン可（未承認 / 非 ADMIN / 未登録は弾く）。
-  const sessionUser = await findApprovedAdminByLineUserId(lineUserId);
+  // ── 4) ログインユーザーの解決（オープンアクセス）──
+  //   既存の承認済み ADMIN はそのまま通す。未登録なら自動作成（自社ADMIN・承認済み）して
+  //   ログインさせる。ただし管理者に「協力会社(PARTNER)」等へ降格された既存ユーザーは
+  //   ADMIN ではないのでセッションを発行しない（管理画面は ADMIN のみ）。
+  let sessionUser = await findApprovedAdminByLineUserId(lineUserId);
   if (!sessionUser) {
-    // 権限なし（未承認 / 非 ADMIN / 未登録）。セッションは発行しない。
+    const resolved = await resolveUser(lineUserId, displayName);
+    if (
+      resolved &&
+      resolved.user.role === "ADMIN" &&
+      resolved.user.approved &&
+      resolved.user.status === "ACTIVE"
+    ) {
+      sessionUser = resolved;
+    }
+  }
+  if (!sessionUser) {
+    // 権限なし（管理者に制限されたユーザー）。セッションは発行しない。
     const res = NextResponse.redirect(
       redirectToAdmin(req, "?error=forbidden"),
       302,
