@@ -1481,7 +1481,7 @@ details.card .field {
 .review-actions {
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   flex: 0 0 auto;
 }
@@ -1934,4 +1934,168 @@ html.help-on .help-bubble b {
 }
 .inv-detail .hint {
   margin-top: 6px;
+}
+
+/* ============================================================
+   出面インライン編集（フィード/要確認 → モーダル）
+   ・各カード右上の「編集」から、同一ページ内の大モーダルで全項目を編集/削除。
+   ・フラット・境界線主体・絵文字なし。既存変数のみを使用。
+   ・モバイルでもパネルが画面に収まり、入力欄が縦に積めること。
+   ============================================================ */
+.feed-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.feed-edit {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--accent);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  cursor: pointer;
+}
+.feed-edit:hover {
+  border-color: var(--accent);
+}
+
+/* オーバーレイ（最前面・スクロール可・上寄せ中央） */
+.rem-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 14px;
+  overflow-y: auto;
+}
+.rem-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 24, 32, 0.44);
+  border: none;
+  cursor: pointer;
+}
+.rem-panel {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 40px rgba(16, 24, 32, 0.18);
+  padding: 16px;
+}
+.rem-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.rem-title {
+  font-size: 17px;
+  font-weight: 800;
+}
+.rem-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.rem-close:hover {
+  border-color: var(--line-strong);
+}
+
+/* セクション（基本情報 / 職人 / 経費 など） */
+.rem-sec {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+.rem-sec:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.rem-sec-title {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+
+/* 明細行（職人/経費）。各フィールドは適度に伸縮、数値は固定幅。 */
+.rem-row {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.rem-row:last-child {
+  margin-bottom: 0;
+}
+.rem-row .field {
+  flex: 1 1 140px;
+  min-width: 0;
+  margin: 0;
+}
+/* 行内に直接置かれる select / テキスト input（職人・勤務体系・経費の種別）は
+   .field 同様に伸縮させる。base の width:100% のままだと各要素が行を独占して
+   縦積みになり、行内に収まらないため flex-basis を与えて横に並べる。 */
+.rem-row > .select,
+.rem-row > .input:not(.input--num) {
+  flex: 1 1 120px;
+  width: auto;
+  min-width: 0;
+}
+.rem-row .input--num {
+  flex: 0 0 auto;
+  width: 96px;
+}
+.rem-row-del {
+  flex: 0 0 auto;
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-sm);
+  padding: 6px 9px;
+  cursor: pointer;
+}
+.rem-row-del:hover {
+  color: var(--danger);
+}
+
+/* フッター（保存／削除を左右に） */
+.rem-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 14px;
+}
+
+/* オンデマンド取得中のプレースホルダ */
+.rem-loading {
+  padding: 28px 0;
+  text-align: center;
+  color: var(--ink-2);
 }

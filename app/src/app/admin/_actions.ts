@@ -15,6 +15,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
+import type { EditableReport, ReportEditInput } from "./_editTypes.js";
 
 /** ADMIN を要求。違反時は throw（Server Action はエラーをそのまま表面化）。 */
 async function requireAdminAction(): Promise<void> {
@@ -402,6 +403,149 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
     prisma.expense.deleteMany({ where: { reportId: id } }),
     prisma.report.delete({ where: { id } }),
   ]);
+  revalidateTag("reports"); // 月次集計キャッシュを無効化
+  revalidatePath("/admin");
+}
+
+// ============================================================
+// 出面のインライン編集（管理ホームのフィード/要確認カードから開く大モーダル）
+//   getReportForEditAction: カード押下時に当該出面の全項目をオンデマンド取得。
+//   updateReportAction    : フォーム送信で本体＋明細（職人/経費）を総入れ替え。
+//   ※ クライアントから「プレーン引数」で呼ぶ（React 19 Server Actions）。
+// ============================================================
+
+/** 編集モーダルの初期値を1件分まとめて返す（org.kind / 明細・経費を含む）。 */
+export async function getReportForEditAction(id: string): Promise<EditableReport> {
+  await requireAdminAction();
+  if (!id) throw new Error("id がありません");
+  const r = await prisma.report.findUnique({
+    where: { id },
+    include: {
+      org: { select: { kind: true } },
+      entries: true,
+      expenses: true,
+    },
+  });
+  if (!r) throw new Error("出面が見つかりません");
+  return {
+    id: r.id,
+    workDate: r.workDate.toISOString().slice(0, 10),
+    clientId: r.clientId,
+    orgId: r.orgId,
+    orgKind: r.org.kind,
+    siteName: r.siteName ?? "",
+    contractType: r.contractType,
+    contractAmount: r.contractAmount ?? null,
+    status: r.status,
+    entries: r.entries.map((e) => ({
+      workerId: e.workerId,
+      shift: e.shift,
+      manDays: e.manDays,
+      otHours: e.otHours,
+    })),
+    expenses: r.expenses.map((x) => ({
+      kind: x.kind,
+      amount: x.amount,
+      billable: x.billable,
+    })),
+  };
+}
+
+const reportEditSchema = z.object({
+  id: z.string().min(1, "id がありません"),
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付が不正です"),
+  clientId: z.string().min(1, "取引先を選択してください"),
+  siteName: z.string().trim(),
+  contractType: z.enum(["JOYO", "UKEOI"]),
+  contractAmount: z.number().int().positive().nullable(),
+  entries: z
+    .array(
+      z.object({
+        workerId: z.string().min(1, "職人を選択してください"),
+        shift: z.enum(["DAY", "HALF", "NIGHT"]),
+        manDays: z.number().nonnegative(),
+        otHours: z.number().nonnegative(),
+      }),
+    )
+    .min(1, "職人を1人以上入れてください"),
+  expenses: z.array(
+    z.object({
+      kind: z.string().min(1, "経費の項目名を入力してください"),
+      amount: z.number().int().nonnegative(),
+      billable: z.boolean(),
+    }),
+  ),
+});
+
+/** 出面1件を総入れ替え更新（本体＋明細＋経費）。明細・経費は delete→create でフル置換。 */
+export async function updateReportAction(input: ReportEditInput): Promise<void> {
+  await requireAdminAction();
+  const parsed = reportEditSchema.safeParse(input);
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  const {
+    id,
+    workDate,
+    clientId,
+    siteName,
+    contractType,
+    contractAmount,
+    entries,
+    expenses,
+  } = parsed.data;
+
+  // 契約整合: 請負は契約金額（正の整数）必須。常用は金額を持たない（null へ矯正）。
+  if (contractType === "UKEOI" && (contractAmount === null || contractAmount <= 0)) {
+    throw new Error("請負金額を入力してください");
+  }
+
+  // 参照整合性: 取引先・職人が実在するか。
+  const client = await prisma.client.findUnique({ where: { id: clientId } });
+  if (!client) throw new Error("取引先が見つかりません");
+  const ids = [...new Set(entries.map((e) => e.workerId))];
+  const cnt = await prisma.worker.count({ where: { id: { in: ids } } });
+  if (cnt !== ids.length) throw new Error("職人が見つかりません");
+
+  // 日付は UTC 0時固定（@db.Date 列の境界ぶれ回避。保存も集計も同じ流儀）。
+  const dayStart = new Date(`${workDate}T00:00:00.000Z`);
+
+  await prisma.$transaction([
+    prisma.report.update({
+      where: { id },
+      data: {
+        workDate: dayStart,
+        clientId,
+        siteName: siteName.trim() || null,
+        contractType,
+        contractAmount: contractType === "UKEOI" ? contractAmount : null,
+      },
+    }),
+    prisma.reportEntry.deleteMany({ where: { reportId: id } }),
+    prisma.reportEntry.createMany({
+      data: entries.map((e) => ({
+        reportId: id,
+        workerId: e.workerId,
+        shift: e.shift,
+        manDays: e.manDays,
+        otHours: e.otHours,
+      })),
+    }),
+    prisma.expense.deleteMany({ where: { reportId: id } }),
+    ...(expenses.length
+      ? [
+          prisma.expense.createMany({
+            data: expenses.map((x) => ({
+              reportId: id,
+              workDate: dayStart, // Expense.workDate は必須(@db.Date)
+              clientId, // 請求の名寄せ用に report の取引先を引き継ぐ（siteId は付けない）
+              kind: x.kind,
+              amount: x.amount,
+              billable: x.billable,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+
   revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
 }

@@ -7,6 +7,8 @@
 // ============================================================
 
 import { useState } from "react";
+import { EditReportButton } from "./_editReport.js";
+import type { ClientLite, WorkerLite } from "./_editTypes.js";
 
 export interface FeedItem {
   id: string;
@@ -22,9 +24,13 @@ export interface FeedItem {
 
 export function RecentFeed({
   items,
+  clients,
+  workers,
   initial = 9,
 }: {
   items: FeedItem[];
+  clients: ClientLite[];
+  workers: WorkerLite[];
   initial?: number;
 }) {
   const [all, setAll] = useState(false);
@@ -35,7 +41,15 @@ export function RecentFeed({
       <div className="feed-grid">
         {shown.map((r) => (
           <div className="feed-cell" key={r.id}>
-            <div className="feed-date">{r.date}</div>
+            <div className="feed-cell-head">
+              <div className="feed-date">{r.date}</div>
+              <EditReportButton
+                reportId={r.id}
+                clients={clients}
+                workers={workers}
+                variant="feed"
+              />
+            </div>
             <div className="feed-client">
               {r.client}
               {r.review && <span className="badge badge--review feed-mini">要</span>}
