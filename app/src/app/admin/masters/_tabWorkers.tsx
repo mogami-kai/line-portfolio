@@ -28,7 +28,9 @@ import {
   createWorkerAction,
   updateWorkerAction,
   setWorkerActiveAction,
+  deleteWorkerAction,
 } from "../_actions.js";
+import { ConfirmDeleteButton } from "../_confirmDelete.js";
 
 /** 種別ラベル（英語表記は画面に出さない）。 */
 function kindLabel(kind: "SELF" | "PARTNER"): string {
@@ -485,6 +487,19 @@ export function WorkersTab({
                 </form>
                 <p className="hint">
                   無効化しても過去の出面記録は残ります。再び有効化すれば選択肢に戻ります。
+                </p>
+              </div>
+
+              {/* 完全削除（deleteWorkerAction）。出面に未使用のときだけ可能。 */}
+              <div style={auxStyle}>
+                <ConfirmDeleteButton
+                  action={deleteWorkerAction}
+                  id={row.id}
+                  label="完全に削除"
+                  confirmText="この職人を完全に削除します（出面に未使用の場合のみ）。よろしいですか？"
+                />
+                <p className="hint">
+                  無効化＝出面記録は残す / 完全削除＝出面に未使用のときだけ可能。出面で使用中の職人は削除できません（無効化してください）。
                 </p>
               </div>
             </>
