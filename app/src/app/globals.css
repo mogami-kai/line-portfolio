@@ -2118,3 +2118,465 @@ html.help-on .help-bubble b {
   text-align: center;
   color: var(--ink-2);
 }
+
+/* ============================================================
+   /admin/masters — マスタ管理（業務SaaS リデザイン）
+   ・freee / マネーフォワード 風。タブ分割＋一覧中心＋ドロワー編集。
+   ・モバイル既定: コンパクトカード（.mst-cards）＋ボトムシート（.drw-panel）。
+   ・PC（>=641px）: テーブル（.mst-table-wrap）＋右ドロワー。
+   ・フラット・境界線主体・既存変数のみ・絵文字なし。
+   ============================================================ */
+
+/* ── ページ見出し ── */
+.mst-head {
+  padding: 4px 0 14px;
+}
+.mst-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: 0;
+}
+.mst-sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin: 4px 0 0;
+}
+
+.mst-shell {
+  min-width: 0;
+}
+
+/* ── タブ（セグメントナビ。スマホは横スクロール） ── */
+.mst-tabs {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+.mst-tabs::-webkit-scrollbar {
+  display: none;
+}
+.mst-tab {
+  flex: 0 0 auto;
+  position: relative;
+  min-height: 44px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-2);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mst-tab:hover {
+  color: var(--ink);
+}
+.mst-tab--on {
+  color: var(--accent-dark);
+  border-bottom-color: var(--accent);
+}
+
+/* ── 初期設定の控えめな1行（大きな常駐カードは置かない） ── */
+.mst-setup {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--warn-ink);
+}
+.mst-setup-text {
+  font-weight: 700;
+}
+.mst-setup-link {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--accent-dark);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mst-setup-link:hover {
+  text-decoration: underline;
+}
+
+/* ── ツールバー（検索＋追加ボタン行 / 件数サマリー） ── */
+.mst-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.mst-search {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 16px; /* iOS のズーム防止 */
+  color: var(--ink);
+  background: #fff;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.mst-search:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.mst-counts {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.mst-count {
+  font-variant-numeric: tabular-nums;
+}
+.mst-count b {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* ── 追加ボタン（primary。点線の大枠にしない＝通常のボタン） ── */
+.mst-add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  width: auto;
+  padding: 10px 18px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border: 1.5px solid var(--accent);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.mst-add:active:not(:disabled) {
+  background: var(--accent-press);
+}
+.mst-add:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── PC テーブル（>=641px で表示）。既定は隠す（スマホはカード）。 ── */
+.mst-table-wrap {
+  display: none;
+}
+.mst-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+.mst-table thead th {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-2);
+  background: #f7f9fb;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.mst-table tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  vertical-align: middle;
+  color: var(--ink);
+}
+.mst-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.mst-table tbody tr:hover td {
+  background: #f9fafb;
+}
+.mst-table .mst-c-num {
+  text-align: right;
+  white-space: nowrap;
+}
+.mst-table .mst-c-ops {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* ── スマホ コンパクトカード（<=640px。既定で表示） ── */
+.mst-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mst-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  cursor: pointer;
+}
+.mst-card:active {
+  background: #f9fafb;
+}
+.mst-card-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mst-card-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-2);
+  margin-top: 2px;
+}
+.mst-card-meta {
+  flex: 0 0 auto;
+  text-align: right;
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── 空の状態（0件） ── */
+.mst-empty {
+  text-align: center;
+  padding: 32px 18px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+/* ── 請求書設定の4ブロック ── */
+.mst-block {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.mst-block-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+
+/* ── 請求書プレビュー枠 ── */
+.mst-preview {
+  background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* ── PC/スマホ 出し分け（>=641px でテーブル、スマホはカード） ── */
+@media (min-width: 641px) {
+  .mst-table-wrap {
+    display: block;
+  }
+  .mst-cards {
+    display: none;
+  }
+}
+
+/* ============================================================
+   ドロワー（編集はすべてこの中で。一覧にフォームを展開しない）
+   ・既定（<=640px）: 下からのボトムシート（全幅・上角丸・safe-area）。
+   ・PC（>=641px）: 右からのドロワー（高さ100%・幅 min(440px,92vw)）。
+   ============================================================ */
+.drw-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+}
+.drw-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 24, 32, 0.44);
+  border: none;
+  cursor: pointer;
+}
+
+/* 既定（スマホ）: 下のボトムシート。上角丸・下に safe-area パディング。 */
+.drw-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -12px 40px rgba(16, 24, 32, 0.18);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  animation: drw-up 0.18s ease-out;
+}
+@keyframes drw-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drw-panel {
+    animation: none;
+  }
+}
+
+.drw-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.drw-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.drw-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.drw-close:hover {
+  border-color: var(--line-strong);
+}
+.drw-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.drw-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+
+/* PC（>=641px）: 右からのドロワー（画面右に固定・高さ100%）。 */
+@media (min-width: 641px) {
+  .drw-overlay {
+    justify-content: flex-end;
+  }
+  .drw-panel {
+    top: 0;
+    right: 0;
+    left: auto;
+    bottom: 0;
+    height: 100%;
+    max-height: none;
+    width: min(440px, 92vw);
+    border-top: none;
+    border-left: 1px solid var(--line);
+    border-radius: 0;
+    box-shadow: -12px 0 40px rgba(16, 24, 32, 0.18);
+    animation: drw-right 0.18s ease-out;
+  }
+  @keyframes drw-right {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  .drw-body,
+  .drw-foot {
+    padding-bottom: 16px;
+  }
+  .drw-foot {
+    padding: 12px 16px;
+  }
+}
+
+/* スマホで追加ボタンを下固定にしたい場合（任意。タブ担当が使う）。 */
+.mst-add--fixed {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 40;
+  width: auto;
+  box-shadow: 0 6px 20px rgba(43, 95, 179, 0.32);
+}
+@media (min-width: 641px) {
+  .mst-add--fixed {
+    position: static;
+    box-shadow: none;
+  }
+}
