@@ -4,11 +4,12 @@
 // 直近の出面フィード（コンパクト3列＋「表示」で当月全件）
 //   サーバーから当月の出面（プレーン配列）を受け取り、最初の数件だけ3列で表示。
 //   「表示」を押すとその月の全件を展開（もう一度で畳む）。
+//   各カード右上の「編集」は reportId だけを渡す軽量ボタン。取引先/職人は
+//   モーダルを開いた時に取得する（一覧へ巨大配列を撒かない＝表示を軽く保つ）。
 // ============================================================
 
 import { useState } from "react";
 import { EditReportButton } from "./_editReport.js";
-import type { ClientLite, WorkerLite } from "./_editTypes.js";
 
 export interface FeedItem {
   id: string;
@@ -24,13 +25,9 @@ export interface FeedItem {
 
 export function RecentFeed({
   items,
-  clients,
-  workers,
   initial = 9,
 }: {
   items: FeedItem[];
-  clients: ClientLite[];
-  workers: WorkerLite[];
   initial?: number;
 }) {
   const [all, setAll] = useState(false);
@@ -43,12 +40,7 @@ export function RecentFeed({
           <div className="feed-cell" key={r.id}>
             <div className="feed-cell-head">
               <div className="feed-date">{r.date}</div>
-              <EditReportButton
-                reportId={r.id}
-                clients={clients}
-                workers={workers}
-                variant="feed"
-              />
+              <EditReportButton reportId={r.id} variant="feed" />
             </div>
             <div className="feed-client">
               {r.client}

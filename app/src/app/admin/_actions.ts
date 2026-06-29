@@ -15,7 +15,7 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
-import type { EditableReport, ReportEditInput } from "./_editTypes.js";
+import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
 /** ADMIN を要求。違反時は throw（Server Action はエラーをそのまま表面化）。 */
 async function requireAdminAction(): Promise<void> {
@@ -414,40 +414,56 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
 //   ※ クライアントから「プレーン引数」で呼ぶ（React 19 Server Actions）。
 // ============================================================
 
-/** 編集モーダルの初期値を1件分まとめて返す（org.kind / 明細・経費を含む）。 */
-export async function getReportForEditAction(id: string): Promise<EditableReport> {
+/**
+ * 編集モーダルを開いた時に1往復で取得する初期データ（出面本体＋取引先/職人）。
+ *   ※ 一覧（フィード/要確認）側の各ボタンへ取引先/職人の巨大配列を撒かず、
+ *     モーダルを開いた時だけここで取りに行く（一覧の RSC ペイロード＆ハイドレーション軽量化）。
+ */
+export async function getReportForEditAction(id: string): Promise<ReportEditorData> {
   await requireAdminAction();
   if (!id) throw new Error("id がありません");
-  const r = await prisma.report.findUnique({
-    where: { id },
-    include: {
-      org: { select: { kind: true } },
-      entries: true,
-      expenses: true,
-    },
-  });
+  const [r, clients, workers] = await Promise.all([
+    prisma.report.findUnique({
+      where: { id },
+      include: {
+        org: { select: { kind: true } },
+        entries: true,
+        expenses: true,
+      },
+    }),
+    // 過去の無効取引先/職人も選択肢に残す（既存出面の整合のため active フィルタ無し）。
+    prisma.client.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.worker.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, orgId: true },
+    }),
+  ]);
   if (!r) throw new Error("出面が見つかりません");
   return {
-    id: r.id,
-    workDate: r.workDate.toISOString().slice(0, 10),
-    clientId: r.clientId,
-    orgId: r.orgId,
-    orgKind: r.org.kind,
-    siteName: r.siteName ?? "",
-    contractType: r.contractType,
-    contractAmount: r.contractAmount ?? null,
-    status: r.status,
-    entries: r.entries.map((e) => ({
-      workerId: e.workerId,
-      shift: e.shift,
-      manDays: e.manDays,
-      otHours: e.otHours,
-    })),
-    expenses: r.expenses.map((x) => ({
-      kind: x.kind,
-      amount: x.amount,
-      billable: x.billable,
-    })),
+    report: {
+      id: r.id,
+      workDate: r.workDate.toISOString().slice(0, 10),
+      clientId: r.clientId,
+      orgId: r.orgId,
+      orgKind: r.org.kind,
+      siteName: r.siteName ?? "",
+      contractType: r.contractType,
+      contractAmount: r.contractAmount ?? null,
+      status: r.status,
+      entries: r.entries.map((e) => ({
+        workerId: e.workerId,
+        shift: e.shift,
+        manDays: e.manDays,
+        otHours: e.otHours,
+      })),
+      expenses: r.expenses.map((x) => ({
+        kind: x.kind,
+        amount: x.amount,
+        billable: x.billable,
+      })),
+    },
+    clients,
+    workers,
   };
 }
 

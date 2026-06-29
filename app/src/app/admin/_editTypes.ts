@@ -55,6 +55,17 @@ export interface EditableReport {
   expenses: EditableExpense[];
 }
 
+/**
+ * 編集モーダルを開いた時に1往復で取得するデータ一式。
+ *   出面本体（report）に加え、ドロップダウン用の取引先/職人もここで返す。
+ *   → 一覧側（フィード/要確認の各ボタン）へ巨大配列を撒かず、開いた時だけ取りに行く。
+ */
+export interface ReportEditorData {
+  report: EditableReport;
+  clients: ClientLite[];
+  workers: WorkerLite[];
+}
+
 /** updateReportAction への入力（フォーム送信値）。 */
 export interface ReportEditInput {
   id: string;

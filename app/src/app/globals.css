@@ -47,6 +47,10 @@ html,
 body {
   margin: 0;
   padding: 0;
+  /* iOS Safari のテキスト自動拡大（font boosting）を全面的に無効化。
+     モーダル等の flex レイアウトで文字だけ巨大化する崩れを防ぐ。 */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -1989,6 +1993,10 @@ html.help-on .help-bubble b {
   max-width: 560px;
   max-height: 90vh;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* iOS の慣性スクロール */
+  overscroll-behavior: contain; /* 背面へのスクロール波及を防ぐ */
+  -webkit-text-size-adjust: 100%; /* ポータル内でも文字自動拡大を無効化 */
+  text-size-adjust: 100%;
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -2082,15 +2090,26 @@ html.help-on .help-bubble b {
   color: var(--danger);
 }
 
-/* フッター（保存／削除を左右に） */
+/* フッター（削除は左・キャンセル/保存は右。狭い端末では折り返す）。
+   flex-wrap と nowrap で、文字が途中改行して巨大化したように見える崩れを防ぐ。 */
 .rem-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 10px 12px;
   border-top: 1px solid var(--line);
   padding-top: 14px;
   margin-top: 14px;
+}
+.rem-foot .btn {
+  white-space: nowrap;
+}
+.rem-foot > .btn--danger-text {
+  margin-right: auto; /* 削除を左へ。右側にキャンセル/保存の組を寄せる */
+}
+.rem-foot-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* オンデマンド取得中のプレースホルダ */
