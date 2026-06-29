@@ -1,0 +1,7 @@
+# Dependencies (root-level; the Next app has its own app/.gitignore too)
+node_modules/
+
+# Tool caches
+.vite/
+.next/
+*.log
