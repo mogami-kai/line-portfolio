@@ -5,7 +5,7 @@
 //     ホームは「次にやること（判断）」に集約する。
 //       0) 次にやること … 状態から導いた最優先導線（adminInsights）
 //       0') 今月の状態 … 入力/要確認/承認待ち/請求候補 等の指標カード（metric-grid）
-//       1) 要確認（NEEDS_REVIEW）… その場で「承認」「削除」できる行動カード
+//       1) 要確認（NEEDS_REVIEW）… その場で「承認」「編集」できる行動カード
 //       2) 直近の出面 … 当月の入力フィード（LINE グループと同じ並びで一目確認）
 //       3) 集計・請求 … くわしい数字は「集計」へ、月末は「請求書」へ（導線のみ）
 //     詳細な月次集計（合計・職人別・取引先別）は /admin/aggregate（集計）へ分離した。
@@ -15,17 +15,17 @@
 //     - モバイル: 縦 1 列（.admin-grid / globals.css）。
 //
 //   ガード: getAdminContext()。指標は @/lib/adminInsights。
-//   行動（承認/削除）は _actions.ts の Server Action（多層 ADMIN ガード）。
+//   行動（承認/編集/削除）は _actions.ts の Server Action（多層 ADMIN ガード）。
+//   削除はカード直下ではなく編集モーダル内（_editReport.tsx）から行う。
 // ============================================================
 
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { HelpToggle } from "./_help.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
-import {
-  confirmReportAction,
-  deleteReportAction,
-} from "./_actions.js";
+import { EditReportButton } from "./_editReport.js";
+import type { ClientLite, WorkerLite } from "./_editTypes.js";
+import { confirmReportAction } from "./_actions.js";
 import { currentYearMonth, monthRange } from "@/lib/aggregate.js";
 
 export const dynamic = "force-dynamic";
@@ -102,7 +102,10 @@ export default async function AdminPage({
 
   // 「日々のチェック」の主役データだけを取得（要確認＋当月フィード）。
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。
-  const [needsReview, recent] = await Promise.all([
+  // 編集モーダルのドロップダウン用に取引先/職人を全件ロード（active フィルタ無し＝
+  // 過去の無効取引先/職人も選択肢に残し、既存出面の整合を保つ）。要確認/フィードと
+  // まとめて1往復で並行取得する。
+  const [needsReview, recent, clients, workers] = await Promise.all([
     prisma.report.findMany({
       where: { status: "NEEDS_REVIEW" },
       orderBy: { createdAt: "desc" },
@@ -123,6 +126,7 @@ export default async function AdminPage({
         id: true,
         workDate: true,
         status: true,
+        siteName: true,
         client: { select: { name: true } },
         site: { select: { name: true } },
         org: { select: { kind: true } },
@@ -131,7 +135,18 @@ export default async function AdminPage({
         },
       },
     }),
+    prisma.client.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.worker.findMany({
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, orgId: true },
+    }),
   ]);
+  // 編集モーダルへ渡す選択肢（共有型に明示。Prisma の select 戻り値と構造一致）。
+  const clientOptions: ClientLite[] = clients;
+  const workerOptions: WorkerLite[] = workers;
 
   // 月ナビ。
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
@@ -144,7 +159,7 @@ export default async function AdminPage({
     id: r.id,
     date: mdW(r.workDate),
     client: r.client.name,
-    site: r.site?.name ?? "(現場未設定)",
+    site: r.siteName || r.site?.name || "(現場未設定)",
     names: r.entries
       .map((e) => e.worker?.name)
       .filter(Boolean)
@@ -164,7 +179,7 @@ export default async function AdminPage({
 
       <div className="help-bubble">
         <b>この画面の使い方</b>　毎日はこの2ステップだけ：
-        ① <b>要確認</b>を片付ける（承認 か 削除）→ ② <b>直近の出面</b>で今日の入力を確認。
+        ① <b>要確認</b>を片付ける（承認 か 編集）→ ② <b>直近の出面</b>で今日の入力を確認。
         くわしい数字は <a href={`/admin/aggregate?ym=${ym}`}>集計</a>、月末は <b>請求書</b>を作るだけです。
       </div>
 
@@ -199,7 +214,7 @@ export default async function AdminPage({
             <div className="help-bubble">
               <b>いちばん大事な場所。</b>{" "}
               入力された出面のうち「念のため確認したいもの」が並びます。内容を見て、合っていれば{" "}
-              <b>承認</b>、間違いなら <b>削除</b>。ここが空なら確認待ちゼロ＝OKです。
+              <b>承認</b>、直したい所があれば <b>編集</b>（編集の中で削除もできます）。ここが空なら確認待ちゼロ＝OKです。
             </div>
             {needsReview.length === 0 ? (
               <div className="empty-ok">確認待ちはありません。</div>
@@ -228,7 +243,7 @@ export default async function AdminPage({
                           </span>
                         </div>
                         <div className="review-meta">
-                          {r.site?.name ?? "(現場未設定)"} ・ {r.org.name}
+                          {r.siteName || r.site?.name || "(現場未設定)"} ・ {r.org.name}
                         </div>
                         {names && <div className="review-names">{names}</div>}
                         <div className="review-figs">
@@ -249,12 +264,12 @@ export default async function AdminPage({
                             承認
                           </button>
                         </form>
-                        <form action={deleteReportAction}>
-                          <input type="hidden" name="id" value={r.id} />
-                          <button type="submit" className="btn btn--danger-text btn--sm">
-                            削除
-                          </button>
-                        </form>
+                        <EditReportButton
+                          reportId={r.id}
+                          clients={clientOptions}
+                          workers={workerOptions}
+                          variant="review"
+                        />
                       </div>
                     </div>
                   );
@@ -286,7 +301,11 @@ export default async function AdminPage({
                 </div>
               </div>
             ) : (
-              <RecentFeed items={feedItems} />
+              <RecentFeed
+                items={feedItems}
+                clients={clientOptions}
+                workers={workerOptions}
+              />
             )}
           </section>
         </div>
