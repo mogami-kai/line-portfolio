@@ -43,7 +43,7 @@ export function describeAccess(role: Role, orgKind: OrgKind): string[] {
       ? "入力した出面は自社LINEグループに投稿される"
       : "入力した出面は保存のみ（自社グループには投稿されない）";
   return [
-    `LIFF（入力フォーム）から${where}の出面を入力できる`,
+    `${where}の出面を入力フォームから入力できる`,
     post,
     "管理画面には入れない",
   ];
