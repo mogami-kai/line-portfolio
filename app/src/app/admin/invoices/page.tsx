@@ -120,13 +120,12 @@ function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
   );
 }
 
-// 既存 Invoice の番号 + Excel リンク。PC テーブルの操作セル / スマホカード共用。
+// 既存 Invoice の番号。PC テーブルの操作セル / スマホカード共用。
+//   ダウンロードは「請求書作成」ボタンに一本化（押すと作成＋Excel ダウンロード）。
 function InvoiceMeta({ iv }: { iv: ExistingInvoice }) {
   return (
     <div className="inv-no-line">
       請求書番号 <strong>{iv.invoiceNo}</strong>
-      <span className="inv-sep">|</span>
-      <a href={`/api/invoices/${iv.id}/export?format=xlsx`}>請求書(Excel)</a>
     </div>
   );
 }
