@@ -43,13 +43,9 @@ import type {
  */
 export function EditReportButton({
   reportId,
-  clients,
-  workers,
   variant = "feed",
 }: {
   reportId: string;
-  clients: ClientLite[];
-  workers: WorkerLite[];
   variant?: "feed" | "review";
 }) {
   const [open, setOpen] = useState(false);
@@ -73,14 +69,7 @@ export function EditReportButton({
           編集
         </button>
       )}
-      {open && (
-        <EditModal
-          reportId={reportId}
-          clients={clients}
-          workers={workers}
-          onClose={() => setOpen(false)}
-        />
-      )}
+      {open && <EditModal reportId={reportId} onClose={() => setOpen(false)} />}
     </>
   );
 }
@@ -88,13 +77,9 @@ export function EditReportButton({
 /** 編集モーダル本体（body 直下にポータル）。フォーム状態と保存/削除を持つ。 */
 function EditModal({
   reportId,
-  clients,
-  workers,
   onClose,
 }: {
   reportId: string;
-  clients: ClientLite[];
-  workers: WorkerLite[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -105,8 +90,10 @@ function EditModal({
     setMounted(true);
   }, []);
 
-  // 取得結果（org の判定にも使う）と取得エラー。
+  // 取得結果（org の判定にも使う）と取得エラー。取引先/職人は開いた時に取得。
   const [data, setData] = useState<EditableReport | null>(null);
+  const [clients, setClients] = useState<ClientLite[]>([]);
+  const [workers, setWorkers] = useState<WorkerLite[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   // フォーム状態（取得後に初期化）。
@@ -128,14 +115,17 @@ function EditModal({
       try {
         const d = await getReportForEditAction(reportId);
         if (cancelled) return;
-        setData(d);
-        setWorkDate(d.workDate);
-        setClientId(d.clientId);
-        setSiteName(d.siteName);
-        setContractType(d.contractType);
-        setContractAmount(String(d.contractAmount ?? ""));
-        setEntries(d.entries.map((e) => ({ ...e })));
-        setExpenses(d.expenses.map((x) => ({ ...x })));
+        const rep = d.report;
+        setData(rep);
+        setClients(d.clients);
+        setWorkers(d.workers);
+        setWorkDate(rep.workDate);
+        setClientId(rep.clientId);
+        setSiteName(rep.siteName);
+        setContractType(rep.contractType);
+        setContractAmount(String(rep.contractAmount ?? ""));
+        setEntries(rep.entries.map((e) => ({ ...e })));
+        setExpenses(rep.expenses.map((x) => ({ ...x })));
       } catch (e) {
         if (!cancelled) {
           setLoadErr(String((e as Error).message || e) || "読み込みに失敗しました。");
@@ -521,7 +511,7 @@ function EditModal({
               >
                 この出面を削除
               </button>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div className="rem-foot-actions">
                 <button
                   type="button"
                   className="btn btn--ghost"

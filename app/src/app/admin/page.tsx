@@ -24,7 +24,6 @@ import { getAdminContext } from "@/lib/auth.js";
 import { HelpToggle } from "./_help.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
-import type { ClientLite, WorkerLite } from "./_editTypes.js";
 import { confirmReportAction } from "./_actions.js";
 import { currentYearMonth, monthRange } from "@/lib/aggregate.js";
 
@@ -102,10 +101,9 @@ export default async function AdminPage({
 
   // 「日々のチェック」の主役データだけを取得（要確認＋当月フィード）。
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。
-  // 編集モーダルのドロップダウン用に取引先/職人を全件ロード（active フィルタ無し＝
-  // 過去の無効取引先/職人も選択肢に残し、既存出面の整合を保つ）。要確認/フィードと
-  // まとめて1往復で並行取得する。
-  const [needsReview, recent, clients, workers] = await Promise.all([
+  // 編集の取引先/職人ドロップダウンは、カードの「編集」を押した時にモーダル側で
+  // 取得する（一覧へ巨大配列を撒かない＝ホームの転送量とハイドレーションを軽く保つ）。
+  const [needsReview, recent] = await Promise.all([
     prisma.report.findMany({
       where: { status: "NEEDS_REVIEW" },
       orderBy: { createdAt: "desc" },
@@ -135,18 +133,7 @@ export default async function AdminPage({
         },
       },
     }),
-    prisma.client.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-    prisma.worker.findMany({
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, orgId: true },
-    }),
   ]);
-  // 編集モーダルへ渡す選択肢（共有型に明示。Prisma の select 戻り値と構造一致）。
-  const clientOptions: ClientLite[] = clients;
-  const workerOptions: WorkerLite[] = workers;
 
   // 月ナビ。
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
@@ -264,12 +251,7 @@ export default async function AdminPage({
                             承認
                           </button>
                         </form>
-                        <EditReportButton
-                          reportId={r.id}
-                          clients={clientOptions}
-                          workers={workerOptions}
-                          variant="review"
-                        />
+                        <EditReportButton reportId={r.id} variant="review" />
                       </div>
                     </div>
                   );
@@ -301,11 +283,7 @@ export default async function AdminPage({
                 </div>
               </div>
             ) : (
-              <RecentFeed
-                items={feedItems}
-                clients={clientOptions}
-                workers={workerOptions}
-              />
+              <RecentFeed items={feedItems} />
             )}
           </section>
         </div>
