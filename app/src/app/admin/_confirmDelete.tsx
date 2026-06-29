@@ -21,7 +21,9 @@ export function ConfirmDeleteButton({
   label,
   className,
 }: {
-  action: (fd: FormData) => Promise<void>;
+  // 想定内の失敗は { ok:false, error } を返す（本番では throw のメッセージが
+  // マスクされるため）。成功は { ok:true }（または void）。
+  action: (fd: FormData) => Promise<{ ok: boolean; error?: string } | void>;
   id: string;
   confirmText: string;
   label?: string;
@@ -37,7 +39,12 @@ export function ConfirmDeleteButton({
     fd.set("id", id);
     startTransition(async () => {
       try {
-        await action(fd);
+        const res = await action(fd);
+        // 削除できない理由（無効化してください 等）を、そのまま表示。
+        if (res && res.ok === false) {
+          window.alert(res.error ?? "削除できませんでした。");
+          return;
+        }
         router.refresh();
       } catch (e) {
         const message =
