@@ -5,3 +5,4 @@ Vercel の GitHub 連携（push webhook）が時々取りこぼし、main への
 そのときは main へ軽微なコミットを置いて再デプロイを起動する。
 
 - 2026-06-29: PR #21（請求書ダウンロード修正）マージ後に未デプロイ → 本ファイル追加で再トリガー。
+- 2026-06-30: LINE_CHANNEL_ACCESS_TOKEN を「出面管理bot」チャネルのトークンに修正（グループ投稿の 400 Failed to send messages を解消）→ 本コミットで本番再デプロイをトリガー。
