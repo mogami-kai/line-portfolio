@@ -2255,6 +2255,7 @@ details.card .field {
   gap: 4px;
   align-items: stretch;
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   border-bottom: 1px solid var(--line);
@@ -2288,7 +2289,7 @@ details.card .field {
 
 .mst-tabs-group {
   display: flex;
-  gap: 2px;
+  gap: 0;
   align-items: stretch;
   margin-left: auto;
   padding: 4px 6px;
@@ -2296,6 +2297,9 @@ details.card .field {
   border-radius: 8px 8px 0 0;
   border: 1px solid #93c5fd;
   border-bottom: none;
+}
+.mst-tabs-group .mst-tab + .mst-tab {
+  border-left: 1px solid #93c5fd;
 }
 .mst-tabs-group .mst-tab {
   color: #1e40af;
