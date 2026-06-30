@@ -325,7 +325,6 @@ function EditModal({
                   value={siteName}
                   onChange={(e) => setSiteName(e.target.value)}
                 />
-                <p className="hint">任意・自由入力。空でも保存できます。</p>
               </div>
             </div>
 

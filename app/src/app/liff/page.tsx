@@ -950,7 +950,6 @@ export default function LiffPage() {
             value={siteName}
             onChange={(e) => setSiteName(e.target.value)}
           />
-          <p className="hint">任意・管理用のメモです。請求書には出ません。</p>
         </div>
 
         {/* 契約種別（セグメント） */}

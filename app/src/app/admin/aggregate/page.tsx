@@ -130,9 +130,6 @@ async function MonthSummary({ ym }: { ym: string }) {
       <div className="section-head">
         <h3 className="section-subtitle">取引先別（協力会社）</h3>
       </div>
-      <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
-        ※ 管理画面のみで集約（出面グループには投稿されません）。
-      </p>
       <ClientAccordion
         rows={partner}
         emptyLabel="この月の協力会社のデータはありません。"
