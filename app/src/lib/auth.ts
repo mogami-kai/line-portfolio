@@ -113,19 +113,38 @@ export function isApproved(u: ResolvedUser): boolean {
   return u.user.approved === true;
 }
 
-/** ADMIN ロールか。 */
+/**
+ * 管理画面に入れるロールか（ADMIN または SELF_ADMIN）。
+ * SELF_ADMIN は「自社のみ閲覧」の管理者タイプ。
+ */
 export function isAdmin(u: ResolvedUser): boolean {
-  return u.user.role === "ADMIN";
+  return u.user.role === "ADMIN" || u.user.role === "SELF_ADMIN";
 }
 
 /**
- * ADMIN を要求。違反時は Error を投げる（ページ/ハンドラ側で 403 等に変換）。
+ * 管理者の閲覧スコープ。
+ *   "ALL"  : 自社＋全協力会社（フル管理者 ADMIN）。
+ *   "SELF" : 自社のみ（自社管理者 SELF_ADMIN。協力会社データは非表示）。
+ */
+export function adminScope(u: ResolvedUser): "ALL" | "SELF" {
+  return u.user.role === "SELF_ADMIN" ? "SELF" : "ALL";
+}
+
+/** 自社のみ閲覧の管理者（SELF_ADMIN）か。 */
+export function isSelfScoped(u: ResolvedUser): boolean {
+  return adminScope(u) === "SELF";
+}
+
+/**
+ * 管理者（ADMIN / SELF_ADMIN）を要求。違反時は Error を投げる
+ * （ページ/ハンドラ側で 403 等に変換）。
  */
 export function requireAdmin(u: ResolvedUser | null): ResolvedUser {
   if (!u) throw new Error("UNAUTHENTICATED");
   if (u.user.status === "DISABLED") throw new Error("DISABLED");
   if (!u.user.approved) throw new Error("NOT_APPROVED");
-  if (u.user.role !== "ADMIN") throw new Error("FORBIDDEN");
+  if (u.user.role !== "ADMIN" && u.user.role !== "SELF_ADMIN")
+    throw new Error("FORBIDDEN");
   return u;
 }
 
@@ -151,15 +170,21 @@ export function requireApproved(u: ResolvedUser | null): ResolvedUser {
 // ============================================================
 
 /**
- * lineUserId が「承認済み・role=ADMIN の実ユーザー」かを引く（新規作成しない）。
- * LINE Login コールバックでセッション発行可否を判断するために使う。
+ * lineUserId が「承認済み・管理者タイプ（ADMIN / SELF_ADMIN）の実ユーザー」かを
+ * 引く（新規作成しない）。LINE Login コールバックでセッション発行可否を判断する
+ * ために使う。SELF_ADMIN も管理画面に入れる（閲覧スコープは自社のみ）。
  */
 export async function findApprovedAdminByLineUserId(
   lineUserId: string,
 ): Promise<ResolvedUser | null> {
   if (!lineUserId) return null;
   const admin = await prisma.user.findFirst({
-    where: { lineUserId, role: "ADMIN", approved: true, status: "ACTIVE" },
+    where: {
+      lineUserId,
+      role: { in: ["ADMIN", "SELF_ADMIN"] },
+      approved: true,
+      status: "ACTIVE",
+    },
     include: { org: true },
   });
   if (!admin) return null;

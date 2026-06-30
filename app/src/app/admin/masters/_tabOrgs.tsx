@@ -44,7 +44,14 @@ function kindLabel(kind: "SELF" | "PARTNER"): string {
   return kind === "SELF" ? "自社" : "協力会社";
 }
 
-export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
+export function OrgsTab({
+  orgs,
+  canAddPartner = true,
+}: {
+  orgs: OrgRow[];
+  /** 協力会社（PARTNER）の追加可否。自社管理者(SELF_ADMIN)では false。 */
+  canAddPartner?: boolean;
+}): JSX.Element {
   // ドロワー: "add"＝協力会社を追加 / OrgRow＝その協力会社を編集 / null＝閉。
   const [editing, setEditing] = useState<OrgRow | "add" | null>(null);
 
@@ -72,28 +79,30 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
     <div>
       {/* ツールバー: 説明は上にあるので、ここは右側の「協力会社を追加」のみ。
           検索欄が無いので marginLeft:auto で右寄せ（.mst-toolbar は flex）。 */}
-      <div className="mst-toolbar">
-        <button
-          type="button"
-          className="mst-add"
-          style={{ marginLeft: "auto" }}
-          onClick={() => setEditing("add")}
-        >
-          <svg
-            viewBox="0 0 24 24"
-            width="18"
-            height="18"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            aria-hidden
+      {canAddPartner && (
+        <div className="mst-toolbar">
+          <button
+            type="button"
+            className="mst-add"
+            style={{ marginLeft: "auto" }}
+            onClick={() => setEditing("add")}
           >
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          協力会社を追加
-        </button>
-      </div>
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            協力会社を追加
+          </button>
+        </div>
+      )}
 
       <div className="mst-counts">
         <span className="mst-count">

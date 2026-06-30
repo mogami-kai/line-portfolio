@@ -20,7 +20,7 @@
 // ============================================================
 
 import { prisma } from "@/lib/db.js";
-import { getAdminContext, getSessionUserIfExists } from "@/lib/auth.js";
+import { getAdminContext, getSessionUserIfExists, adminScope } from "@/lib/auth.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
 import { confirmReportAction } from "./_actions.js";
@@ -115,13 +115,17 @@ export default async function AdminPage({
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
   const { from, to } = monthRange(ym);
 
+  // 自社管理者(SELF_ADMIN)は自社のみ閲覧。協力会社（PARTNER）の出面を一覧から除外する。
+  const selfScoped = adminScope(admin) === "SELF";
+  const scopeWhere = selfScoped ? { org: { kind: "SELF" as const } } : {};
+
   // 「日々のチェック」の主役データだけを取得（要確認＋当月フィード）。
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。
   // 編集の取引先/職人ドロップダウンは、カードの「編集」を押した時にモーダル側で
   // 取得する（一覧へ巨大配列を撒かない＝ホームの転送量とハイドレーションを軽く保つ）。
   const [needsReview, recent] = await Promise.all([
     prisma.report.findMany({
-      where: { status: "NEEDS_REVIEW" },
+      where: { status: "NEEDS_REVIEW", ...scopeWhere },
       orderBy: { createdAt: "desc" },
       take: 50,
       include: {
@@ -132,7 +136,7 @@ export default async function AdminPage({
       },
     }),
     prisma.report.findMany({
-      where: { workDate: { gte: from, lt: to } },
+      where: { workDate: { gte: from, lt: to }, ...scopeWhere },
       orderBy: [{ workDate: "desc" }, { createdAt: "desc" }],
       take: 200, // 当月全件（「表示」で展開）。当月件数の現実的上限＝クライアント転送量の上限。
       // フィードに必要な列だけを select（include で全列を引かず RSC ペイロードを最小化）。

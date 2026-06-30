@@ -13,7 +13,7 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
-import { getAdminContext } from "@/lib/auth.js";
+import { getAdminContext, adminScope } from "@/lib/auth.js";
 import { MastersShell } from "./_mastersShell.js";
 import type {
   ClientRow,
@@ -27,6 +27,9 @@ export const dynamic = "force-dynamic";
 export default async function MastersPage() {
   const admin = await getAdminContext();
   if (!admin) redirect("/admin?error=login");
+
+  // 自社管理者(SELF_ADMIN)は自社のみ閲覧。ロールタブで協力会社（PARTNER）を隠す。
+  const selfScoped = adminScope(admin) === "SELF";
 
   const [clientRows, workerRows, orgRows, setting] = await Promise.all([
     prisma.client.findMany({ orderBy: { name: "asc" } }),
@@ -91,6 +94,7 @@ export default async function MastersPage() {
         workers={workers}
         orgs={orgs}
         setting={settingRow}
+        selfScoped={selfScoped}
       />
     </main>
   );

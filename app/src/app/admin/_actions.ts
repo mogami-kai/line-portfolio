@@ -715,15 +715,19 @@ export async function setWorkerRatesAction(
 // ============================================================
 const approveSchema = z.object({
   userId: z.string().min(1),
-  role: z.enum(["ADMIN", "OWNER", "PARTNER"]),
-  // PARTNER の場合のみ使用。OWNER/ADMIN は自社(SELF)組織へ自動割当。
+  role: z.enum(["ADMIN", "SELF_ADMIN", "OWNER", "PARTNER"]),
+  // PARTNER の場合のみ使用。OWNER/ADMIN/SELF_ADMIN は自社(SELF)組織へ自動割当。
   orgId: z.string().optional(),
   approved: z.boolean(),
 });
 
 export async function approveUserAction(fd: FormData): Promise<void> {
   const admin = await requireAdminAction();
-  const roleRaw = str(fd, "role") as "ADMIN" | "OWNER" | "PARTNER";
+  const roleRaw = str(fd, "role") as
+    | "ADMIN"
+    | "SELF_ADMIN"
+    | "OWNER"
+    | "PARTNER";
   const parsed = approveSchema.safeParse({
     userId: str(fd, "userId"),
     role: roleRaw || "OWNER",
@@ -742,7 +746,7 @@ export async function approveUserAction(fd: FormData): Promise<void> {
   }
 
   // 役割に応じて所属組織を決める。
-  // PARTNER: 指定された orgId（PARTNER 組織）。OWNER/ADMIN: SELF 組織へ自動割当。
+  // PARTNER: 指定された orgId（PARTNER 組織）。OWNER/ADMIN/SELF_ADMIN: SELF 組織へ自動割当。
   let resolvedOrgId: string;
   if (parsed.data.role === "PARTNER") {
     if (!parsed.data.orgId) throw new Error("協力会社の組織を選択してください。");

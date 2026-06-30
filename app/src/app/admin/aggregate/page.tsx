@@ -15,7 +15,7 @@
 
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { getAdminContext } from "@/lib/auth.js";
+import { getAdminContext, adminScope } from "@/lib/auth.js";
 import {
   currentYearMonth,
   getMonthSummary,
@@ -59,7 +59,14 @@ function ClientAccordion({
           <div className="acc-body">
             <div className="kv">
               <span className="k">人工合計</span>
-              <span className="v">{r.manDays}</span>
+              <span className="v">
+                {r.manDays}
+                {r.nightManDays > 0 && (
+                  <span className="muted" style={{ marginLeft: 8 }}>
+                    （日勤 {r.dayManDays} / 夜勤 {r.nightManDays}）
+                  </span>
+                )}
+              </span>
             </div>
             <div className="kv">
               <span className="k">残業合計</span>
@@ -88,7 +95,12 @@ function WorkerAccordion({
   totals,
 }: {
   rows: WorkerMonthSummary[];
-  totals: { manDays: number; otHours: number };
+  totals: {
+    manDays: number;
+    dayManDays: number;
+    nightManDays: number;
+    otHours: number;
+  };
 }) {
   if (rows.length === 0) {
     return <p className="muted">この月のデータはありません。</p>;
@@ -112,7 +124,14 @@ function WorkerAccordion({
           <div className="acc-body">
             <div className="kv">
               <span className="k">人工合計</span>
-              <span className="v">{w.manDays}</span>
+              <span className="v">
+                {w.manDays}
+                {w.nightManDays > 0 && (
+                  <span className="muted" style={{ marginLeft: 8 }}>
+                    （日勤 {w.dayManDays} / 夜勤 {w.nightManDays}）
+                  </span>
+                )}
+              </span>
             </div>
             <div className="kv">
               <span className="k">残業合計</span>
@@ -138,7 +157,10 @@ function WorkerAccordion({
       <div className="acc-total">
         <span>合計</span>
         <span>
-          {totals.manDays} 人工 / 残業 {totals.otHours}h
+          {totals.manDays} 人工
+          {totals.nightManDays > 0 &&
+            `（日勤 ${totals.dayManDays} / 夜勤 ${totals.nightManDays}）`}{" "}
+          / 残業 {totals.otHours}h
         </span>
       </div>
     </>
@@ -193,7 +215,13 @@ function ExpenseAggregation({
  * 重い集計を getMonthSummary（unstable_cache）で取得し、<Suspense> 配下で
  * ストリーミングする（月スイッチャー等の描画をブロックしない）。
  */
-async function MonthSummary({ ym }: { ym: string }) {
+async function MonthSummary({
+  ym,
+  selfScoped,
+}: {
+  ym: string;
+  selfScoped: boolean;
+}) {
   const { self, partner, byWorker, selfTotals, expensePayers, expenseTotal } =
     await getMonthSummary(ym);
   return (
@@ -204,7 +232,12 @@ async function MonthSummary({ ym }: { ym: string }) {
       </div>
       <WorkerAccordion
         rows={byWorker}
-        totals={{ manDays: selfTotals.manDays, otHours: selfTotals.otHours }}
+        totals={{
+          manDays: selfTotals.manDays,
+          dayManDays: selfTotals.dayManDays,
+          nightManDays: selfTotals.nightManDays,
+          otHours: selfTotals.otHours,
+        }}
       />
 
       {/* 建て替え集計（立替えた人 × 用途 × 金額） */}
@@ -222,14 +255,18 @@ async function MonthSummary({ ym }: { ym: string }) {
       </div>
       <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />
 
-      {/* パートナー 取引先別 */}
-      <div className="section-head">
-        <h3 className="section-subtitle">取引先別（協力会社）</h3>
-      </div>
-      <ClientAccordion
-        rows={partner}
-        emptyLabel="この月の協力会社のデータはありません。"
-      />
+      {/* パートナー 取引先別（自社管理者(SELF_ADMIN)には表示しない） */}
+      {!selfScoped && (
+        <>
+          <div className="section-head">
+            <h3 className="section-subtitle">取引先別（協力会社）</h3>
+          </div>
+          <ClientAccordion
+            rows={partner}
+            emptyLabel="この月の協力会社のデータはありません。"
+          />
+        </>
+      )}
     </>
   );
 }
@@ -255,6 +292,9 @@ export default async function AggregatePage({
     // middleware で保護済みだが、念のためログイン画面へ集約。
     redirect("/admin?error=login");
   }
+
+  // 自社管理者(SELF_ADMIN)は自社のみ閲覧（協力会社の集計を非表示）。
+  const selfScoped = adminScope(admin) === "SELF";
 
   const sp = await searchParams;
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
@@ -311,7 +351,7 @@ export default async function AggregatePage({
         </a>
 
         <Suspense fallback={<SummarySkeleton />}>
-          <MonthSummary ym={ym} />
+          <MonthSummary ym={ym} selfScoped={selfScoped} />
         </Suspense>
       </section>
     </main>
