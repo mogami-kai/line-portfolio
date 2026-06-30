@@ -16,7 +16,6 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/lib/auth.js";
-import { HelpToggle } from "../_help.js";
 import {
   currentYearMonth,
   getMonthSummary,
@@ -87,36 +86,9 @@ async function MonthSummary({ ym }: { ym: string }) {
   const { self, partner, byWorker, selfTotals } = await getMonthSummary(ym);
   return (
     <>
-      {/* 自社 合計カード */}
-      <div className="stat-grid">
-        <div className="stat stat--accent stat--wide">
-          <div className="stat-k">自社 概算金額（税抜）</div>
-          <div className="stat-v">{yen(selfTotals.amount)}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">人工合計</div>
-          <div className="stat-v">{selfTotals.manDays}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">残業合計</div>
-          <div className="stat-v">
-            {selfTotals.otHours}
-            <small>h</small>
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">立替経費</div>
-          <div className="stat-v">{yen(selfTotals.expense)}</div>
-        </div>
-      </div>
-
       {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
       <div className="section-head">
         <h3 className="section-subtitle">職人別（給料の見方）</h3>
-      </div>
-      <div className="help-bubble">
-        <b>いつもの締めと同じ形。</b>{" "}
-        誰が今月何人工・残業何時間か。給料計算はこの「人工 × 単価」が基本です。
       </div>
       {byWorker.length === 0 ? (
         <p className="muted">この月のデータはありません。</p>
@@ -152,13 +124,6 @@ async function MonthSummary({ ym }: { ym: string }) {
           取引先別（請求の見方）<span className="badge badge--self">自社</span>
         </h3>
       </div>
-      <div className="help-bubble">
-        <b>請求書を出す単位。</b>{" "}
-        取引先ごとの人工・残業・概算金額。月末はこの取引先ごとに請求書を作ります。
-        <br />
-        ※ <b>概算金額</b>は人工・残業（税抜）のみ。<b>立替経費</b>は別枠で合計を表示します。請負は{" "}
-        <a href={`/admin/invoices?ym=${ym}`}>請求書</a>で加算されます。
-      </div>
       <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />
 
       {/* パートナー 取引先別 */}
@@ -180,11 +145,6 @@ async function MonthSummary({ ym }: { ym: string }) {
 function SummarySkeleton() {
   return (
     <div aria-hidden>
-      <div className="stat-grid">
-        <div className="stat stat--wide skeleton-box" />
-        <div className="stat skeleton-box" />
-        <div className="stat skeleton-box" />
-      </div>
       <div className="skeleton-line" />
       <div className="skeleton-line" />
       <div className="skeleton-line" />
@@ -216,13 +176,6 @@ export default async function AggregatePage({
     <main className="container container--admin">
       <div className="page-head">
         <h1 className="page-title">集計</h1>
-        <HelpToggle />
-      </div>
-
-      <div className="help-bubble">
-        <b>この画面の使い方</b>　今月の集計を「合計 → 職人別 → 取引先別」の順で確認できます。
-        職人別は給料計算（人工 × 単価）、取引先別は請求書を出す単位です。月末は{" "}
-        <a href={`/admin/invoices?ym=${ym}`}>請求書</a>を作るだけです。
       </div>
 
       {/* 月スイッチャー */}

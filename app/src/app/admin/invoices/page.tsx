@@ -238,7 +238,6 @@ export default async function InvoicesPage({
   );
   summaries.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 
-  const grandTotal = summaries.reduce((a, s) => a + s.total, 0);
   const anyRateMissing = summaries.some((s) => s.rateMissing);
 
   // 月ナビ。
@@ -336,14 +335,6 @@ export default async function InvoicesPage({
         >
           ▶
         </a>
-      </div>
-
-      {/* 当月合計 */}
-      <div className="stat-grid">
-        <div className="stat stat--accent stat--wide">
-          <div className="stat-k">当月 請求 概算合計（税込）</div>
-          <div className="stat-v">{yen(grandTotal)}</div>
-        </div>
       </div>
 
       {summaries.length === 0 ? (

@@ -13,12 +13,9 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { approveUserAction, setUserStatusAction, deleteUserAction } from "../_actions.js";
 import { ConfirmDeleteButton } from "../_confirmDelete.js";
-import { HelpToggle } from "../_help.js";
 import {
   ROLE_LABELS,
-  ROLE_DESCRIPTIONS,
   ROLE_OPTIONS,
-  describeAccess,
 } from "@/lib/roles.js";
 
 export const dynamic = "force-dynamic";
@@ -90,21 +87,6 @@ export default async function UsersPage({
     <main className="container admin-narrow">
       <div className="page-head">
         <h1 className="page-title">ユーザー承認</h1>
-        <HelpToggle />
-      </div>
-
-      <div className="help-bubble">
-        <b>これは何？</b>{" "}
-        LINEから入ってきた人を、このシステムの利用者として登録し、{" "}
-        <b>所属組織</b>と<b>権限</b>を決める場所です。承認するまで本人は入力・閲覧できません。
-        <br />
-        <b>権限の意味</b>
-        <br />
-        {ROLE_OPTIONS.map((r) => (
-          <span key={r} style={{ display: "block", marginTop: 2 }}>
-            ・<b>{ROLE_LABELS[r]}</b>：{ROLE_DESCRIPTIONS[r]}
-          </span>
-        ))}
       </div>
 
       {/* タブ */}
@@ -131,7 +113,6 @@ export default async function UsersPage({
         {shown.length === 0 && <p className="muted">{emptyLabel}</p>}
         {shown.map((u) => {
           const isPartnerOrg = u.org.kind === "PARTNER";
-          const access = describeAccess(u.role, u.org.kind);
           return (
             <details className="card" key={u.id} open={tab === "pending"}>
               <summary className="list-title" style={{ cursor: "pointer" }}>
@@ -162,16 +143,6 @@ export default async function UsersPage({
               <div className="list-meta" style={{ marginTop: 8 }}>
                 初回登録: {fmtDateTime(u.createdAt)}　/　入口:{" "}
                 {u.role === "ADMIN" ? "管理者登録" : "出面フォーム"}
-              </div>
-
-              {/* 現在の割り当てでできること */}
-              <div className="help-bubble" style={{ marginTop: 10 }}>
-                <b>現在の割り当てでできること</b>
-                {access.map((a, i) => (
-                  <span key={i} style={{ display: "block", marginTop: 2 }}>
-                    ・{a}
-                  </span>
-                ))}
               </div>
 
               {!isDisabled(u) && (

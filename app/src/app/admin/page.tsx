@@ -21,7 +21,6 @@
 
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
-import { HelpToggle } from "./_help.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
 import { confirmReportAction } from "./_actions.js";
@@ -161,13 +160,6 @@ export default async function AdminPage({
     <main className="container container--admin">
       <div className="page-head">
         <h1 className="page-title">ホーム</h1>
-        <HelpToggle />
-      </div>
-
-      <div className="help-bubble">
-        <b>この画面の使い方</b>　毎日はこの2ステップだけ：
-        ① <b>要確認</b>を片付ける（承認 か 編集）→ ② <b>直近の出面</b>で今日の入力を確認。
-        くわしい数字は <a href={`/admin/aggregate?ym=${ym}`}>集計</a>、月末は <b>請求書</b>を作るだけです。
       </div>
 
       {/* 月スイッチャー */}
@@ -197,11 +189,6 @@ export default async function AdminPage({
                   <span className="badge badge--review">{needsReview.length}件</span>
                 )}
               </h2>
-            </div>
-            <div className="help-bubble">
-              <b>いちばん大事な場所。</b>{" "}
-              入力された出面のうち「念のため確認したいもの」が並びます。内容を見て、合っていれば{" "}
-              <b>承認</b>、直したい所があれば <b>編集</b>（編集の中で削除もできます）。ここが空なら確認待ちゼロ＝OKです。
             </div>
             {needsReview.length === 0 ? (
               <div className="empty-ok">確認待ちはありません。</div>
@@ -265,10 +252,6 @@ export default async function AdminPage({
             <div className="section-head">
               <h2 className="section-title">直近の出面</h2>
               <span className="muted">{ym} の入力</span>
-            </div>
-            <div className="help-bubble">
-              <b>今月の入力一覧。</b>{" "}
-              最近の出面を小さなカードで並べています（日付／取引先／現場／職人）。下の「<b>全件を表示</b>」を押すと、その月の全件が開きます。ここを眺めれば「今日の分が入っているか」が一目で分かります。
             </div>
             {recent.length === 0 ? (
               <div className="empty-state">
