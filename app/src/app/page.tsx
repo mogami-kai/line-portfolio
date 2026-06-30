@@ -38,10 +38,6 @@ export default function HomePage() {
           <span className="bl-sub">月次集計・要確認・請求書発行</span>
         </span>
       </a>
-
-      <p className="muted center" style={{ marginTop: 24 }}>
-        ※ 例・初期データはすべてダミーです。
-      </p>
     </main>
   );
 }

@@ -221,10 +221,6 @@ export default async function AggregatePage({
           <MonthSummary ym={ym} />
         </Suspense>
       </section>
-
-      <p className="muted" style={{ marginTop: 20 }}>
-        ※ 例・初期データはすべてダミーです。
-      </p>
     </main>
   );
 }

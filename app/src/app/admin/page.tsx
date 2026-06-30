@@ -307,10 +307,6 @@ export default async function AdminPage({
           </section>
         </aside>
       </div>
-
-      <p className="muted" style={{ marginTop: 20 }}>
-        ※ 例・初期データはすべてダミーです。
-      </p>
     </main>
   );
 }
