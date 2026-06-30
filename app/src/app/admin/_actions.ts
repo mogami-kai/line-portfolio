@@ -248,6 +248,56 @@ export async function setWorkerActiveAction(fd: FormData): Promise<void> {
   revalidatePath(MASTERS_PATH);
 }
 
+// 職人の統合（重複の解消）: from を into にまとめる。
+//   from の出面記録(ReportEntry)を into に付け替え、from の氏名・別名を into の別名へ統合し、
+//   from を削除する（同一組織・別ID のみ）。すべて 1 トランザクションで原子的に行う。
+export async function mergeWorkerAction(fd: FormData): Promise<void> {
+  await requireAdminAction();
+  const fromId = str(fd, "fromId");
+  const intoId = str(fd, "intoId");
+  if (!fromId || !intoId) throw new Error("統合元・統合先の職人を指定してください");
+  if (fromId === intoId) throw new Error("同じ職人どうしは統合できません");
+
+  const [from, into] = await Promise.all([
+    prisma.worker.findUnique({
+      where: { id: fromId },
+      select: { id: true, name: true, aliases: true, orgId: true },
+    }),
+    prisma.worker.findUnique({
+      where: { id: intoId },
+      select: { id: true, name: true, aliases: true, orgId: true },
+    }),
+  ]);
+  if (!from || !into) throw new Error("職人が見つかりません");
+  if (from.orgId !== into.orgId) {
+    throw new Error("所属組織が異なる職人どうしは統合できません");
+  }
+
+  // into の別名に「into の別名 + from の氏名 + from の別名」を統合（重複除去・into の氏名は除外）。
+  const mergedAliases = Array.from(
+    new Set(
+      [...into.aliases, from.name, ...from.aliases]
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  ).filter((a) => a !== into.name);
+
+  // 出面記録を付け替え → 別名を統合 → from を削除（順序付き・原子的）。
+  await prisma.$transaction([
+    prisma.reportEntry.updateMany({
+      where: { workerId: fromId },
+      data: { workerId: intoId },
+    }),
+    prisma.worker.update({
+      where: { id: intoId },
+      data: { aliases: mergedAliases },
+    }),
+    prisma.worker.delete({ where: { id: fromId } }),
+  ]);
+  revalidatePath(MASTERS_PATH);
+  revalidateTag("reports"); // 職人別集計が変わるのでダッシュボードのキャッシュを無効化。
+}
+
 // ============================================================
 // 組織（Organization）: 自社（SELF）/ パートナー（PARTNER）
 // ============================================================
