@@ -50,7 +50,7 @@ export async function POST(req: Request) {
           ok: false,
           error: "empty_invoice",
           message:
-            "請求対象（確定済みの出面・請負・経費）がありません。要確認の出面は先に承認してください。",
+            "請求対象（確定済みの出面・請負）がありません。要確認の出面は先に承認してください。",
         },
         { status: 400 },
       );

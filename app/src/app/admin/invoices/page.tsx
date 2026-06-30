@@ -115,9 +115,6 @@ function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
           </tbody>
         </table>
       )}
-      <p className="hint">
-        ※ 現場名は外向き請求書に出ません。根拠は下の「内訳」で確認できます。
-      </p>
     </>
   );
 }
@@ -238,7 +235,6 @@ export default async function InvoicesPage({
   );
   summaries.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 
-  const grandTotal = summaries.reduce((a, s) => a + s.total, 0);
   const anyRateMissing = summaries.some((s) => s.rateMissing);
 
   // 月ナビ。
@@ -338,14 +334,6 @@ export default async function InvoicesPage({
         </a>
       </div>
 
-      {/* 当月合計 */}
-      <div className="stat-grid">
-        <div className="stat stat--accent stat--wide">
-          <div className="stat-k">当月 請求 概算合計（税込）</div>
-          <div className="stat-v">{yen(grandTotal)}</div>
-        </div>
-      </div>
-
       {summaries.length === 0 ? (
         <p className="muted">この月に出面データのある取引先はありません。</p>
       ) : (
@@ -380,9 +368,6 @@ export default async function InvoicesPage({
                         <strong style={{ color: "var(--ink)" }}>
                           {yen(s.total)}
                         </strong>
-                        {s.exempt > 0 && (
-                          <span className="muted">　うち立替 {yen(s.exempt)}</span>
-                        )}
                       </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
@@ -433,14 +418,6 @@ export default async function InvoicesPage({
           </div>
         </>
       )}
-
-      <p className="muted" style={{ marginTop: 16 }}>
-        ※ 明細は取引先ごとに「委託料（人工合計 × 単価）＋ 残業（合計時間 × 残業単価）＋
-        立替経費」で自動計算。常用単価は{" "}
-        <a href="/admin/masters">マスタ管理 → 取引先</a>{" "}
-        に登録した取引先の単価を使います（現場は問いません）。請負（UKEOI）金額は、
-        出面入力で「請負」を選んで入れた金額が「○月委託料 数量1」として取り込まれます。
-      </p>
     </main>
   );
 }

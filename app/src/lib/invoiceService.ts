@@ -42,7 +42,6 @@ export async function buildClientInvoiceLines(
       contractType: true,
       contractAmount: true,
       entries: { select: { shift: true, manDays: true, otHours: true } },
-      expenses: { select: { kind: true, amount: true, billable: true } },
     },
   });
 
@@ -50,9 +49,9 @@ export async function buildClientInvoiceLines(
   //   委託料の人工/残業は「常用（JOYO）」のみ積む。請負（UKEOI）は Report ごとの
   //   contractAmount を「○月委託料 数量1（式）」で計上するため、人工×単価には混ぜない
   //   （混ぜると二重計上になる。集計ダッシュボードと同規約）。
+  //   立替経費は請求書には載せない（建て替え集計セクションで別管理）。
   let manDays = 0;
   let otHours = 0;
-  const expByKind = new Map<string, number>();
   // 請負(UKEOI)：その月・その取引先の各 Report の契約金額（>0 のみ）。案件ごと1行。
   const ukeoiAmounts: number[] = [];
   for (const r of reports) {
@@ -66,16 +65,7 @@ export async function buildClientInvoiceLines(
       const amt = Number(r.contractAmount) || 0;
       if (amt > 0) ukeoiAmounts.push(amt);
     }
-    // 立替経費は契約種別に依らず請求対象（請求する=billable のみ）。
-    for (const x of r.expenses) {
-      if (!x.billable) continue;
-      expByKind.set(x.kind, (expByKind.get(x.kind) ?? 0) + Number(x.amount || 0));
-    }
   }
-  const expenses = Array.from(expByKind.entries()).map(([kind, amount]) => ({
-    kind,
-    amount,
-  }));
 
   // 請負（UKEOI）契約金額を LumpContract から取り込む（その月・ACTIVE）。
   const lumps = await prisma.lumpContract.findMany({
@@ -89,8 +79,7 @@ export async function buildClientInvoiceLines(
     manDays === 0 &&
     otHours === 0 &&
     lumpItems.length === 0 &&
-    ukeoiAmounts.length === 0 &&
-    expenses.length === 0
+    ukeoiAmounts.length === 0
   ) {
     return [];
   }
@@ -101,7 +90,7 @@ export async function buildClientInvoiceLines(
   // 委託料の品目名は「○月委託料」（常用・請負とも共通。写真の体裁に合わせる）。
   const month = parseInt(yearMonth.split("-")[1] ?? "0", 10);
   return buildClientLines(
-    { manDays, otHours, expenses, lumpItems, ukeoiAmounts },
+    { manDays, otHours, expenses: [], lumpItems, ukeoiAmounts },
     { unitPrice, taxRate, joyoItemName: `${month}月委託料` },
   );
 }

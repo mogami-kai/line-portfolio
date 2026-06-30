@@ -62,9 +62,6 @@ export function GenerateInvoiceButton({
       >
         {loading ? "作成中…" : "請求書作成"}
       </button>
-      <p className="hint" style={{ marginTop: 6 }}>
-        押すと請求書を作成し、Excel をダウンロードします。
-      </p>
       {error && (
         <p className="hint" style={{ color: "var(--danger)", marginTop: 6 }}>
           {error}

@@ -52,6 +52,8 @@ const expenseSchema = z.object({
   // 立替は非負・現実的上限まで。負数・桁あふれが請求金額/xlsx へ伝播するのを防ぐ。
   amount: z.number().int().min(0).max(10_000_000),
   billable: z.boolean().default(true),
+  // 立替えた人の名前（建て替え集計用・任意）。
+  paidBy: z.string().trim().max(50).optional(),
 });
 
 const bodySchema = z.object({
@@ -285,6 +287,7 @@ export async function POST(req: Request) {
                 kind: x.kind,
                 amount: x.amount,
                 billable: x.billable,
+                paidBy: x.paidBy || null,
               })),
             }
           : undefined,

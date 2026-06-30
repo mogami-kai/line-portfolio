@@ -1638,50 +1638,6 @@ details.card .field {
   }
 }
 
-/* ============================================================
-   ❓ヘルプ（コーチマーク）— 押すと各エリアの吹き出しが一斉表示
-   ・<html>.help-on を付けると .help-bubble が現れる（CSS リビール）
-   ・初心者が「ここは何？次に何をする？」を一目で掴めるように
-   ============================================================ */
-.help-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 40px;
-  padding: 8px 14px;
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--accent-dark);
-  background: var(--accent-soft);
-  border: 1.5px solid var(--accent);
-  border-radius: 999px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.help-toggle--on {
-  color: #fff;
-  background: var(--accent);
-}
-
-/* 吹き出し（既定は非表示。help-on で出現） */
-.help-bubble {
-  display: none;
-}
-html.help-on .help-bubble {
-  display: block;
-  margin: 0 0 12px;
-  padding: 12px 14px;
-  background: var(--accent-soft);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius-sm);
-  color: var(--ink-2);
-  font-size: 13px;
-  line-height: 1.6;
-}
-html.help-on .help-bubble b {
-  color: var(--ink);
-}
 /* ── 職人別 集計テーブル（給料の見方：後藤◯◯ 齋◯◯…） ── */
 .worker-table {
   width: 100%;

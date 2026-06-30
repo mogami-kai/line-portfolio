@@ -16,12 +16,12 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAdminContext } from "@/lib/auth.js";
-import { HelpToggle } from "../_help.js";
 import {
   currentYearMonth,
   getMonthSummary,
   monthRange,
   type ClientMonthSummary,
+  type ExpensePayerSummary,
 } from "@/lib/aggregate.js";
 
 export const dynamic = "force-dynamic";
@@ -67,14 +67,53 @@ function ClientAccordion({
               <span className="k">概算金額（税抜）</span>
               <span className="v">{yen(r.estimatedAmount)}</span>
             </div>
-            <div className="kv">
-              <span className="k">立替経費</span>
-              <span className="v">{yen(r.expense)}</span>
-            </div>
           </div>
         </details>
       ))}
     </>
+  );
+}
+
+/** 建て替え集計（立替えた人ごとに用途・金額を一覧）。 */
+function ExpenseAggregation({
+  payers,
+  total,
+}: {
+  payers: ExpensePayerSummary[];
+  total: number;
+}) {
+  if (payers.length === 0) {
+    return <p className="muted">この月の立替はありません。</p>;
+  }
+  return (
+    <table className="worker-table">
+      <thead>
+        <tr>
+          <th>立替えた人</th>
+          <th>用途</th>
+          <th>金額</th>
+        </tr>
+      </thead>
+      <tbody>
+        {payers.map((p) =>
+          p.items.map((it, i) => (
+            <tr key={`${p.paidBy}-${it.kind}`}>
+              {i === 0 && (
+                <td className="wt-name" rowSpan={p.items.length}>
+                  {p.paidBy}
+                </td>
+              )}
+              <td>{it.kind}</td>
+              <td className="num">{yen(it.amount)}</td>
+            </tr>
+          )),
+        )}
+        <tr className="wt-total">
+          <td colSpan={2}>合計</td>
+          <td className="num">{yen(total)}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 
@@ -84,39 +123,13 @@ function ClientAccordion({
  * ストリーミングする（月スイッチャー等の描画をブロックしない）。
  */
 async function MonthSummary({ ym }: { ym: string }) {
-  const { self, partner, byWorker, selfTotals } = await getMonthSummary(ym);
+  const { self, partner, byWorker, selfTotals, expensePayers, expenseTotal } =
+    await getMonthSummary(ym);
   return (
     <>
-      {/* 自社 合計カード */}
-      <div className="stat-grid">
-        <div className="stat stat--accent stat--wide">
-          <div className="stat-k">自社 概算金額（税抜）</div>
-          <div className="stat-v">{yen(selfTotals.amount)}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">人工合計</div>
-          <div className="stat-v">{selfTotals.manDays}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">残業合計</div>
-          <div className="stat-v">
-            {selfTotals.otHours}
-            <small>h</small>
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat-k">立替経費</div>
-          <div className="stat-v">{yen(selfTotals.expense)}</div>
-        </div>
-      </div>
-
       {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
       <div className="section-head">
         <h3 className="section-subtitle">職人別（給料の見方）</h3>
-      </div>
-      <div className="help-bubble">
-        <b>いつもの締めと同じ形。</b>{" "}
-        誰が今月何人工・残業何時間か。給料計算はこの「人工 × 単価」が基本です。
       </div>
       {byWorker.length === 0 ? (
         <p className="muted">この月のデータはありません。</p>
@@ -146,18 +159,18 @@ async function MonthSummary({ ym }: { ym: string }) {
         </table>
       )}
 
+      {/* 建て替え集計（立替えた人 × 用途 × 金額） */}
+      <div className="section-head">
+        <h3 className="section-subtitle">建て替え集計</h3>
+        {expenseTotal > 0 && <span className="muted">{yen(expenseTotal)}</span>}
+      </div>
+      <ExpenseAggregation payers={expensePayers} total={expenseTotal} />
+
       {/* 自社 取引先別（請求の見方） */}
       <div className="section-head">
         <h3 className="section-subtitle">
           取引先別（請求の見方）<span className="badge badge--self">自社</span>
         </h3>
-      </div>
-      <div className="help-bubble">
-        <b>請求書を出す単位。</b>{" "}
-        取引先ごとの人工・残業・概算金額。月末はこの取引先ごとに請求書を作ります。
-        <br />
-        ※ <b>概算金額</b>は人工・残業（税抜）のみ。<b>立替経費</b>は別枠で合計を表示します。請負は{" "}
-        <a href={`/admin/invoices?ym=${ym}`}>請求書</a>で加算されます。
       </div>
       <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />
 
@@ -165,9 +178,6 @@ async function MonthSummary({ ym }: { ym: string }) {
       <div className="section-head">
         <h3 className="section-subtitle">取引先別（協力会社）</h3>
       </div>
-      <p className="muted" style={{ marginTop: -4, marginBottom: 10 }}>
-        ※ 管理画面のみで集約（出面グループには投稿されません）。
-      </p>
       <ClientAccordion
         rows={partner}
         emptyLabel="この月の協力会社のデータはありません。"
@@ -180,11 +190,6 @@ async function MonthSummary({ ym }: { ym: string }) {
 function SummarySkeleton() {
   return (
     <div aria-hidden>
-      <div className="stat-grid">
-        <div className="stat stat--wide skeleton-box" />
-        <div className="stat skeleton-box" />
-        <div className="stat skeleton-box" />
-      </div>
       <div className="skeleton-line" />
       <div className="skeleton-line" />
       <div className="skeleton-line" />
@@ -216,13 +221,6 @@ export default async function AggregatePage({
     <main className="container container--admin">
       <div className="page-head">
         <h1 className="page-title">集計</h1>
-        <HelpToggle />
-      </div>
-
-      <div className="help-bubble">
-        <b>この画面の使い方</b>　今月の集計を「合計 → 職人別 → 取引先別」の順で確認できます。
-        職人別は給料計算（人工 × 単価）、取引先別は請求書を出す単位です。月末は{" "}
-        <a href={`/admin/invoices?ym=${ym}`}>請求書</a>を作るだけです。
       </div>
 
       {/* 月スイッチャー */}
@@ -268,10 +266,6 @@ export default async function AggregatePage({
           <MonthSummary ym={ym} />
         </Suspense>
       </section>
-
-      <p className="muted" style={{ marginTop: 20 }}>
-        ※ 例・初期データはすべてダミーです。
-      </p>
     </main>
   );
 }
