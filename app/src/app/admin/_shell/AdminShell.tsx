@@ -187,6 +187,25 @@ export function AdminShell({
         </button>
       </header>
 
+      {/* スマホ: ヘッダー直下のアイコンバー */}
+      <div className="app-icon-bar">
+        {NAV.map((item) => {
+          const active = item.match(pathname);
+          const Icon = item.icon;
+          return (
+            <a
+              key={item.href}
+              href={item.href}
+              className={`app-icon-bar-item ${active ? "is-active" : ""}`}
+              aria-label={item.label}
+              aria-current={active ? "page" : undefined}
+            >
+              <Icon />
+            </a>
+          );
+        })}
+      </div>
+
       {/* ドロワー */}
       {open && (
         <div className="app-drawer" role="dialog" aria-modal="true">
