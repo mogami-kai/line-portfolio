@@ -170,25 +170,26 @@ export function AdminShell({
         </div>
       </aside>
 
-      {/* スマホ/タブレット: 上部ヘッダー */}
+      {/* スマホ/タブレット: 上部ヘッダー（ハンバーガーは右ストリップへ移動） */}
       <header className="app-header">
         <Brand />
         <span className="app-header-title">{current}</span>
+      </header>
+
+      {/* スマホ: 右端固定の縦ストリップ（上=ハンバーガー、下=ナビアイコン） */}
+      <div className="app-icon-bar">
         <button
           type="button"
-          className="app-burger app-burger--menu"
+          className="app-icon-bar-burger"
           aria-label="メニュー"
           aria-expanded={open}
           onClick={() => setOpen(true)}
         >
-          <svg viewBox="0 0 24 24" width="24" height="24" {...stroke} aria-hidden>
+          <svg viewBox="0 0 24 24" width="20" height="20" {...stroke} aria-hidden>
             <path d="M4 7h16M4 12h16M4 17h16" />
           </svg>
         </button>
-      </header>
-
-      {/* スマホ: ヘッダー直下のアイコンバー */}
-      <div className="app-icon-bar">
+        <div className="app-icon-bar-divider" />
         {NAV.map((item) => {
           const active = item.match(pathname);
           const Icon = item.icon;

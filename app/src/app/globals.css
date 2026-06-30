@@ -460,7 +460,7 @@ a {
   align-items: center;
   gap: 10px;
   height: var(--header-h);
-  padding: 0 12px;
+  padding: 0 52px 0 12px; /* 右は縦ストリップ(44px+border)分確保 */
   background: var(--card);
   border-bottom: 1px solid var(--line);
 }
@@ -485,32 +485,53 @@ a {
 .app-burger:hover {
   background: #eef1f4;
 }
-/* 右端固定の縦アイコンバー（スマホのみ。PCでは非表示） */
+/* 右端固定の縦ストリップ（スマホのみ。PCでは非表示） */
 .app-icon-bar {
   position: fixed;
-  top: var(--header-h);
+  top: 0;
   right: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 4px;
   background: var(--card);
   border-left: 1px solid var(--line);
 }
+/* ストリップ内ハンバーガーボタン */
+.app-icon-bar-burger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.app-icon-bar-burger:hover {
+  background: var(--accent-dark);
+}
+/* 区切り線 */
+.app-icon-bar-divider {
+  height: 1px;
+  background: var(--line);
+}
+/* ナビアイコン（剥き出し） */
 .app-icon-bar-item {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
   color: var(--ink-2);
   text-decoration: none;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 .app-icon-bar-item:hover {
-  background: #eef1f4;
   color: var(--ink);
+  background: #eef1f4;
 }
 .app-icon-bar-item.is-active {
   color: var(--accent-dark);
