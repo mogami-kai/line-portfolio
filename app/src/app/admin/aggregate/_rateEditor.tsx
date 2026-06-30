@@ -20,14 +20,20 @@ export function RateEditor({
   kind,
   targetId,
   unitPrice,
+  nightUnitPrice = null,
   otUnitPrice,
 }: {
   kind: "client" | "worker";
   targetId: string;
   unitPrice: number | null;
+  /** 取引先のみ: 夜勤単価。職人では使わない。 */
+  nightUnitPrice?: number | null;
   otUnitPrice: number | null;
 }) {
   const [unit, setUnit] = useState(unitPrice == null ? "" : String(unitPrice));
+  const [night, setNight] = useState(
+    nightUnitPrice == null ? "" : String(nightUnitPrice),
+  );
   const [ot, setOt] = useState(otUnitPrice == null ? "" : String(otUnitPrice));
   const [pending, startTransition] = useTransition();
   const [done, setDone] = useState(false);
@@ -35,10 +41,11 @@ export function RateEditor({
   function save() {
     setDone(false);
     const u = toNullableInt(unit);
+    const n = toNullableInt(night);
     const o = toNullableInt(ot);
     startTransition(async () => {
       if (kind === "client") {
-        await setClientRatesAction(targetId, u, o);
+        await setClientRatesAction(targetId, u, n, o);
       } else {
         await setWorkerRatesAction(targetId, u, o);
       }
@@ -49,7 +56,7 @@ export function RateEditor({
   return (
     <div className="rate-editor">
       <label className="rate-field">
-        <span className="rate-label">人工単価</span>
+        <span className="rate-label">{kind === "client" ? "日勤単価" : "人工単価"}</span>
         <input
           className="input input--num"
           type="number"
@@ -63,6 +70,23 @@ export function RateEditor({
           }}
         />
       </label>
+      {kind === "client" && (
+        <label className="rate-field">
+          <span className="rate-label">夜勤単価</span>
+          <input
+            className="input input--num"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            placeholder="日勤と同じ"
+            value={night}
+            onChange={(e) => {
+              setNight(e.target.value);
+              setDone(false);
+            }}
+          />
+        </label>
+      )}
       <label className="rate-field">
         <span className="rate-label">残業単価/時</span>
         <input

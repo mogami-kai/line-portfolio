@@ -84,6 +84,7 @@ function ClientAccordion({
               kind="client"
               targetId={r.clientId}
               unitPrice={r.unitPrice}
+              nightUnitPrice={r.nightUnitPrice}
               otUnitPrice={r.otUnitPrice}
             />
           </div>

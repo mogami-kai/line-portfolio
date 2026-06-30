@@ -750,21 +750,31 @@ const rateInputSchema = z.object({
   unitPrice: z.number().int().min(0).max(10_000_000).nullable(),
   otUnitPrice: z.number().int().min(0).max(10_000_000).nullable(),
 });
+// 取引先は日勤・夜勤・残業の3単価。職人は日勤・残業のみ（rateInputSchema）。
+const clientRateSchema = rateInputSchema.extend({
+  nightUnitPrice: z.number().int().min(0).max(10_000_000).nullable(),
+});
 
 export async function setClientRatesAction(
   clientId: string,
   unitPrice: number | null,
+  nightUnitPrice: number | null,
   otUnitPrice: number | null,
 ): Promise<void> {
   await requireAdminAction();
   if (!clientId) throw new Error("取引先IDがありません");
-  const parsed = rateInputSchema.safeParse({ unitPrice, otUnitPrice });
+  const parsed = clientRateSchema.safeParse({
+    unitPrice,
+    nightUnitPrice,
+    otUnitPrice,
+  });
   if (!parsed.success)
     throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
   await prisma.client.update({
     where: { id: clientId },
     data: {
       unitPrice: parsed.data.unitPrice,
+      nightUnitPrice: parsed.data.nightUnitPrice,
       otUnitPrice: parsed.data.otUnitPrice,
     },
   });

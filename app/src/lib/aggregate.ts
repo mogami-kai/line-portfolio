@@ -180,8 +180,10 @@ export interface ClientMonthSummary {
   otHours: number;
   /** RateCard を当てた概算金額（税抜）。単価未設定の現場は 0 として概算。 */
   estimatedAmount: number;
-  /** 取引先に設定済みの人工単価（円）。未設定は null（編集フォームの初期値用）。 */
+  /** 取引先に設定済みの日勤の人工単価（円）。未設定は null（編集フォームの初期値用）。 */
   unitPrice: number | null;
+  /** 取引先に設定済みの夜勤の人工単価（円）。未設定は null（日勤単価を流用）。 */
+  nightUnitPrice: number | null;
   /** 取引先に設定済みの残業単価（円/時）。未設定は null（未設定なら自動計算）。 */
   otUnitPrice: number | null;
 }
@@ -251,6 +253,7 @@ export async function summarizeByClient(
       otHours,
       estimatedAmount: summary.subtotal + summary.exempt,
       unitPrice: rate?.clientUnitPrice ?? null,
+      nightUnitPrice: rate?.nightUnitPrice ?? null,
       otUnitPrice: rate?.otUnitPrice ?? null,
     });
   }
@@ -262,6 +265,8 @@ interface ClientRateInfo {
   resolvedUnit: number;
   /** 取引先に明示設定された人工単価（編集フォーム初期値）。未設定は null。 */
   clientUnitPrice: number | null;
+  /** 取引先に明示設定された夜勤単価。未設定は null（日勤単価を流用）。 */
+  nightUnitPrice: number | null;
   /** 取引先に明示設定された残業単価（円/時）。未設定は null（自動計算）。 */
   otUnitPrice: number | null;
 }
@@ -278,12 +283,18 @@ async function loadClientRates(
   if (clientIds.length === 0) return map;
   const clients = await prisma.client.findMany({
     where: { id: { in: clientIds } },
-    select: { id: true, unitPrice: true, otUnitPrice: true },
+    select: {
+      id: true,
+      unitPrice: true,
+      nightUnitPrice: true,
+      otUnitPrice: true,
+    },
   });
   for (const c of clients) {
     map.set(c.id, {
       resolvedUnit: c.unitPrice ?? 0,
       clientUnitPrice: c.unitPrice ?? null,
+      nightUnitPrice: c.nightUnitPrice ?? null,
       otUnitPrice: c.otUnitPrice ?? null,
     });
   }
