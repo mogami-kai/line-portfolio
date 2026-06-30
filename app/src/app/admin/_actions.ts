@@ -589,6 +589,11 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
   if (!r) throw new Error("出面が見つかりません");
   // スコープ管理者は自組織の出面のみ閲覧・編集可（他組織の出面は開けない）。
   await assertOrgInScope(admin, r.orgId);
+  // スコープ管理者には他組織の職人を返さない（職人プールも自組織のみ）。
+  const scopeOrgId = adminScopeOrgId(admin);
+  const scopedWorkers = scopeOrgId
+    ? workers.filter((w) => w.orgId === scopeOrgId)
+    : workers;
   return {
     report: {
       id: r.id,
@@ -614,7 +619,7 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
       })),
     },
     clients,
-    workers,
+    workers: scopedWorkers,
   };
 }
 
@@ -680,6 +685,15 @@ export async function updateReportAction(input: ReportEditInput): Promise<void> 
   const ids = [...new Set(entries.map((e) => e.workerId))];
   const cnt = await prisma.worker.count({ where: { id: { in: ids } } });
   if (cnt !== ids.length) throw new Error("職人が見つかりません");
+  // スコープ管理者は他組織の職人を出面に付けられない（自組織の職人のみ）。
+  if (adminScopeOrgId(admin) !== null) {
+    const inOrg = await prisma.worker.count({
+      where: { id: { in: ids }, orgId: existing.orgId },
+    });
+    if (inOrg !== ids.length) {
+      throw new Error("自組織の職人のみ登録できます。");
+    }
+  }
 
   // 日付は UTC 0時固定（@db.Date 列の境界ぶれ回避。保存も集計も同じ流儀）。
   const dayStart = new Date(`${workDate}T00:00:00.000Z`);
@@ -763,11 +777,18 @@ export async function setWorkerRatesAction(
   unitPrice: number | null,
   otUnitPrice: number | null,
 ): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   if (!workerId) throw new Error("職人IDがありません");
   const parsed = rateInputSchema.safeParse({ unitPrice, otUnitPrice });
   if (!parsed.success)
     throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  // スコープ管理者は自組織の職人の単価のみ変更可。
+  const w = await prisma.worker.findUnique({
+    where: { id: workerId },
+    select: { orgId: true },
+  });
+  if (!w) throw new Error("職人が見つかりません");
+  await assertOrgInScope(admin, w.orgId);
   await prisma.worker.update({
     where: { id: workerId },
     data: {
