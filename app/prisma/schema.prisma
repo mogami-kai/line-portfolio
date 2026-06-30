@@ -93,7 +93,7 @@ model Worker {
 model Client {
   id        String   @id @default(cuid())
   name      String
-  honorific String   @default("御中") // 御中 / 様
+  honorific String   @default("様") // 御中 / 様
   address   String?
   aliases   String[] @default([]) // 名寄せ（工/興・L/R 等）※v3でUIからは廃止（データは残置）
   unitPrice Int?     // v3: 常用の人工単価（取引先で設定）。null=未設定→請求時に¥0警告

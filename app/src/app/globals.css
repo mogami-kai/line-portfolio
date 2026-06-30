@@ -2286,6 +2286,28 @@ details.card .field {
   border-bottom-color: var(--accent);
 }
 
+.mst-tabs-group {
+  display: flex;
+  gap: 2px;
+  align-items: stretch;
+  margin-left: auto;
+  padding: 4px 6px;
+  background: #dbeafe;
+  border-radius: 8px 8px 0 0;
+  border: 1px solid #93c5fd;
+  border-bottom: none;
+}
+.mst-tabs-group .mst-tab {
+  color: #1e40af;
+}
+.mst-tabs-group .mst-tab:hover {
+  color: #1e3a8a;
+}
+.mst-tabs-group .mst-tab--on {
+  color: #1e3a8a;
+  border-bottom-color: #2563eb;
+}
+
 /* ── 初期設定の控えめな1行（大きな常駐カードは置かない） ── */
 .mst-setup {
   display: flex;

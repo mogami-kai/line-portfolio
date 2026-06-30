@@ -257,7 +257,7 @@ function ClientDrawer({
             id="client-honorific"
             className="select"
             name="honorific"
-            defaultValue={row?.honorific ?? "御中"}
+            defaultValue={row?.honorific ?? "様"}
           >
             <option value="御中">御中</option>
             <option value="様">様</option>

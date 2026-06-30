@@ -28,11 +28,11 @@ import { WorkersTab } from "./_tabWorkers.js";
 import { OrgsTab } from "./_tabOrgs.js";
 import { SettingsTab } from "./_tabSettings.js";
 
-const TABS: { key: MasterTab; label: string }[] = [
-  { key: "clients", label: "取引先" },
+const TABS: { key: MasterTab; label: string; group?: "blue" }[] = [
   { key: "workers", label: "職人" },
   { key: "orgs", label: "自社・協力会社" },
-  { key: "settings", label: "請求書設定" },
+  { key: "clients", label: "取引先設定", group: "blue" },
+  { key: "settings", label: "請求書設定", group: "blue" },
 ];
 
 export function MastersShell({
@@ -55,13 +55,13 @@ export function MastersShell({
   const needWorker = !workers.some((w) => w.active);
   const pending: { key: MasterTab; label: string }[] = [];
   if (needSetting) pending.push({ key: "settings", label: "請求書設定" });
-  if (needClient) pending.push({ key: "clients", label: "取引先" });
+  if (needClient) pending.push({ key: "clients", label: "取引先設定" });
   if (needWorker) pending.push({ key: "workers", label: "職人" });
 
   return (
     <div className="mst-shell">
       <nav className="mst-tabs" role="tablist" aria-label="マスタの種類">
-        {TABS.map((t) => (
+        {TABS.filter((t) => !t.group).map((t) => (
           <button
             key={t.key}
             type="button"
@@ -73,6 +73,20 @@ export function MastersShell({
             {t.label}
           </button>
         ))}
+        <div className="mst-tabs-group">
+          {TABS.filter((t) => t.group === "blue").map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.key}
+              className={`mst-tab ${tab === t.key ? "mst-tab--on" : ""}`}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </nav>
 
       {pending.length > 0 && (
