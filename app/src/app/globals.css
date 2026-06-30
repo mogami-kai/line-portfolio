@@ -460,7 +460,7 @@ a {
   align-items: center;
   gap: 10px;
   height: var(--header-h);
-  padding: 0 52px 0 12px; /* 右は縦ストリップ(44px+border)分確保 */
+  padding: 0 12px;
   background: var(--card);
   border-bottom: 1px solid var(--line);
 }
@@ -485,57 +485,54 @@ a {
 .app-burger:hover {
   background: #eef1f4;
 }
-/* 右端固定の縦ストリップ（スマホのみ。PCでは非表示） */
+/* 右端固定の凸凹ナビストリップ（スマホのみ・ドロワーより前面） */
 .app-icon-bar {
   position: fixed;
-  top: 0;
+  top: var(--header-h);
   right: 0;
-  z-index: 20;
+  z-index: 60; /* ドロワー(50)より前面 */
   display: flex;
   flex-direction: column;
-  background: var(--card);
-  border-left: 1px solid var(--line);
+  gap: 44px; /* アイコン1個分の空白 = 凸凹の凹 */
+  padding: 8px 0;
+  pointer-events: auto;
+  background: transparent;
 }
-/* ストリップ内ハンバーガーボタン */
-.app-icon-bar-burger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border: none;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.app-icon-bar-burger:hover {
-  background: var(--accent-dark);
-}
-/* 区切り線 */
-.app-icon-bar-divider {
-  height: 1px;
-  background: var(--line);
-}
-/* ナビアイコン（剥き出し） */
+/* 凸のセル：アイコン＋ラベル。左側が丸く右端はフラット */
 .app-icon-bar-item {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
+  gap: 3px;
+  width: 52px;
+  padding: 8px 4px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-right: none;
+  border-radius: 10px 0 0 10px;
   color: var(--ink-2);
   text-decoration: none;
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
+  box-shadow: -2px 2px 8px rgba(16,24,32,0.08);
 }
 .app-icon-bar-item:hover {
-  color: var(--ink);
   background: #eef1f4;
+  color: var(--ink);
 }
 .app-icon-bar-item.is-active {
-  color: var(--accent-dark);
   background: var(--accent-soft);
+  color: var(--accent-dark);
+  border-color: var(--accent-soft);
+}
+.app-icon-bar-ico {
+  display: inline-flex;
+}
+.app-icon-bar-label {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  white-space: nowrap;
 }
 /* メニュー開くボタン＝青いハンバーガー（右）。会社ロゴは持たず、これが唯一のメニュー。 */
 .app-burger--menu {
@@ -618,7 +615,7 @@ a {
 .app-content {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: 16px 52px 40px 16px; /* 右は縦アイコンバー(44px)分確保 */
+  padding: 16px 60px 40px 16px; /* 右は凸凹ストリップ(52px)分確保 */
 }
 /* シェル内ではページ側の .container（幅480px制約）を解除し作業領域いっぱいに */
 .app-content .container {
