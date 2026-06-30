@@ -21,10 +21,13 @@ export async function POST(req: Request) {
 
   let clientId = "";
   let ym = "";
+  let mode: "AGGREGATE" | "PER_SITE" | undefined;
   try {
     const body = await req.json();
     clientId = String(body?.clientId ?? "");
     ym = String(body?.ym ?? "");
+    const m = String(body?.mode ?? "");
+    if (m === "AGGREGATE" || m === "PER_SITE") mode = m;
   } catch {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
@@ -40,7 +43,7 @@ export async function POST(req: Request) {
   //   理由: iOS Safari は fetch→blob→a.download のプログラム的ダウンロードが不安定で
   //   ファイルが保存されないことがある。確実な「添付レスポンスへの遷移(GET)」で落とす。
   try {
-    const inv = await generateInvoice(clientId, ym);
+    const inv = await generateInvoice(clientId, ym, mode);
     return NextResponse.json({ ok: true, id: inv.id, invoiceNo: inv.invoiceNo });
   } catch (e) {
     console.error("[invoices/generate] generateInvoice failed", e);

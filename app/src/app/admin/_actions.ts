@@ -867,11 +867,17 @@ export async function approveUserAction(fd: FormData): Promise<void> {
     resolvedOrgId = org.id;
   } else if (parsed.data.role === "ORG_ADMIN") {
     if (!parsed.data.orgId)
-      throw new Error("組織管理者の対象組織を選択してください。");
+      throw new Error("協力会社管理者の対象（協力会社）を選択してください。");
     const org = await prisma.organization.findUnique({
       where: { id: parsed.data.orgId },
     });
     if (!org) throw new Error("対象組織が見つかりません。");
+    // 協力会社管理者は協力会社にのみ割り当て可（自社の場合は「自社管理者」を使う）。
+    if (org.kind !== "PARTNER") {
+      throw new Error(
+        "この組み合わせはできません：協力会社管理者には協力会社を選んでください（自社のみは「自社管理者」を選択）。",
+      );
+    }
     resolvedOrgId = org.id;
   } else {
     const selfOrg = await prisma.organization.findFirst({

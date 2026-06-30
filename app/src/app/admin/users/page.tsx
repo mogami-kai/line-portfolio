@@ -15,9 +15,10 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext, adminScope } from "@/lib/auth.js";
-import { approveUserAction, setUserStatusAction, deleteUserAction } from "../_actions.js";
+import { setUserStatusAction, deleteUserAction } from "../_actions.js";
 import { ConfirmDeleteButton } from "../_confirmDelete.js";
 import { RoleCreateButton } from "./_roleCreateButton.js";
+import { UserRoleForm } from "./_userRoleForm.js";
 
 export const dynamic = "force-dynamic";
 
@@ -148,62 +149,33 @@ export default async function UsersPage({
                 登録: {fmtDateTime(u.createdAt)}
               </div>
 
-              {/* 👑最高管理者は変更不可。それ以外はロール変更フォーム。 */}
+              {/* 👑最高管理者は変更不可。それ以外はロール変更フォーム（失敗はインライン表示）。 */}
               {isSuper ? (
                 <p className="muted" style={{ marginTop: 8 }}>
                   👑最高管理者（変更できません）。
                 </p>
               ) : (
                 !isDisabled && (
-                  <form action={approveUserAction} style={{ marginTop: 12 }}>
-                    <input type="hidden" name="userId" value={u.id} />
-                    <input type="hidden" name="approved" value="true" />
-                    <div className="field">
-                      <label className="label">役割</label>
-                      <select
-                        className="select"
-                        name="role"
-                        defaultValue={
-                          u.role === "PARTNER"
-                            ? "PARTNER"
-                            : u.role === "SELF_ADMIN"
-                              ? "SELF_ADMIN"
-                              : u.role === "ORG_ADMIN"
-                                ? "ORG_ADMIN"
-                                : u.role === "ADMIN"
-                                  ? "ADMIN"
-                                  : "OWNER"
-                        }
-                      >
-                        <option value="OWNER">自社メンバー（LINEグループに投稿）</option>
-                        <option value="PARTNER">協力会社メンバー（保存のみ）</option>
-                        <option value="SELF_ADMIN">自社管理者（自社の集計のみ）</option>
-                        <option value="ORG_ADMIN">協力会社管理者（選んだ協力会社のみ）</option>
-                        <option value="ADMIN">管理者（全社）</option>
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label className="label">
-                        対象組織（協力会社メンバー／協力会社管理者のとき）
-                      </label>
-                      <select
-                        className="select"
-                        name="orgId"
-                        defaultValue={u.orgId}
-                      >
-                        {allOrgs.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}（{o.kind === "SELF" ? "自社" : "協力会社"}）
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ marginTop: 10 }}>
-                      <button className="btn btn--primary" type="submit">
-                        保存
-                      </button>
-                    </div>
-                  </form>
+                  <UserRoleForm
+                    userId={u.id}
+                    defaultRole={
+                      u.role === "PARTNER"
+                        ? "PARTNER"
+                        : u.role === "SELF_ADMIN"
+                          ? "SELF_ADMIN"
+                          : u.role === "ORG_ADMIN"
+                            ? "ORG_ADMIN"
+                            : u.role === "ADMIN"
+                              ? "ADMIN"
+                              : "OWNER"
+                    }
+                    defaultOrgId={u.orgId}
+                    orgs={allOrgs.map((o) => ({
+                      id: o.id,
+                      name: o.name,
+                      kind: o.kind as "SELF" | "PARTNER",
+                    }))}
+                  />
                 )
               )}
 

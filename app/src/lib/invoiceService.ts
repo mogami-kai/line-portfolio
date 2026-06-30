@@ -27,6 +27,8 @@ export async function buildClientInvoiceLines(
   clientId: string,
   yearMonth: string,
   taxRate: number,
+  // 請求方式の上書き（請求書作成時に「集約」「現場ごと」を選んで両パターン出せる）。
+  billingModeOverride?: "AGGREGATE" | "PER_SITE",
 ): Promise<InvoiceLine[]> {
   const { from, to } = monthRange(yearMonth);
 
@@ -101,7 +103,7 @@ export async function buildClientInvoiceLines(
 
   return buildBillingLines(
     {
-      billingMode: client?.billingMode ?? "AGGREGATE",
+      billingMode: billingModeOverride ?? client?.billingMode ?? "AGGREGATE",
       yearMonth,
       unitPrice,
       nightUnitPrice: client?.nightUnitPrice ?? 0,
@@ -297,11 +299,17 @@ async function nextInvoiceNo(yearMonth: string, offset = 0): Promise<string> {
 export async function generateInvoice(
   clientId: string,
   yearMonth: string,
+  billingModeOverride?: "AGGREGATE" | "PER_SITE",
 ): Promise<{ id: string; invoiceNo: string }> {
   const setting = await prisma.invoiceSetting.findFirst();
   const taxRate = setting?.taxRate ?? 0.1;
 
-  const lines = await buildClientInvoiceLines(clientId, yearMonth, taxRate);
+  const lines = await buildClientInvoiceLines(
+    clientId,
+    yearMonth,
+    taxRate,
+    billingModeOverride,
+  );
   const lineCreate = lines.map((l) => ({
     sortNo: l.sortNo,
     itemName: l.itemName,
