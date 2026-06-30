@@ -20,7 +20,7 @@ export const ROLE_DESCRIPTIONS: Record<Role, string> = {
   VIEWER: "閲覧のみ想定（現状は自社メンバーと同等の入力ができます）。",
 };
 
-export const ROLE_OPTIONS: Role[] = ["PARTNER", "OWNER", "VIEWER", "ADMIN"];
+export const ROLE_OPTIONS: Role[] = ["PARTNER", "OWNER", "ADMIN"];
 
 export const ORG_KIND_LABELS: Record<OrgKind, string> = {
   SELF: "自社",

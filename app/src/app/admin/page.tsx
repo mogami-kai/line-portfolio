@@ -20,7 +20,7 @@
 // ============================================================
 
 import { prisma } from "@/lib/db.js";
-import { getAdminContext } from "@/lib/auth.js";
+import { getAdminContext, getSessionUserIfExists } from "@/lib/auth.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
 import { confirmReportAction } from "./_actions.js";
@@ -45,6 +45,21 @@ const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   profile: "プロフィール取得に失敗しました。もう一度お試しください。",
   session: "セッションの発行に失敗しました。時間をおいて、もう一度お試しください。",
 };
+
+/** ログイン済みだが管理者権限のないユーザー向け画面。 */
+function NotInvitedScreen() {
+  return (
+    <main className="container">
+      <div className="hero">
+        <h1>管理者に招待してもらってください</h1>
+        <p>このアカウントには管理者権限がありません。</p>
+      </div>
+      <p className="muted center" style={{ marginTop: 24 }}>
+        管理者にご連絡ください。
+      </p>
+    </main>
+  );
+}
 
 /** 未ログイン時のログイン画面（LINE Login へ誘導）。 */
 function LoginScreen({ error }: { error?: string }) {
@@ -92,6 +107,8 @@ export default async function AdminPage({
   const sp = await searchParams;
   const admin = await getAdminContext();
   if (!admin) {
+    const sessionUser = await getSessionUserIfExists();
+    if (sessionUser) return <NotInvitedScreen />;
     return <LoginScreen error={sp.error} />;
   }
 
