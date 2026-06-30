@@ -5,9 +5,10 @@
 //   - requireApproved(...)           : 承認済みチェック
 //   - requireAdmin(...)              : ADMIN ロールチェック
 //
-// オープンアクセス（ローンチ要件）: 初回ユーザーは承認不要で「自社(SELF)・管理者(ADMIN)・
-//   approved=true」として作成し、誰でも管理画面・入力フォームを使える。後から管理者が
-//   ユーザー承認画面でロール/所属（協力会社=PARTNER 等）に変更して制限できる。
+// 3 段階ロール:
+//   管理者(ADMIN)   : 管理画面に入れる。一度付与したら降格不可。
+//   自社(OWNER)     : LIFF フォームのみ。出面は自社 LINE グループに投稿される。
+//   協力会社(PARTNER): LIFF フォームのみ。出面は保存のみ（グループ投稿なし）。
 // ============================================================
 
 import type { Organization, User } from "@prisma/client";
@@ -49,10 +50,7 @@ async function ensureSelfOrg(): Promise<Organization> {
 
 /**
  * lineUserId から User+Organization を解決する。
- * 未登録なら初回ユーザーとして作成する。
- *   オープンアクセス（ローンチ要件）: 新規は誰でも「自社(SELF)・管理者(ADMIN)・
- *   approved=true」で作成し、即座に管理画面・入力フォームを使える。後から管理者が
- *   ユーザー承認画面でロール/所属（協力会社=PARTNER 等）へ変更して制限できる。
+ * 未登録なら初回ユーザーとして作成する（自社メンバーとして登録、管理画面は入れない）。
  *
  * @param displayName  初回作成時の表示名（無ければ仮名）。
  */
@@ -67,32 +65,16 @@ export async function resolveUser(
     include: { org: true },
   });
   if (found) {
-    // オープンアクセス（一旦全員管理者）: ログイン時、ACTIVE なユーザーは全員
-    // 自社(SELF)・管理者(ADMIN)・承認済みへ引き上げる。これにより、未承認の新規だけで
-    // なく、過去に協力会社(PARTNER)等へ降格された既存ユーザーも管理画面・入力フォームを
-    // 使える（「誰でも入れる」を満たす）。無効化(DISABLED)だけは尊重して引き上げない。
-    if (
-      found.status === "ACTIVE" &&
-      (found.role !== "ADMIN" || !found.approved)
-    ) {
-      const org = await ensureSelfOrg();
-      const promoted = await prisma.user.update({
-        where: { id: found.id },
-        data: { role: "ADMIN", approved: true, orgId: org.id },
-        include: { org: true },
-      });
-      return { user: promoted, org: promoted.org };
-    }
     return { user: found, org: found.org };
   }
 
-  // 初回ユーザー作成（オープンアクセス）。全員 自社(SELF)・管理者(ADMIN)・承認済み。
+  // 初回ユーザー作成。自社メンバー(OWNER)として登録。管理画面は管理者が昇格させる。
   const org = await ensureSelfOrg();
   const created = await prisma.user.create({
     data: {
       lineUserId,
       displayName: displayName?.trim() || "未設定ユーザー",
-      role: "ADMIN",
+      role: "OWNER",
       approved: true,
       orgId: org.id,
     },
@@ -215,4 +197,22 @@ export async function getAdminContext(): Promise<ResolvedUser | null> {
   const raw = store.get("demen_session")?.value;
   const session = verifySession(raw);
   return getAdminContextFromSession(session);
+}
+
+/**
+ * セッションが存在するが ADMIN でないユーザーを返す（ロール問わず）。
+ * 「管理者に招待してもらってください」画面の表示判定に使う。
+ */
+export async function getSessionUserIfExists(): Promise<ResolvedUser | null> {
+  const { cookies } = await import("next/headers");
+  const store = await cookies();
+  const raw = store.get("demen_session")?.value;
+  const session = verifySession(raw);
+  if (!session) return null;
+  const user = await prisma.user.findFirst({
+    where: { lineUserId: session.lineUserId, status: "ACTIVE" },
+    include: { org: true },
+  });
+  if (!user) return null;
+  return { user, org: user.org };
 }

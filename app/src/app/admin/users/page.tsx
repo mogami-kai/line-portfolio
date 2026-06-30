@@ -1,10 +1,10 @@
 // ============================================================
-// /admin/users — ユーザー承認（Server Component ＋ Server Action）
+// /admin/users — ユーザー管理（管理者 / 自社 / 協力会社）
 //
-//   タブ: 承認待ち / 承認済み / 無効（?tab=pending|approved|disabled）。
-//   - LINE から入ってきた人を、所属組織と権限を決めて「承認」する場所。
-//   - role×org.kind の整合は approveUserAction が強制（自社グループに漏らさない）。
-//   - 拒否/無効化は setUserStatusAction（status=DISABLED）。復活は ACTIVE。
+//   タブ: 管理者 / 自社 / 協力会社（?tab=admin|self|partner）。
+//   - 管理者(ADMIN): 降格不可。無効化・削除のみ。
+//   - 自社(OWNER/SELF): 自社 LINE グループに投稿される。→ 協力会社・管理者に変更可。
+//   - 協力会社(PARTNER): 出面は保存のみ（グループ投稿なし）。→ 自社・管理者に変更可。
 //   ガード: getAdminContext() ＋ middleware。
 // ============================================================
 
@@ -13,14 +13,10 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { approveUserAction, setUserStatusAction, deleteUserAction } from "../_actions.js";
 import { ConfirmDeleteButton } from "../_confirmDelete.js";
-import {
-  ROLE_LABELS,
-  ROLE_OPTIONS,
-} from "@/lib/roles.js";
 
 export const dynamic = "force-dynamic";
 
-type Tab = "pending" | "approved" | "disabled";
+type Tab = "admin" | "self" | "partner";
 
 const fmtDateTime = (d: Date) =>
   d.toLocaleString("ja-JP", {
@@ -42,51 +38,51 @@ export default async function UsersPage({
 
   const sp = await searchParams;
   const tab: Tab =
-    sp.tab === "approved" ? "approved" : sp.tab === "disabled" ? "disabled" : "pending";
+    sp.tab === "self" ? "self" : sp.tab === "partner" ? "partner" : "admin";
 
-  const [users, orgs] = await Promise.all([
+  const [users, partnerOrgs] = await Promise.all([
     prisma.user.findMany({
-      orderBy: [{ approved: "asc" }, { createdAt: "desc" }],
-      include: { org: { select: { name: true, kind: true } } },
+      orderBy: [{ createdAt: "desc" }],
+      include: { org: { select: { id: true, name: true, kind: true } } },
     }),
-    prisma.organization.findMany({ orderBy: { createdAt: "asc" } }),
+    prisma.organization.findMany({
+      where: { kind: "PARTNER" },
+      orderBy: { createdAt: "asc" },
+    }),
   ]);
 
-  const selfOrgs = orgs.filter((o) => o.kind === "SELF");
-  const partnerOrgs = orgs.filter((o) => o.kind === "PARTNER");
-
-  const isPending = (u: (typeof users)[number]) =>
-    u.status === "ACTIVE" && !u.approved;
-  const isApproved = (u: (typeof users)[number]) =>
-    u.status === "ACTIVE" && u.approved;
-  const isDisabled = (u: (typeof users)[number]) => u.status === "DISABLED";
+  const isAdminUser = (u: (typeof users)[number]) => u.role === "ADMIN";
+  const isSelfUser = (u: (typeof users)[number]) =>
+    u.org.kind === "SELF" && u.role !== "ADMIN";
+  const isPartnerUser = (u: (typeof users)[number]) => u.org.kind === "PARTNER";
 
   const counts = {
-    pending: users.filter(isPending).length,
-    approved: users.filter(isApproved).length,
-    disabled: users.filter(isDisabled).length,
+    admin: users.filter(isAdminUser).length,
+    self: users.filter(isSelfUser).length,
+    partner: users.filter(isPartnerUser).length,
   };
+
   const shown = users.filter(
-    tab === "pending" ? isPending : tab === "approved" ? isApproved : isDisabled,
+    tab === "admin" ? isAdminUser : tab === "self" ? isSelfUser : isPartnerUser,
   );
 
   const TABS: { key: Tab; label: string; n: number }[] = [
-    { key: "pending", label: "承認待ち", n: counts.pending },
-    { key: "approved", label: "承認済み", n: counts.approved },
-    { key: "disabled", label: "無効", n: counts.disabled },
+    { key: "admin", label: "管理者", n: counts.admin },
+    { key: "self", label: "自社", n: counts.self },
+    { key: "partner", label: "協力会社", n: counts.partner },
   ];
 
   const emptyLabel =
-    tab === "pending"
-      ? "承認待ちのユーザーはいません。"
-      : tab === "approved"
-        ? "承認済みのユーザーはいません。"
-        : "無効化したユーザーはいません。";
+    tab === "admin"
+      ? "管理者はいません。"
+      : tab === "self"
+        ? "自社メンバーはいません。"
+        : "協力会社メンバーはいません。";
 
   return (
     <main className="container admin-narrow">
       <div className="page-head">
-        <h1 className="page-title">ユーザー承認</h1>
+        <h1 className="page-title">ユーザー管理</h1>
       </div>
 
       {/* タブ */}
@@ -102,101 +98,76 @@ export default async function UsersPage({
         ))}
       </div>
 
-      {tab === "pending" && counts.pending > 0 && (
-        <p className="muted" style={{ marginBottom: 10 }}>
-          ※ 協力会社の方は <strong>協力会社</strong> に、管理者・自社の方は{" "}
-          <strong>自社</strong> に割り当ててください。
-        </p>
-      )}
-
       <div className="list" style={{ background: "transparent", border: "none" }}>
         {shown.length === 0 && <p className="muted">{emptyLabel}</p>}
         {shown.map((u) => {
-          const isPartnerOrg = u.org.kind === "PARTNER";
+          const isDisabled = u.status === "DISABLED";
+          const isCurrentAdmin = isAdminUser(u);
+          const isSelf = admin.user.id === u.id;
+
           return (
-            <details className="card" key={u.id} open={tab === "pending"}>
+            <details className="card" key={u.id}>
               <summary className="list-title" style={{ cursor: "pointer" }}>
                 {u.displayName}
+                {isDisabled && (
+                  <span className="badge" style={{ marginLeft: 6 }}>無効</span>
+                )}
                 <span
-                  className={`badge ${
-                    isDisabled(u)
-                      ? "badge"
-                      : u.approved
-                        ? "badge--self"
-                        : "badge--review"
-                  }`}
+                  className={`badge ${isCurrentAdmin ? "badge--review" : u.org.kind === "PARTNER" ? "badge--partner" : "badge--self"}`}
                   style={{ marginLeft: 6 }}
                 >
-                  {isDisabled(u) ? "無効" : u.approved ? "承認済み" : "未承認"}
-                </span>
-                <span
-                  className={`badge ${isPartnerOrg ? "badge--partner" : "badge--self"}`}
-                  style={{ marginLeft: 4 }}
-                >
-                  {isPartnerOrg ? "協力会社" : "自社"}
+                  {isCurrentAdmin ? "管理者" : u.org.kind === "PARTNER" ? "協力会社" : "自社"}
                 </span>
                 <span className="muted" style={{ marginLeft: 8 }}>
-                  {ROLE_LABELS[u.role] ?? u.role} / {u.org.name}
+                  {u.org.name}
                 </span>
               </summary>
 
               <div className="list-meta" style={{ marginTop: 8 }}>
-                初回登録: {fmtDateTime(u.createdAt)}　/　入口:{" "}
-                {u.role === "ADMIN" ? "管理者登録" : "出面フォーム"}
+                登録: {fmtDateTime(u.createdAt)}
               </div>
 
-              {!isDisabled(u) && (
-                <form action={approveUserAction} style={{ marginTop: 12 }}>
-                  <input type="hidden" name="userId" value={u.id} />
-                  <div className="field">
-                    <label className="label">権限</label>
-                    <select className="select" name="role" defaultValue={u.role}>
-                      {ROLE_OPTIONS.map((r) => (
-                        <option key={r} value={r}>
-                          {ROLE_LABELS[r]}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="field">
-                    <label className="label">所属組織</label>
-                    <select className="select" name="orgId" defaultValue={u.orgId}>
-                      <optgroup label="協力会社">
-                        {partnerOrgs.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="自社">
-                        {selfOrgs.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    </select>
-                    <p className="hint">
-                      ※ 協力会社のメンバーは協力会社に、管理者/自社メンバーは自社に割り当てます。
-                    </p>
-                  </div>
-                  <label className="inline-row" style={{ gap: 8 }}>
-                    <input type="checkbox" name="approved" defaultChecked={u.approved} />
-                    <span>承認する（使えるようにする）</span>
-                  </label>
-                  <div
-                    style={{
-                      marginTop: 10,
-                      display: "flex",
-                      gap: 10,
-                      alignItems: "center",
-                    }}
-                  >
-                    <button className="btn btn--primary" type="submit">
-                      保存
-                    </button>
-                  </div>
-                </form>
+              {/* 管理者は降格不可 */}
+              {isCurrentAdmin ? (
+                <p className="muted" style={{ marginTop: 8 }}>
+                  管理者は降格できません。
+                </p>
+              ) : (
+                !isDisabled && (
+                  <form action={approveUserAction} style={{ marginTop: 12 }}>
+                    <input type="hidden" name="userId" value={u.id} />
+                    <input type="hidden" name="approved" value="true" />
+                    <div className="field">
+                      <label className="label">役割</label>
+                      <select
+                        className="select"
+                        name="role"
+                        defaultValue={u.role === "PARTNER" ? "PARTNER" : "OWNER"}
+                      >
+                        <option value="OWNER">自社（LINEグループに投稿）</option>
+                        <option value="PARTNER">協力会社（保存のみ）</option>
+                        <option value="ADMIN">管理者に昇格（元に戻せません）</option>
+                      </select>
+                    </div>
+                    {partnerOrgs.length > 0 && (
+                      <div className="field">
+                        <label className="label">協力会社の組織（協力会社を選んだ場合）</label>
+                        <select className="select" name="orgId" defaultValue={u.orgId}>
+                          {partnerOrgs.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div style={{ marginTop: 10 }}>
+                      <button className="btn btn--primary" type="submit">
+                        保存
+                      </button>
+                    </div>
+                  </form>
+                )
               )}
 
               {/* 無効化 / 復活 / 削除 */}
@@ -209,26 +180,24 @@ export default async function UsersPage({
                   flexWrap: "wrap",
                 }}
               >
-                {/* 自分自身の行には危険操作（無効化）を出さない（サーバ側でも禁止済み）。 */}
-                {admin.user.id !== u.id && (
+                {!isSelf && (
                   <form action={setUserStatusAction}>
                     <input type="hidden" name="userId" value={u.id} />
                     <input
                       type="hidden"
                       name="status"
-                      value={isDisabled(u) ? "ACTIVE" : "DISABLED"}
+                      value={isDisabled ? "ACTIVE" : "DISABLED"}
                     />
                     <button
                       type="submit"
-                      className={isDisabled(u) ? "btn btn--ghost btn--sm" : "btn btn--danger-text btn--sm"}
+                      className={isDisabled ? "btn btn--ghost btn--sm" : "btn btn--danger-text btn--sm"}
                     >
-                      {isDisabled(u) ? "復活（有効化）" : "拒否 / 無効化"}
+                      {isDisabled ? "復活（有効化）" : "無効化"}
                     </button>
                   </form>
                 )}
 
-                {/* 物理削除（取り消し不可）。自分自身の行には出さない。 */}
-                {admin.user.id !== u.id && (
+                {!isSelf && (
                   <ConfirmDeleteButton
                     action={deleteUserAction}
                     id={u.id}
@@ -243,7 +212,7 @@ export default async function UsersPage({
       </div>
 
       <p className="muted" style={{ marginTop: 20 }}>
-        ※ 初回ユーザーは「未割当（承認待ち）」に入り、自社には出ません。ここで正式な組織・権限へ割り当ててください。無効化した人は承認状態に関わらず入室できません。
+        ※ 新規ユーザーは自社として参加します。管理者に昇格させると元に戻せません。無効化したユーザーは入室できません。
       </p>
     </main>
   );

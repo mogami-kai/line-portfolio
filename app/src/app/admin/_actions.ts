@@ -684,65 +684,72 @@ export async function setWorkerRatesAction(
 // ============================================================
 const approveSchema = z.object({
   userId: z.string().min(1),
-  role: z.enum(["ADMIN", "OWNER", "VIEWER", "PARTNER"]),
-  orgId: z.string().min(1, "所属組織を選択してください"),
+  role: z.enum(["ADMIN", "OWNER", "PARTNER"]),
+  // PARTNER の場合のみ使用。OWNER/ADMIN は自社(SELF)組織へ自動割当。
+  orgId: z.string().optional(),
   approved: z.boolean(),
 });
 
 export async function approveUserAction(fd: FormData): Promise<void> {
   const admin = await requireAdminAction();
+  const roleRaw = str(fd, "role") as "ADMIN" | "OWNER" | "PARTNER";
   const parsed = approveSchema.safeParse({
     userId: str(fd, "userId"),
-    role: (str(fd, "role") || "PARTNER") as
-      | "ADMIN"
-      | "OWNER"
-      | "VIEWER"
-      | "PARTNER",
-    orgId: str(fd, "orgId"),
+    role: roleRaw || "OWNER",
+    orgId: str(fd, "orgId") || undefined,
     approved: fd.get("approved") === "on" || fd.get("approved") === "true",
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
 
-  const org = await prisma.organization.findUnique({
-    where: { id: parsed.data.orgId },
+  // 管理者は降格不可（一度昇格したら下げられない）。
+  const target = await prisma.user.findUnique({
+    where: { id: parsed.data.userId },
+    select: { role: true },
   });
-  if (!org) throw new Error("組織が見つかりません");
-
-  // 整合性ガード（不可視性）:
-  //  - PARTNER ロールは PARTNER 組織にのみ割当可（自社グループに出さないため）。
-  //  - SELF 組織には ADMIN/OWNER/VIEWER のみ。
-  if (parsed.data.role === "PARTNER" && org.kind !== "PARTNER") {
-    throw new Error("PARTNER ロールは PARTNER 組織にのみ割り当て可能です。");
-  }
-  if (parsed.data.role !== "PARTNER" && org.kind !== "SELF") {
-    throw new Error("ADMIN/OWNER/VIEWER は自社（SELF）組織に割り当ててください。");
+  if (target?.role === "ADMIN" && parsed.data.role !== "ADMIN") {
+    throw new Error("管理者は降格できません。");
   }
 
-  // 安全弁: 自分自身を管理者から外す/未承認にすると即ロックアウトするので禁止。
+  // 役割に応じて所属組織を決める。
+  // PARTNER: 指定された orgId（PARTNER 組織）。OWNER/ADMIN: SELF 組織へ自動割当。
+  let resolvedOrgId: string;
+  if (parsed.data.role === "PARTNER") {
+    if (!parsed.data.orgId) throw new Error("協力会社の組織を選択してください。");
+    const org = await prisma.organization.findUnique({ where: { id: parsed.data.orgId } });
+    if (!org || org.kind !== "PARTNER")
+      throw new Error("協力会社の組織を選択してください。");
+    resolvedOrgId = org.id;
+  } else {
+    const selfOrg = await prisma.organization.findFirst({
+      where: { kind: "SELF" },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!selfOrg) throw new Error("自社組織が見つかりません。");
+    resolvedOrgId = selfOrg.id;
+  }
+
+  // 安全弁: 自分自身を管理者から外すことは禁止。
   const isSelf = parsed.data.userId === admin.user.id;
-  if (isSelf && (parsed.data.role !== "ADMIN" || !parsed.data.approved)) {
-    throw new Error("自分自身の管理者権限・承認は外せません（ロックアウト防止）。");
+  if (isSelf && parsed.data.role !== "ADMIN") {
+    throw new Error("自分自身の管理者権限は外せません（ロックアウト防止）。");
   }
-  // 安全弁: 最後の有効な管理者を 0 人にしない。並行リクエストでの取りこぼし(TOCTOU)を
-  // 防ぐため、管理者変更系を advisory xact lock で直列化し、更新後の有効ADMIN数を
-  // 同一トランザクション内で再カウントして 0 ならロールバック（throw）する。
+
+  // 安全弁: 最後の有効な管理者を 0 人にしない（TOCTOU 対策で advisory lock）。
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('admin-guard'))`;
     await tx.user.update({
       where: { id: parsed.data.userId },
       data: {
         role: parsed.data.role,
-        orgId: parsed.data.orgId,
-        approved: parsed.data.approved,
+        orgId: resolvedOrgId,
+        approved: true,
       },
     });
     const admins = await tx.user.count({
       where: { role: "ADMIN", approved: true, status: "ACTIVE" },
     });
     if (admins < 1) {
-      throw new Error(
-        "最後の管理者は降格できません。先に別の管理者を作成してください。",
-      );
+      throw new Error("最後の管理者は降格できません。");
     }
   });
   revalidatePath(USERS_PATH);
