@@ -44,6 +44,9 @@ export default async function MastersPage() {
     honorific: c.honorific,
     address: c.address,
     unitPrice: c.unitPrice,
+    nightUnitPrice: c.nightUnitPrice,
+    otUnitPrice: c.otUnitPrice,
+    billingMode: c.billingMode as "AGGREGATE" | "PER_SITE",
     active: c.active,
   }));
 

@@ -351,6 +351,193 @@ export function buildClientLines(
 }
 
 // ============================================================
+// 取引先ごとの請求明細（v4: 日勤/夜勤分離 ＋ 請求方式 集約/現場ごと）
+//   ・日勤(DAY)＋半日(HALF) は unitPrice、夜勤(NIGHT) は nightUnitPrice で別行。
+//   ・AGGREGATE: 「○年○月委託料（日勤）」「○年○月委託料（夜勤）」＋「残業代」を合算1行ずつ。
+//   ・PER_SITE : 現場名ごとに1行（日勤）＋「現場名 夜勤」別行 ＋「残業代」(合算)。
+//   ・請負(UKEOI/一式)・立替経費は両モード共通で末尾に積む。
+//   金額は calc.ts（joyoAmount / overtime*）に一元化。丸めは Math.round。
+// ============================================================
+
+/** "2026-06" → "2026年6月"（不正なら空文字）。 */
+function monthLabel(yearMonth?: string): string {
+  if (yearMonth && /^\d{4}-\d{2}$/.test(yearMonth)) {
+    const [y, m] = yearMonth.split("-");
+    return `${y}年${parseInt(m, 10)}月`;
+  }
+  return "";
+}
+
+/** 現場ごとの人工（日勤＝DAY+HALF / 夜勤＝NIGHT）。 */
+export interface SiteWork {
+  site: string;
+  dayManDays: number;
+  nightManDays: number;
+}
+
+export interface BillingInput {
+  billingMode: "AGGREGATE" | "PER_SITE";
+  yearMonth?: string;
+  /** 日勤の人工単価（円/人工）。 */
+  unitPrice: number;
+  /** 夜勤の人工単価（円/人工）。0/未設定なら日勤単価を流用。 */
+  nightUnitPrice: number;
+  /** 残業の時間単価（円/時）。未設定なら 日勤単価÷8×1.25 を自動採用。 */
+  otUnitPrice?: number | null;
+  /** 残業合計（時間）。両モードとも「残業代」1行に合算。 */
+  otHours: number;
+  /** 現場ごとの人工。 */
+  sites: SiteWork[];
+  /** 請負(UKEOI)契約金額（案件ごと）。 */
+  ukeoiAmounts?: number[];
+  /** 請負(一式)契約（LumpContract）。 */
+  lumpItems?: LumpItem[];
+  /** 立替経費（対象外・税率0）。 */
+  expenses?: ExpenseAgg[];
+}
+
+export function buildBillingLines(
+  input: BillingInput,
+  taxRate: number,
+): InvoiceLine[] {
+  const lines: InvoiceLine[] = [];
+  let sortNo = 0;
+  const ml = monthLabel(input.yearMonth);
+  const dayUnit = toNumber(input.unitPrice, 0);
+  const nightUnit =
+    toNumber(input.nightUnitPrice, 0) > 0
+      ? toNumber(input.nightUnitPrice, 0)
+      : dayUnit;
+
+  if (input.billingMode === "PER_SITE") {
+    // 現場名で安定ソート。日勤行 → 夜勤行 の順に並べる（PDFの体裁）。
+    const sites = [...input.sites].sort((a, b) =>
+      a.site.localeCompare(b.site, "ja"),
+    );
+    for (const s of sites) {
+      const md = toNumber(s.dayManDays, 0);
+      if (md > 0) {
+        lines.push({
+          sortNo: ++sortNo,
+          itemName: s.site,
+          qty: md,
+          unitLabel: "人工",
+          unitPrice: dayUnit,
+          amount: joyoAmount(md, dayUnit),
+          taxRate,
+        });
+      }
+    }
+    for (const s of sites) {
+      const md = toNumber(s.nightManDays, 0);
+      if (md > 0) {
+        lines.push({
+          sortNo: ++sortNo,
+          itemName: `${s.site} 夜勤`,
+          qty: md,
+          unitLabel: "人工",
+          unitPrice: nightUnit,
+          amount: joyoAmount(md, nightUnit),
+          taxRate,
+        });
+      }
+    }
+  } else {
+    // 集約: 日勤・夜勤を取引先全体で合算し、それぞれ1行。
+    const dayMd = input.sites.reduce((a, s) => a + toNumber(s.dayManDays, 0), 0);
+    const nightMd = input.sites.reduce(
+      (a, s) => a + toNumber(s.nightManDays, 0),
+      0,
+    );
+    if (dayMd > 0) {
+      lines.push({
+        sortNo: ++sortNo,
+        itemName: `${ml}委託料（日勤）`,
+        qty: dayMd,
+        unitLabel: "人工",
+        unitPrice: dayUnit,
+        amount: joyoAmount(dayMd, dayUnit),
+        taxRate,
+      });
+    }
+    if (nightMd > 0) {
+      lines.push({
+        sortNo: ++sortNo,
+        itemName: `${ml}委託料（夜勤）`,
+        qty: nightMd,
+        unitLabel: "人工",
+        unitPrice: nightUnit,
+        amount: joyoAmount(nightMd, nightUnit),
+        taxRate,
+      });
+    }
+  }
+
+  // 残業代（両モード共通・合算1行）。残業単価は日勤単価を基準に自動／明示。
+  const ot = toNumber(input.otHours, 0);
+  if (ot > 0) {
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: "残業代",
+      qty: ot,
+      unitLabel: "時間",
+      unitPrice: resolveOvertimeUnit(dayUnit, input.otUnitPrice),
+      amount: overtimeLineAmountResolved(ot, dayUnit, input.otUnitPrice),
+      taxRate,
+    });
+  }
+
+  // 請負(UKEOI)：案件ごと1行（委託料と共通の品目名）。
+  for (const amount of input.ukeoiAmounts ?? []) {
+    const amt = toNumber(amount, 0);
+    if (amt <= 0) continue;
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: `${ml}委託料`,
+      qty: 1,
+      unitLabel: "式",
+      unitPrice: amt,
+      amount: amt,
+      taxRate,
+    });
+  }
+
+  // 請負(一式)：LumpContract（過去分維持）。
+  for (const item of input.lumpItems ?? []) {
+    const amt = toNumber(item.amount, 0);
+    if (amt <= 0) continue;
+    const label = String(item.name ?? "").trim();
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: label ? `${label} 一式` : "請負工事一式",
+      qty: 1,
+      unitLabel: "式",
+      unitPrice: amt,
+      amount: amt,
+      taxRate,
+    });
+  }
+
+  // 立替経費（対象外・税率0）。
+  for (const e of input.expenses ?? []) {
+    const amt = toNumber(e.amount, 0);
+    if (amt <= 0) continue;
+    const kind = String(e.kind ?? "").trim() || "立替";
+    lines.push({
+      sortNo: ++sortNo,
+      itemName: `立替 ${kind}`,
+      qty: 1,
+      unitLabel: "式",
+      unitPrice: amt,
+      amount: amt,
+      taxRate: 0,
+    });
+  }
+
+  return lines;
+}
+
+// ============================================================
 // サマリ: 小計（課税）/ 消費税 / 対象外 / 合計
 // ============================================================
 export function summarize(
@@ -412,16 +599,16 @@ export function toCSV(
 }
 
 // ============================================================
-// xlsx（指定テンプレ準拠）— exceljs Workbook を返す（caller が buffer 化）
+// xlsx（ユーザー提供テンプレ template_013 準拠）— exceljs Workbook を返す
 //
-//   ユーザー提供の請求書テンプレ（Googleスプレッドシート由来）の体裁を、
-//   セル配置・結合・数式まで忠実に再現する。発行元名・住所・登録番号・振込先・
-//   宛先（取引先）は実行時に DB（InvoiceSetting / Client）から埋めるため、
-//   個人情報（口座・実名・住所）はコードに焼かない（公開リポジトリ対策）。
-//
-//   金額・小計・消費税・合計・税率別内訳は「数式」で持たせる（＝Excelで単価/数量を
-//   直せば自動再計算）。同時に計算済みの cached result も入れるので、再計算なしの
-//   閲覧でも正しい数字が出る。明細の金額 F = 数量(C) × 単価(E)。
+//   体裁: 青いタイトル「請求書」/ 請求日(右上) / 宛先(取引先 様)＋住所 /
+//         発行元TEL ＋ 振込先ボックス / ご請求金額（税込）/ 明細テーブル
+//         （商品名・品目 | 数量 | 単価 | 金額 | 備考）/ 小計・消費税(10%)・合計 /
+//         支払期限 / 備考欄。税率列・単位列は出さない（テンプレに無い）。
+//   発行元・宛先・振込先は実行時に DB（InvoiceSetting / Client）から埋める
+//   （口座・実名・住所はコードに焼かない＝公開リポジトリ対策）。
+//   金額・小計・消費税・合計は数式 ＋ cached result（再計算なしでも数字が出る）。
+//   明細の金額 D = 数量(B) × 単価(C)。
 // ============================================================
 export function toXlsx(data: {
   invoiceNo: string;
@@ -439,24 +626,27 @@ export function toXlsx(data: {
   wb.created = new Date();
   const ws = wb.addWorksheet("請求書");
 
-  // 列幅（テンプレ準拠）: A=No, B=品目, C=数量, D=単位, E=単価, F=金額, G=税率
+  // 列: A=商品名/品目, B=数量, C=単価, D=金額, E=備考
   ws.columns = [
-    { width: 5 },
     { width: 34 },
-    { width: 8 },
-    { width: 7 },
+    { width: 10 },
     { width: 14 },
-    { width: 15 },
-    { width: 8 },
+    { width: 16 },
+    { width: 16 },
   ];
 
   const issuer = data.issuer || {};
   const MONEY = '¥#,##0;"-¥"#,##0;""';
+  const ACCENT = "FF3B5BA5"; // タイトル帯・見出しの青
+  const ACCENT_TXT = { argb: "FF1F4E9B" };
+  const WHITE = { argb: "FFFFFFFF" };
 
   type CellOpts = {
     font?: Partial<ExcelJS.Font>;
     align?: Partial<ExcelJS.Alignment>;
     numFmt?: string;
+    fill?: string;
+    border?: Partial<ExcelJS.Borders>;
   };
   const set = (addr: string, value: ExcelJS.CellValue, opts: CellOpts = {}) => {
     const c = ws.getCell(addr);
@@ -464,165 +654,172 @@ export function toXlsx(data: {
     if (opts.font) c.font = opts.font;
     if (opts.align) c.alignment = opts.align;
     if (opts.numFmt) c.numFmt = opts.numFmt;
+    if (opts.fill)
+      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: opts.fill } };
+    if (opts.border) c.border = opts.border;
     return c;
   };
   const RIGHT = { horizontal: "right" as const };
   const CENTER = { horizontal: "center" as const };
+  const MIDLEFT = { horizontal: "left" as const, vertical: "middle" as const };
+  const thin = { style: "thin" as const, color: { argb: "FFBFBFBF" } };
+  const boxBorder: Partial<ExcelJS.Borders> = {
+    top: thin,
+    bottom: thin,
+    left: thin,
+    right: thin,
+  };
 
-  // ── 行アンカー（明細は最低15行。テンプレと同じ見た目／件数が多ければ伸ばす）──
+  // ── 計算済み（cached result）。金額は保存済み明細 amount を正とする。──
   const lines = data.lines || [];
-  const itemRows = Math.max(15, lines.length);
-  const FIRST = 20;
+  const subtotal = lines
+    .filter((l) => l.taxRate > 0)
+    .reduce((a, l) => a + l.amount, 0);
+  const exempt = lines
+    .filter((l) => l.taxRate === 0)
+    .reduce((a, l) => a + l.amount, 0);
+  const tax = Math.round(subtotal * (data.taxRate || 0.1));
+  const total = subtotal + tax + exempt;
+  const taxPct = Math.round((data.taxRate || 0.1) * 100);
+
+  // ── 行アンカー（明細は最低18行・テンプレの見た目／件数が多ければ伸ばす）──
+  const itemRows = Math.max(18, lines.length);
+  const HEAD = 11; // テーブル見出し行
+  const FIRST = HEAD + 1;
   const LAST = FIRST + itemRows - 1;
-  const R_SUB = LAST + 2;
-  const R_TAX = R_SUB + 1;
-  const R_TOTAL = R_SUB + 2;
-  const R_BRKHEAD = R_SUB + 4;
-  const R_BRKLBL = R_SUB + 5;
-  const R_BRK10 = R_SUB + 6;
-  const R_BRK8 = R_SUB + 7;
-  const R_BANK = R_SUB + 9;
-  const R_NOTELBL = R_SUB + 12;
-  const R_NOTE = R_SUB + 13;
+  const R_SUMLBL = LAST + 1;
+  const R_SUMVAL = LAST + 2;
+  const R_NOTE = R_SUMVAL + 2;
 
-  // ── 計算済み（cached result。再計算なしでも数字が出るように）──
-  // 金額は「保存済みの明細 amount」を正とする（画面/CSVと完全一致させるため。
-  // 数量×単価の再計算は丸め差で 1 円ズレることがあるので使わない）。
-  // 税も summarize と同じ Math.round で算出（floor だと 1 円ズレる）。
-  const lineAmt = (l: InvoiceLine) => l.amount;
-  const subtotalAll = lines.reduce((a, l) => a + lineAmt(l), 0);
-  const base10 = lines.filter((l) => l.taxRate === 0.1).reduce((a, l) => a + lineAmt(l), 0);
-  const base8 = lines.filter((l) => l.taxRate === 0.08).reduce((a, l) => a + lineAmt(l), 0);
-  const tax10 = Math.round(base10 * 0.1);
-  const tax8 = Math.round(base8 * 0.08);
-  const total = subtotalAll + tax10 + tax8;
+  // ── 請求日（右上）──
+  ws.mergeCells("C2:E2");
+  set("C2", `請求日： ${data.issueDate}`, { align: RIGHT });
 
-  // ── タイトル ──
-  ws.mergeCells("A2:G2");
-  set("A2", "請　求　書", {
-    font: { bold: true, size: 18 },
+  // ── タイトル（青帯）「請求書」──
+  ws.mergeCells("A3:B4");
+  set("A3", "請　求　書", {
+    font: { bold: true, size: 22, color: WHITE },
     align: { horizontal: "center", vertical: "middle" },
+    fill: ACCENT,
   });
-  ws.getRow(2).height = 36;
+  ws.getRow(3).height = 22;
+  ws.getRow(4).height = 22;
 
-  // ── 請求書番号 / 請求日 ──
-  set("E4", "請求書番号", { align: RIGHT });
-  ws.mergeCells("F4:G4");
-  set("F4", data.invoiceNo);
-  set("E5", "請求日", { align: RIGHT });
-  ws.mergeCells("F5:G5");
-  set("F5", data.issueDate);
-
-  // ── 宛先（取引先）／ 発行元（自社・DBから）──
-  ws.mergeCells("A7:C7");
-  set("A7", `${data.client}　${data.honorific || "御中"}`, {
-    font: { bold: true, size: 13 },
-  });
-  ws.mergeCells("E7:G7");
-  set("E7", String(issuer.issuerName ?? ""), { font: { bold: true } });
-  ws.mergeCells("A8:C8");
-  set("A8", String(data.address ?? ""));
-  ws.mergeCells("E8:G8");
-  set("E8", String(issuer.address ?? ""));
-  ws.mergeCells("E9:G9");
-  {
-    const tel = String(issuer.tel ?? "").trim();
-    const mail = String(issuer.email ?? "").trim();
-    set("E9", [tel ? "TEL: " + tel : "", mail ? "Email: " + mail : ""].filter(Boolean).join("　"));
-  }
-  ws.mergeCells("E10:G10");
-  set("E10", issuer.regNumber ? "登録番号　" + String(issuer.regNumber) : "");
-  ws.mergeCells("E11:G11");
-  set("E11", issuer.contactName ? "担当：" + String(issuer.contactName) : "");
-
-  // ── 件名 / リード ──
-  let subject = "件名：　フィールドスタッフ業務委託料";
-  if (data.yearMonth && /^\d{4}-\d{2}$/.test(data.yearMonth)) {
-    const [y, m] = data.yearMonth.split("-");
-    subject = `件名：　${y}年${parseInt(m, 10)}月分　フィールドスタッフ業務委託料`;
-  }
-  ws.mergeCells("A13:G13");
-  set("A13", subject, { font: { bold: true } });
-  ws.mergeCells("A14:G14");
-  set("A14", "下記のとおりご請求申し上げます。");
-
-  // ── ご請求金額（税込）／ お支払期限（数式で合計・請求日を参照）──
-  ws.mergeCells("A16:B16");
-  set("A16", "ご請求金額（税込）", { font: { bold: true } });
-  ws.mergeCells("C16:E16");
-  set("C16", { formula: `F${R_TOTAL}`, result: total }, {
+  // ── 宛先（取引先）──
+  set("A5", "〒");
+  ws.mergeCells("A6:B6");
+  set("A6", `${data.client}　${data.honorific || "様"}`, {
     font: { bold: true, size: 14 },
-    numFmt: MONEY,
   });
-  ws.mergeCells("A17:B17");
-  set("A17", "お支払期限", { font: { bold: true } });
-  ws.mergeCells("C17:E17");
-  set("C17", { formula: "F5", result: data.issueDate });
+  ws.mergeCells("A7:B7");
+  set("A7", String(data.address ?? ""), {
+    border: { bottom: { style: "thin", color: { argb: "FF333333" } } },
+  });
+
+  // ── 発行元TEL ＋ 振込先ボックス（右側）──
+  const tel = String(issuer.tel ?? "").trim();
+  set("D5", tel ? `☎ ${tel}` : "");
+  ws.mergeCells("C6:E7");
+  set("C6", issuer.bankInfo ? String(issuer.bankInfo) : "", {
+    align: { horizontal: "center", vertical: "middle", wrapText: true },
+    border: boxBorder,
+  });
+
+  // ── リード文 ──
+  ws.mergeCells("A8:B8");
+  set("A8", "下記の通りご請求申し上げます。");
+
+  // ── ご請求金額（税込）──
+  set("A9", "請求金額（税込）", {
+    font: { bold: true, color: ACCENT_TXT, size: 12 },
+    align: { horizontal: "center", vertical: "middle" },
+    fill: "FFE8EEF7",
+    border: boxBorder,
+  });
+  ws.mergeCells("B9:C9");
+  set("B9", { formula: `D${R_SUMVAL}`, result: total }, {
+    font: { bold: true, size: 16 },
+    align: { horizontal: "center", vertical: "middle" },
+    numFmt: '¥#,##0"-"',
+    border: boxBorder,
+  });
+  ws.getRow(9).height = 28;
 
   // ── 明細ヘッダ ──
-  const heads = ["No", "品目・内容", "数量", "単位", "単価", "金額", "税率"];
+  const heads = ["商品名 / 品目", "数 量", "単 価", "金 額", "備 考"];
   heads.forEach((h, i) => {
-    const c = ws.getRow(19).getCell(i + 1);
+    const c = ws.getRow(HEAD).getCell(i + 1);
     c.value = h;
-    c.font = { bold: true };
-    c.border = { bottom: { style: "thin" } };
-    if (i >= 2) c.alignment = CENTER;
+    c.font = { bold: true, color: ACCENT_TXT };
+    c.alignment = i === 0 ? MIDLEFT : CENTER;
+    c.border = boxBorder;
   });
+  ws.getRow(HEAD).height = 22;
 
-  // ── 明細（A=No自動・F=数量×単価 を数式で。空行はテンプレ同様に枠だけ残す）──
+  // ── 明細（D=数量×単価 を数式。空行も枠だけ残す）──
   for (let i = 0; i < itemRows; i++) {
     const r = FIRST + i;
     const l = lines[i];
-    set(`A${r}`, { formula: `IF(B${r}="","",ROW()-19)`, result: l ? l.sortNo : "" }, { align: CENTER });
-    if (l) {
-      set(`B${r}`, l.itemName);
-      // 数量も3桁区切り（半日=0.5 等の小数は保持）。単価・金額は ¥#,##0 で区切り済み。
-      set(`C${r}`, l.qty, { numFmt: "#,##0.##", align: RIGHT });
-      set(`D${r}`, l.unitLabel, { align: CENTER });
-      set(`E${r}`, l.unitPrice, { numFmt: "¥#,##0", align: RIGHT });
-      set(`G${r}`, l.taxRate, { numFmt: "0%", align: CENTER });
-    }
+    set(`A${r}`, l ? l.itemName : "", { align: MIDLEFT, border: boxBorder });
+    set(`B${r}`, l ? l.qty : "", {
+      numFmt: "#,##0.##",
+      align: RIGHT,
+      border: boxBorder,
+    });
+    set(`C${r}`, l ? l.unitPrice : "", {
+      numFmt: "¥#,##0",
+      align: RIGHT,
+      border: boxBorder,
+    });
     set(
-      `F${r}`,
-      { formula: `IF(OR(C${r}="",E${r}=""),"",C${r}*E${r})`, result: l ? lineAmt(l) : "" },
-      { numFmt: "¥#,##0", align: RIGHT },
+      `D${r}`,
+      { formula: `IF(OR(B${r}="",C${r}=""),"",B${r}*C${r})`, result: l ? l.amount : "" },
+      { numFmt: "¥#,##0", align: RIGHT, border: boxBorder },
     );
-    ws.getRow(r).height = 15.75;
+    set(`E${r}`, "", { border: boxBorder });
+    ws.getRow(r).height = 18;
   }
 
-  // ── 小計 / 消費税 / 合計（数式）──
-  set(`E${R_SUB}`, "小計（税抜）", { align: RIGHT });
-  set(`F${R_SUB}`, { formula: `SUM(F${FIRST}:F${LAST})`, result: subtotalAll }, { numFmt: MONEY, align: RIGHT });
-  set(`E${R_TAX}`, "消費税", { align: RIGHT });
-  set(`F${R_TAX}`, { formula: `E${R_BRK10}+E${R_BRK8}`, result: tax10 + tax8 }, { numFmt: MONEY, align: RIGHT });
-  set(`E${R_TOTAL}`, "合計（税込）", { font: { bold: true }, align: RIGHT });
-  set(`F${R_TOTAL}`, { formula: `F${R_SUB}+F${R_TAX}`, result: total }, { font: { bold: true }, numFmt: MONEY, align: RIGHT });
+  // ── 支払期限（左下）──
+  set(`A${R_SUMLBL}`, `支払期限：${data.issueDate}`);
 
-  // ── 税率別内訳（SUMIF。10%対象 / 8%対象軽減）──
-  ws.mergeCells(`A${R_BRKHEAD}:G${R_BRKHEAD}`);
-  set(`A${R_BRKHEAD}`, "【税率別内訳】", { font: { bold: true } });
-  set(`B${R_BRKLBL}`, "税率", { font: { bold: true } });
-  ws.mergeCells(`C${R_BRKLBL}:D${R_BRKLBL}`);
-  set(`C${R_BRKLBL}`, "対象金額（税抜）", { font: { bold: true }, align: CENTER });
-  ws.mergeCells(`E${R_BRKLBL}:F${R_BRKLBL}`);
-  set(`E${R_BRKLBL}`, "消費税額", { font: { bold: true }, align: CENTER });
-  set(`B${R_BRK10}`, "10% 対象");
-  ws.mergeCells(`C${R_BRK10}:D${R_BRK10}`);
-  set(`C${R_BRK10}`, { formula: `SUMIF(G${FIRST}:G${LAST},0.1,F${FIRST}:F${LAST})`, result: base10 }, { numFmt: MONEY, align: RIGHT });
-  ws.mergeCells(`E${R_BRK10}:F${R_BRK10}`);
-  set(`E${R_BRK10}`, { formula: `ROUND(C${R_BRK10}*0.1,0)`, result: tax10 }, { numFmt: MONEY, align: RIGHT });
-  set(`B${R_BRK8}`, "8% 対象（軽減）");
-  ws.mergeCells(`C${R_BRK8}:D${R_BRK8}`);
-  set(`C${R_BRK8}`, { formula: `SUMIF(G${FIRST}:G${LAST},0.08,F${FIRST}:F${LAST})`, result: base8 }, { numFmt: MONEY, align: RIGHT });
-  ws.mergeCells(`E${R_BRK8}:F${R_BRK8}`);
-  set(`E${R_BRK8}`, { formula: `ROUND(C${R_BRK8}*0.08,0)`, result: tax8 }, { numFmt: MONEY, align: RIGHT });
+  // ── 小計（税抜）/ 消費税(10%) / 合計（税込）──
+  set(`B${R_SUMLBL}`, "小 計（税抜）", {
+    font: { bold: true, color: ACCENT_TXT },
+    align: CENTER,
+    border: boxBorder,
+  });
+  set(`C${R_SUMLBL}`, `消費税 (${taxPct}%)`, {
+    font: { bold: true, color: ACCENT_TXT },
+    align: CENTER,
+    border: boxBorder,
+  });
+  set(`D${R_SUMLBL}`, "合 計（税込）", {
+    font: { bold: true, color: ACCENT_TXT },
+    align: CENTER,
+    border: boxBorder,
+  });
+  // 小計は課税対象のみ（対象外＝立替があっても税抜小計に含めない）。cached を正とする。
+  set(`B${R_SUMVAL}`, subtotal, { numFmt: MONEY, align: RIGHT, border: boxBorder });
+  set(
+    `C${R_SUMVAL}`,
+    { formula: `ROUND(B${R_SUMVAL}*${data.taxRate || 0.1},0)`, result: tax },
+    { numFmt: MONEY, align: RIGHT, border: boxBorder },
+  );
+  set(
+    `D${R_SUMVAL}`,
+    { formula: `B${R_SUMVAL}+C${R_SUMVAL}${exempt ? `+${exempt}` : ""}`, result: total },
+    { font: { bold: true }, numFmt: MONEY, align: RIGHT, border: boxBorder },
+  );
+  ws.getRow(R_SUMLBL).height = 20;
+  ws.getRow(R_SUMVAL).height = 20;
 
-  // ── 振込先（DBの bankInfo）／ 備考 ──
-  ws.mergeCells(`A${R_BANK}:G${R_BANK}`);
-  set(`A${R_BANK}`, issuer.bankInfo ? "【お振込先】　" + String(issuer.bankInfo) : "【お振込先】");
-  set(`A${R_NOTELBL}`, "備考");
-  ws.mergeCells(`A${R_NOTE}:G${R_NOTE}`);
-  set(`A${R_NOTE}`, "※お振込手数料は御社にてご負担をお願いいたします。");
+  // ── 備考欄 ──
+  ws.mergeCells(`A${R_NOTE}:E${R_NOTE + 2}`);
+  set(`A${R_NOTE}`, "備考欄： 今後ともよろしくお願いします", {
+    align: { horizontal: "left", vertical: "top", wrapText: true },
+    border: boxBorder,
+  });
 
   return wb;
 }

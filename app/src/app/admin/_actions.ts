@@ -49,21 +49,41 @@ const INVOICES_PATH = "/admin/invoices";
 // ============================================================
 // 取引先（Client）
 // ============================================================
+const nullablePrice = z
+  .number()
+  .int()
+  .nonnegative("単価は0以上の整数")
+  .nullable()
+  .default(null);
 const clientSchema = z.object({
   name: z.string().min(1, "取引先名は必須です"),
-  honorific: z.enum(["御中", "様"]).default("御中"),
+  honorific: z.enum(["御中", "様"]).default("様"),
   address: z.string().optional(),
   // v3: 常用の人工単価（任意・未入力=null）。別名(aliases)は UI 廃止のため受け取らない。
-  unitPrice: z.number().int().nonnegative("単価は0以上の整数").nullable().default(null),
+  unitPrice: nullablePrice, // 日勤単価
+  nightUnitPrice: nullablePrice, // 夜勤単価（未設定なら日勤単価を流用）
+  otUnitPrice: nullablePrice, // 残業単価（未設定なら自動）
+  billingMode: z.enum(["AGGREGATE", "PER_SITE"]).default("AGGREGATE"),
 });
+
+/** FormData の数値（円）取得。空文字は null。 */
+function priceOrNull(fd: FormData, key: string): number | null {
+  const s = str(fd, key);
+  return s ? Number(s) : null;
+}
 
 export async function createClientAction(fd: FormData): Promise<void> {
   await requireAdminAction();
   const parsed = clientSchema.safeParse({
     name: str(fd, "name"),
-    honorific: str(fd, "honorific") || "御中",
+    honorific: str(fd, "honorific") || "様",
     address: str(fd, "address") || undefined,
-    unitPrice: str(fd, "unitPrice") ? Number(str(fd, "unitPrice")) : null,
+    unitPrice: priceOrNull(fd, "unitPrice"),
+    nightUnitPrice: priceOrNull(fd, "nightUnitPrice"),
+    otUnitPrice: priceOrNull(fd, "otUnitPrice"),
+    billingMode: (str(fd, "billingMode") || "AGGREGATE") as
+      | "AGGREGATE"
+      | "PER_SITE",
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
   await prisma.client.create({
@@ -72,6 +92,9 @@ export async function createClientAction(fd: FormData): Promise<void> {
       honorific: parsed.data.honorific,
       address: parsed.data.address ?? null,
       unitPrice: parsed.data.unitPrice,
+      nightUnitPrice: parsed.data.nightUnitPrice,
+      otUnitPrice: parsed.data.otUnitPrice,
+      billingMode: parsed.data.billingMode,
     },
   });
   revalidatePath(MASTERS_PATH);
@@ -85,9 +108,14 @@ export async function updateClientAction(fd: FormData): Promise<void> {
     .extend({ active: z.boolean().default(true) })
     .safeParse({
       name: str(fd, "name"),
-      honorific: str(fd, "honorific") || "御中",
+      honorific: str(fd, "honorific") || "様",
       address: str(fd, "address") || undefined,
-      unitPrice: str(fd, "unitPrice") ? Number(str(fd, "unitPrice")) : null,
+      unitPrice: priceOrNull(fd, "unitPrice"),
+      nightUnitPrice: priceOrNull(fd, "nightUnitPrice"),
+      otUnitPrice: priceOrNull(fd, "otUnitPrice"),
+      billingMode: (str(fd, "billingMode") || "AGGREGATE") as
+        | "AGGREGATE"
+        | "PER_SITE",
       active: fd.get("active") === "on" || fd.get("active") === "true",
     });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
@@ -99,6 +127,9 @@ export async function updateClientAction(fd: FormData): Promise<void> {
       honorific: parsed.data.honorific,
       address: parsed.data.address ?? null,
       unitPrice: parsed.data.unitPrice,
+      nightUnitPrice: parsed.data.nightUnitPrice,
+      otUnitPrice: parsed.data.otUnitPrice,
+      billingMode: parsed.data.billingMode,
       active: parsed.data.active,
     },
   });

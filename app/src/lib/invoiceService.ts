@@ -11,9 +11,10 @@
 import { prisma } from "./db.js";
 import { resolveManDays, type Shift } from "./calc.js";
 import {
-  buildClientLines,
+  buildBillingLines,
   summarize,
   type InvoiceLine,
+  type SiteWork,
 } from "./invoice.js";
 import { monthRange } from "./aggregate.js";
 
@@ -41,23 +42,30 @@ export async function buildClientInvoiceLines(
     select: {
       contractType: true,
       contractAmount: true,
+      siteName: true,
+      site: { select: { name: true } },
       entries: { select: { shift: true, manDays: true, otHours: true } },
     },
   });
 
-  // 取引先ごとに合算。
+  // 現場ごとに「日勤(DAY+HALF)」「夜勤(NIGHT)」の人工を畳む。残業は全体で合算。
   //   委託料の人工/残業は「常用（JOYO）」のみ積む。請負（UKEOI）は Report ごとの
-  //   contractAmount を「○月委託料 数量1（式）」で計上するため、人工×単価には混ぜない
-  //   （混ぜると二重計上になる。集計ダッシュボードと同規約）。
-  //   立替経費は請求書には載せない（建て替え集計セクションで別管理）。
-  let manDays = 0;
+  //   contractAmount を「○月委託料 数量1（式）」で計上（人工×単価には混ぜない＝二重計上回避）。
+  const siteMap = new Map<string, SiteWork>();
   let otHours = 0;
-  // 請負(UKEOI)：その月・その取引先の各 Report の契約金額（>0 のみ）。案件ごと1行。
   const ukeoiAmounts: number[] = [];
   for (const r of reports) {
     if (r.contractType === "JOYO") {
+      const siteName = r.siteName?.trim() || r.site?.name || "(現場未設定)";
+      let agg = siteMap.get(siteName);
+      if (!agg) {
+        agg = { site: siteName, dayManDays: 0, nightManDays: 0 };
+        siteMap.set(siteName, agg);
+      }
       for (const e of r.entries) {
-        manDays += resolveManDays(e.shift as Shift, e.manDays);
+        const md = resolveManDays(e.shift as Shift, e.manDays);
+        if (e.shift === "NIGHT") agg.nightManDays += md;
+        else agg.dayManDays += md;
         otHours += Number(e.otHours) || 0;
       }
     } else if (r.contractType === "UKEOI") {
@@ -75,33 +83,36 @@ export async function buildClientInvoiceLines(
   });
   const lumpItems = lumps.map((l) => ({ name: l.name, amount: l.amount }));
 
-  if (
-    manDays === 0 &&
-    otHours === 0 &&
-    lumpItems.length === 0 &&
-    ukeoiAmounts.length === 0
-  ) {
-    return [];
-  }
+  const sites = Array.from(siteMap.values());
+  const hasWork =
+    sites.some((s) => s.dayManDays > 0 || s.nightManDays > 0) ||
+    otHours > 0 ||
+    lumpItems.length > 0 ||
+    ukeoiAmounts.length > 0;
+  if (!hasWork) return [];
 
   // 単価（取引先既定・JOYO・月末時点）。管理者がマスタ/集計画面で入れた値。無ければ0。
   const unitPrice = (await resolveDefaultRate(clientId, to)) ?? 0;
-  // 残業の時間単価（取引先設定）。未設定なら buildClientLines 側で自動計算。
-  const clientOt = await prisma.client.findUnique({
+  // 夜勤単価・残業単価・請求方式（取引先設定）。
+  const client = await prisma.client.findUnique({
     where: { id: clientId },
-    select: { otUnitPrice: true },
+    select: { nightUnitPrice: true, otUnitPrice: true, billingMode: true },
   });
 
-  // 委託料の品目名は「○月委託料」（常用・請負とも共通。写真の体裁に合わせる）。
-  const month = parseInt(yearMonth.split("-")[1] ?? "0", 10);
-  return buildClientLines(
-    { manDays, otHours, expenses: [], lumpItems, ukeoiAmounts },
+  return buildBillingLines(
     {
+      billingMode: client?.billingMode ?? "AGGREGATE",
+      yearMonth,
       unitPrice,
-      otUnitPrice: clientOt?.otUnitPrice ?? null,
-      taxRate,
-      joyoItemName: `${month}月委託料`,
+      nightUnitPrice: client?.nightUnitPrice ?? 0,
+      otUnitPrice: client?.otUnitPrice ?? null,
+      otHours,
+      sites,
+      lumpItems,
+      ukeoiAmounts,
+      expenses: [],
     },
+    taxRate,
   );
 }
 

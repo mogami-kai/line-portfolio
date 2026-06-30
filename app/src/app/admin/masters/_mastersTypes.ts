@@ -19,7 +19,10 @@ export interface ClientRow {
   name: string;
   honorific: string; // "御中" | "様"
   address: string | null;
-  unitPrice: number | null; // 常用の人工単価（円・任意）
+  unitPrice: number | null; // 日勤の人工単価（円・任意）
+  nightUnitPrice: number | null; // 夜勤の人工単価（円・任意。未設定なら日勤単価を流用）
+  otUnitPrice: number | null; // 残業の時間単価（円/時・任意。未設定なら自動）
+  billingMode: "AGGREGATE" | "PER_SITE"; // 請求方式（集約 / 現場ごと）
   active: boolean;
 }
 

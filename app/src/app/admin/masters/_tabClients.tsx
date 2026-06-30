@@ -280,7 +280,7 @@ function ClientDrawer({
 
         <div className="field">
           <label className="label" htmlFor="client-unitPrice">
-            常用単価
+            日勤単価
           </label>
           <input
             id="client-unitPrice"
@@ -293,7 +293,63 @@ function ClientDrawer({
             defaultValue={row?.unitPrice != null ? String(row.unitPrice) : ""}
             placeholder="任意（円）"
           />
-          <p className="hint">常用1人工あたりの単価（円）。未入力なら未設定。</p>
+          <p className="hint">日勤1人工あたりの単価（円）。半日はこの単価×0.5。未入力なら未設定。</p>
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="client-nightUnitPrice">
+            夜勤単価
+          </label>
+          <input
+            id="client-nightUnitPrice"
+            className="input input--num"
+            name="nightUnitPrice"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            defaultValue={
+              row?.nightUnitPrice != null ? String(row.nightUnitPrice) : ""
+            }
+            placeholder="任意（円）"
+          />
+          <p className="hint">夜勤1人工あたりの単価（円）。未入力なら日勤単価を使います。</p>
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="client-otUnitPrice">
+            残業単価
+          </label>
+          <input
+            id="client-otUnitPrice"
+            className="input input--num"
+            name="otUnitPrice"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={1}
+            defaultValue={
+              row?.otUnitPrice != null ? String(row.otUnitPrice) : ""
+            }
+            placeholder="任意（円/時）"
+          />
+          <p className="hint">残業1時間あたりの単価（円）。未入力なら日勤単価÷8×1.25で自動計算。</p>
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="client-billingMode">
+            請求方式
+          </label>
+          <select
+            id="client-billingMode"
+            className="select"
+            name="billingMode"
+            defaultValue={row?.billingMode ?? "AGGREGATE"}
+          >
+            <option value="AGGREGATE">集約（委託料を日勤・夜勤・残業でまとめる）</option>
+            <option value="PER_SITE">現場ごと（現場名ごとに1行で請求）</option>
+          </select>
+          <p className="hint">請求書の明細の出し方。現場ごとは現場名・夜勤を分けて並べます。</p>
         </div>
 
         {isEdit && (
