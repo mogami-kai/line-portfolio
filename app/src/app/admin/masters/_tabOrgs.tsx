@@ -126,8 +126,8 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
                   return (
                     <tr
                       key={o.id}
-                      onClick={() => setEditing(o)}
-                      style={{ cursor: "pointer" }}
+                      onClick={isSelf ? undefined : () => setEditing(o)}
+                      style={isSelf ? undefined : { cursor: "pointer" }}
                     >
                       <td>{o.name}</td>
                       <td>
@@ -153,10 +153,21 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
             </table>
           </div>
 
-          {/* スマホ: コンパクトカード。自社・協力会社いずれもタップで編集ドロワー。 */}
+          {/* スマホ: コンパクトカード。協力会社のみタップで編集ドロワー。自社は表示のみ。 */}
           <div className="mst-cards">
             {sorted.map((o) => {
+              const isSelf = o.kind === "SELF";
               const sub = `${kindLabel(o.kind)} / ${o.active ? "有効" : "無効"}`;
+              if (isSelf) {
+                return (
+                  <div key={o.id} className="mst-card" style={{ cursor: "default" }}>
+                    <span className="mst-card-main">
+                      {o.name}
+                      <span className="mst-card-sub">{sub}</span>
+                    </span>
+                  </div>
+                );
+              }
               return (
                 <button
                   key={o.id}

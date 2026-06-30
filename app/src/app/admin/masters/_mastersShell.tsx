@@ -30,7 +30,7 @@ import { SettingsTab } from "./_tabSettings.js";
 
 const TABS: { key: MasterTab; label: string; group?: "blue" }[] = [
   { key: "workers", label: "職人" },
-  { key: "orgs", label: "自社・協力会社" },
+  { key: "orgs", label: "ロール" },
   { key: "clients", label: "取引先設定", group: "blue" },
   { key: "settings", label: "請求書設定", group: "blue" },
 ];
