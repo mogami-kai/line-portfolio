@@ -195,8 +195,11 @@ export default async function InvoicesPage({
     Array.from(clientMap.entries()).map(async ([clientId, name]) => {
       const lines = await buildClientInvoiceLines(clientId, ym, taxRate);
       const s = summarize(lines, taxRate);
+      // 人工（委託料・現場行）や残業代は単価に依存する＝単価未設定だと¥0請求になる。
+      // 新フォーマットでは品目名が「○月委託料（日勤）」「現場名」「残業代」等になるため、
+      // 単位ラベル（人工/時間）で労務行を判定する（請負＝式・立替は対象外）。
       const hasLabor = lines.some(
-        (l) => l.itemName.endsWith("委託料") || l.itemName === "残業",
+        (l) => l.unitLabel === "人工" || l.unitLabel === "時間",
       );
       return {
         clientId,

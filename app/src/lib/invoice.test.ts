@@ -291,8 +291,14 @@ describe("toCSV", () => {
   });
 });
 
-describe("toXlsx（テンプレ準拠・数式）", () => {
-  it("件名/宛先/発行元/振込先/明細(数式)/合計(数式) を埋め、再読込で検証できる", async () => {
+describe("toXlsx（PDFテンプレ準拠）", () => {
+  // 新レイアウト（template_013）: タイトル A3 / 請求日 C2 / 宛先 A6 / 振込先 C6 /
+  //   請求金額 B9 / 明細ヘッダ 11行目 / 明細 FIRST=12（A=品目 B=数量 C=単価 D=金額）/
+  //   18行確保 → 小計ラベル30・値31（小計 B31 / 消費税 C31 / 合計 D31）。
+  const FIRST = 12;
+  const R_SUMVAL = FIRST + 18 + 1; // 31
+
+  it("宛先/振込先/明細(数式)/合計(数式) を埋め、再読込で検証できる", async () => {
     const tlines = buildClientLines(
       { manDays: 106, otHours: 1, expenses: [{ kind: "駐車", amount: 3000 }] },
       { unitPrice: 22000, taxRate: 0.1, joyoItemName: "6月委託料" },
@@ -320,46 +326,43 @@ describe("toXlsx（テンプレ準拠・数式）", () => {
       return v;
     };
 
-    expect(txt("A2")).toBe("請　求　書");
-    expect(String(txt("A13"))).toContain("2026年6月分");
-    expect(String(txt("A7"))).toContain("ダミー商事");
-    expect(String(txt("A7"))).toContain("様");
-    expect(txt("E7")).toBe("ダミー工務店");
+    expect(txt("A3")).toBe("請　求　書");
+    expect(String(txt("C2"))).toContain("2026/06/30");
+    expect(String(txt("A6"))).toContain("ダミー商事");
+    expect(String(txt("A6"))).toContain("様");
+    // 振込先（C6 ボックス）に DB の bankInfo を反映
+    expect(String(txt("C6"))).toContain("ダミー銀行");
 
-    // 明細1行目＝○月委託料、数量＝人工合計、単価
-    expect(txt("B20")).toBe("6月委託料");
-    expect(ws.getCell("C20").value).toBe(106);
-    expect(ws.getCell("E20").value).toBe(22000);
-    // F20 は「数量×単価」の数式＋計算済み結果
-    const f20 = ws.getCell("F20").value as { formula: string; result: number };
-    expect(f20.formula).toContain("C20*E20");
-    expect(f20.result).toBe(106 * 22000);
+    // 明細1行目＝○月委託料、A=品目 B=数量 C=単価 D=金額(数式)
+    expect(txt(`A${FIRST}`)).toBe("6月委託料");
+    expect(ws.getCell(`B${FIRST}`).value).toBe(106);
+    expect(ws.getCell(`C${FIRST}`).value).toBe(22000);
+    const dFirst = ws.getCell(`D${FIRST}`).value as { formula: string; result: number };
+    expect(dFirst.formula).toContain(`B${FIRST}*C${FIRST}`);
+    expect(dFirst.result).toBe(106 * 22000);
 
     // 三桁区切り（数量・単価・金額すべてカンマ書式）
-    expect(ws.getCell("C20").numFmt).toContain("#,##0");
-    expect(ws.getCell("E20").numFmt).toContain("#,##0");
-    expect(ws.getCell("F20").numFmt).toContain("#,##0");
+    expect(ws.getCell(`B${FIRST}`).numFmt).toContain("#,##0");
+    expect(ws.getCell(`C${FIRST}`).numFmt).toContain("#,##0");
+    expect(ws.getCell(`D${FIRST}`).numFmt).toContain("#,##0");
 
     // 2行目＝残業、3行目＝立替
-    expect(txt("B21")).toBe("残業");
-    expect(String(txt("B22"))).toContain("立替");
+    expect(txt(`A${FIRST + 1}`)).toBe("残業");
+    expect(String(txt(`A${FIRST + 2}`))).toContain("立替");
 
-    // 合計（税込）は数式 F36+F37（明細15行→小計36/消費税37/合計38）
-    const total = ws.getCell("F38").value as { formula: string; result: number };
-    expect(total.formula).toBe("F36+F37");
-
-    // 振込先は DB の bankInfo を反映
-    expect(String(txt("A45"))).toContain("ダミー銀行");
+    // 合計（税込）は数式（小計 B31 ＋ 消費税 C31 ＋ 対象外）
+    const total = ws.getCell(`D${R_SUMVAL}`).value as { formula: string; result: number };
+    expect(total.formula).toContain(`B${R_SUMVAL}+C${R_SUMVAL}`);
   });
 
   it("保存済み amount を金額の正とし、税は round（画面/CSV と一致）", async () => {
     // qty×unitPrice = 0.5×3131 = 1565.5 だが、保存 amount は 1566（round 済み）。
-    // XLSX は再計算（数量×単価＝1565.5）ではなく保存 amount（1566）を採用すること。
-    // さらに税は floor(156.6)=156 ではなく round(156.6)=157 を採用する。
+    // XLSX 明細の cached result は保存 amount（1566）を採用すること。
+    // 小計は保存 amount 合計、税は round(156.6)=157（floor の 156 ではない）。
     const lines = [
       {
         sortNo: 1,
-        itemName: "残業",
+        itemName: "残業代",
         qty: 0.5,
         unitLabel: "時間",
         unitPrice: 3131,
@@ -381,17 +384,14 @@ describe("toXlsx（テンプレ準拠・数式）", () => {
     const cell = (addr: string) =>
       ws.getCell(addr).value as { formula: string; result: number };
 
-    // 明細金額 F20 は保存 amount（1566）であって 1565.5 ではない。
-    expect(cell("F20").result).toBe(1566);
-    // 小計（F36）も保存 amount の合計。
-    expect(cell("F36").result).toBe(1566);
-    // 消費税（F37）は round(1566×0.1)=157（floor の 156 ではない）。
-    expect(cell("F37").result).toBe(157);
-    // 合計（F38）= 小計 + 税 = 1723。
-    expect(cell("F38").result).toBe(1723);
-    // 税率別内訳の消費税式は ROUND（ROUNDDOWN ではない）。
-    expect(cell("E42").formula).toContain("ROUND(");
-    expect(cell("E42").formula).not.toContain("ROUNDDOWN");
-    expect(cell("E42").result).toBe(157);
+    // 明細金額 D12 の cached result は保存 amount（1566）。
+    expect(cell(`D${FIRST}`).result).toBe(1566);
+    // 小計（B31）は保存 amount の合計（静的値）。
+    expect(ws.getCell(`B${R_SUMVAL}`).value).toBe(1566);
+    // 消費税（C31）は round(1566×0.1)=157（floor の 156 ではない）。
+    expect(cell(`C${R_SUMVAL}`).formula).toContain("ROUND(");
+    expect(cell(`C${R_SUMVAL}`).result).toBe(157);
+    // 合計（D31）= 小計 + 税 = 1723。
+    expect(cell(`D${R_SUMVAL}`).result).toBe(1723);
   });
 });
