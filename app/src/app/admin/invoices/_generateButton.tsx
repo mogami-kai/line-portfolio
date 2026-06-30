@@ -2,11 +2,10 @@
 
 // ============================================================
 // 「請求書作成」ボタン（クライアント）
-//   押す → ローディング → /api/invoices/generate に POST（作成/再作成）
-//   → 返ってきた請求書 id で GET /api/invoices/[id]/export?format=xlsx へ遷移し、
-//     Excel を確実にダウンロード（iOS Safari でも落ちる "添付レスポンスへの遷移"）。
-//   → カードの状態（請求書番号など）を最新化（router.refresh）。
-//   ※ 以前の fetch→blob→a.download 方式は iOS でファイルが保存されないことがあった。
+//   押す → /api/invoices/generate に POST（作成/再作成）→ ダウンロードリンクを表示。
+//   ダウンロードリンクを明示的に表示することで、iOS Safari でも確実に保存できる
+//   （async onClick 内で await 後に window.location.href を変えると iOS では
+//     ユーザージェスチャーコンテキストが失われ、ダウンロードが無視されるため）。
 // ============================================================
 
 import { useState } from "react";
@@ -22,11 +21,13 @@ export function GenerateInvoiceButton({
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [downloadId, setDownloadId] = useState<string | null>(null);
 
   async function onClick() {
     if (loading) return;
     setLoading(true);
     setError(null);
+    setDownloadId(null);
     try {
       const res = await fetch("/api/invoices/generate", {
         method: "POST",
@@ -40,10 +41,8 @@ export function GenerateInvoiceButton({
         setError(data?.message || "作成に失敗しました。もう一度お試しください。");
         return;
       }
-      // 請求書番号・状態の表示を更新。
+      setDownloadId(data.id);
       router.refresh();
-      // 確実なダウンロード: 添付レスポンスを返す GET へ遷移（iOS Safari でも保存できる）。
-      window.location.href = `/api/invoices/${data.id}/export?format=xlsx`;
     } catch {
       setError("通信エラーが発生しました。");
     } finally {
@@ -52,7 +51,7 @@ export function GenerateInvoiceButton({
   }
 
   return (
-    <div style={{ marginTop: 12 }}>
+    <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
       <button
         type="button"
         className="btn btn--primary"
@@ -62,8 +61,16 @@ export function GenerateInvoiceButton({
       >
         {loading ? "作成中…" : "請求書作成"}
       </button>
+      {downloadId && (
+        <a
+          href={`/api/invoices/${downloadId}/export?format=xlsx`}
+          className="btn btn--ghost"
+        >
+          xlsx ダウンロード
+        </a>
+      )}
       {error && (
-        <p className="hint" style={{ color: "var(--danger)", marginTop: 6 }}>
+        <p className="hint" style={{ color: "var(--danger)", marginTop: 4 }}>
           {error}
         </p>
       )}

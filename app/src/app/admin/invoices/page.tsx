@@ -10,14 +10,11 @@
 //   - 既存 Invoice には CSV / xlsx ダウンロードリンク（/api/invoices/[id]/export）。
 // ============================================================
 
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
 import { GenerateInvoiceButton } from "./_generateButton.js";
 import { InvoiceTable, type InvoiceTableRow } from "./_invoiceTable.js";
-import { ConfirmDeleteButton } from "../_confirmDelete.js";
-import { deleteInvoiceAction } from "../_actions.js";
 import {
   currentYearMonth,
   loadMonthRows,
@@ -26,7 +23,6 @@ import {
 import {
   buildClientInvoiceLines,
   clientsWithDefaultRate,
-  generateInvoice,
   getMonthClientDetails,
 } from "@/lib/invoiceService.js";
 import { summarize, type InvoiceLine } from "@/lib/invoice.js";
@@ -119,42 +115,22 @@ function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
   );
 }
 
-// 既存 Invoice の番号＋削除。PC テーブルの操作セル / スマホカード共用。
-//   ダウンロードは「請求書作成」ボタンに一本化（押すと作成＋Excel ダウンロード）。
-//   削除は控えめ（btn--danger-text）。InvoiceLine は onDelete:Cascade で自動削除。
+// 既存 Invoice の番号＋再ダウンロード。PC テーブルの操作セル / スマホカード共用。
 function InvoiceMeta({ iv }: { iv: ExistingInvoice }) {
   return (
     <div className="inv-no-line">
       請求書番号 <strong>{iv.invoiceNo}</strong>
-      <ConfirmDeleteButton
-        action={deleteInvoiceAction}
-        id={iv.id}
-        label="請求書を削除"
-        confirmText="この請求書を削除します。番号や明細のスナップショットが消えます。よろしいですか？"
-      />
+      <a
+        href={`/api/invoices/${iv.id}/export?format=xlsx`}
+        className="btn btn--ghost btn--sm"
+        style={{ marginLeft: 8 }}
+      >
+        xlsx 再ダウンロード
+      </a>
     </div>
   );
 }
 
-// ── Server Action: 請求書生成/再生成 ──
-async function generateInvoiceAction(formData: FormData) {
-  "use server";
-  const admin = await getAdminContext();
-  if (!admin) throw new Error("FORBIDDEN");
-  const clientId = String(formData.get("clientId") ?? "");
-  const ym = String(formData.get("ym") ?? "");
-  if (!clientId || !/^\d{4}-\d{2}$/.test(ym)) throw new Error("BAD_INPUT");
-  // 生成失敗（例: 採番衝突の連続）でも画面をクラッシュさせず、エラー表示に集約する。
-  let ok = true;
-  try {
-    await generateInvoice(clientId, ym);
-  } catch (e) {
-    console.error("[invoices] generateInvoice failed", e);
-    ok = false;
-  }
-  if (!ok) redirect(`/admin/invoices?ym=${ym}&error=generate`);
-  revalidatePath("/admin/invoices");
-}
 
 export default async function InvoicesPage({
   searchParams,
