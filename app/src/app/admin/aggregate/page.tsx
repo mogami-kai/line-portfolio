@@ -20,6 +20,7 @@ import {
   currentYearMonth,
   getMonthSummary,
   monthRange,
+  summarizeExpenses,
   type ClientMonthSummary,
   type ExpensePayerSummary,
   type WorkerMonthSummary,
@@ -224,6 +225,16 @@ async function MonthSummary({
 }) {
   const { self, partner, byWorker, selfTotals, expensePayers, expenseTotal } =
     await getMonthSummary(ym);
+
+  // 自社管理者(SELF_ADMIN)には自社の立替のみ集計し直す（協力会社の立替を漏らさない）。
+  //   getMonthSummary のキャッシュは全社の立替を含むため、スコープ時は別取得して差し替える。
+  let payers = expensePayers;
+  let payTotal = expenseTotal;
+  if (selfScoped) {
+    const scoped = await summarizeExpenses(ym, { source: "SELF" });
+    payers = scoped.payers;
+    payTotal = scoped.grandTotal;
+  }
   return (
     <>
       {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
@@ -243,9 +254,9 @@ async function MonthSummary({
       {/* 建て替え集計（立替えた人 × 用途 × 金額） */}
       <div className="section-head">
         <h3 className="section-subtitle">建て替え集計</h3>
-        {expenseTotal > 0 && <span className="muted">{yen(expenseTotal)}</span>}
+        {payTotal > 0 && <span className="muted">{yen(payTotal)}</span>}
       </div>
-      <ExpenseAggregation payers={expensePayers} total={expenseTotal} />
+      <ExpenseAggregation payers={payers} total={payTotal} />
 
       {/* 自社 取引先別（請求の見方） */}
       <div className="section-head">

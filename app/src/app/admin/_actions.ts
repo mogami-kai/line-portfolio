@@ -14,14 +14,47 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db.js";
-import { getAdminContext, type ResolvedUser } from "@/lib/auth.js";
+import { getAdminContext, adminScope, type ResolvedUser } from "@/lib/auth.js";
 import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
-/** ADMIN を要求し、実行中の管理者コンテキストを返す。違反時は throw。 */
+/** ADMIN / SELF_ADMIN を要求し、実行中の管理者コンテキストを返す。違反時は throw。 */
 async function requireAdminAction(): Promise<ResolvedUser> {
   const admin = await getAdminContext();
   if (!admin) throw new Error("FORBIDDEN: 管理者ログインが必要です。");
   return admin;
+}
+
+/**
+ * 全社管理者（ADMIN）のみを要求する。自社管理者（SELF_ADMIN）は拒否。
+ * ユーザー管理・ロール変更・組織管理など、協力会社を含む全社操作に使う
+ * （SELF_ADMIN は自社のみ閲覧で、これらの全社的な変更はできない）。
+ */
+async function requireFullAdminAction(): Promise<ResolvedUser> {
+  const admin = await requireAdminAction();
+  if (adminScope(admin) !== "ALL") {
+    throw new Error("FORBIDDEN: この操作は全社管理者のみ可能です。");
+  }
+  return admin;
+}
+
+/**
+ * SELF_ADMIN（自社スコープ）の場合、対象が自社（SELF）組織であることを要求する。
+ * ADMIN（全社）は素通り。orgId 不明や協力会社（PARTNER）なら throw。
+ * 出面・職人など組織に紐づくデータの変更を自社のみに限定するために使う。
+ */
+async function assertOrgInScope(
+  admin: ResolvedUser,
+  orgId: string | null | undefined,
+): Promise<void> {
+  if (adminScope(admin) === "ALL") return;
+  if (!orgId) throw new Error("FORBIDDEN: 自社のデータのみ操作できます。");
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { kind: true },
+  });
+  if (!org || org.kind !== "SELF") {
+    throw new Error("FORBIDDEN: 自社のデータのみ操作できます。");
+  }
 }
 
 /** FormData の文字列取得（trim）。 */
@@ -227,13 +260,14 @@ export async function deleteRateAction(fd: FormData): Promise<void> {
 // 職人（Worker）: org スコープ
 // ============================================================
 export async function createWorkerAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const name = str(fd, "name");
   const orgId = str(fd, "orgId");
   if (!name) throw new Error("職人名は必須です");
   if (!orgId) throw new Error("所属組織を選択してください");
   const org = await prisma.organization.findUnique({ where: { id: orgId } });
   if (!org) throw new Error("組織が見つかりません");
+  await assertOrgInScope(admin, orgId); // SELF_ADMIN は自社組織の職人のみ追加可。
   await prisma.worker.create({
     data: { name, orgId, aliases: parseAliases(str(fd, "aliases")) },
   });
@@ -241,11 +275,17 @@ export async function createWorkerAction(fd: FormData): Promise<void> {
 }
 
 export async function updateWorkerAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   const name = str(fd, "name");
   if (!name) throw new Error("職人名は必須です");
+  const w = await prisma.worker.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+  if (!w) throw new Error("職人が見つかりません");
+  await assertOrgInScope(admin, w.orgId); // SELF_ADMIN は自社職人のみ編集可。
   await prisma.worker.update({
     where: { id },
     data: {
@@ -266,12 +306,18 @@ const workerActiveSchema = z.object({
 });
 
 export async function setWorkerActiveAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const parsed = workerActiveSchema.safeParse({
     id: str(fd, "id"),
     active: fd.get("active") === "on" || fd.get("active") === "true",
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  const w = await prisma.worker.findUnique({
+    where: { id: parsed.data.id },
+    select: { orgId: true },
+  });
+  if (!w) throw new Error("職人が見つかりません");
+  await assertOrgInScope(admin, w.orgId); // SELF_ADMIN は自社職人のみ。
   await prisma.worker.update({
     where: { id: parsed.data.id },
     data: { active: parsed.data.active },
@@ -283,7 +329,7 @@ export async function setWorkerActiveAction(fd: FormData): Promise<void> {
 //   from の出面記録(ReportEntry)を into に付け替え、from の氏名・別名を into の別名へ統合し、
 //   from を削除する（同一組織・別ID のみ）。すべて 1 トランザクションで原子的に行う。
 export async function mergeWorkerAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const fromId = str(fd, "fromId");
   const intoId = str(fd, "intoId");
   if (!fromId || !intoId) throw new Error("統合元・統合先の職人を指定してください");
@@ -303,6 +349,7 @@ export async function mergeWorkerAction(fd: FormData): Promise<void> {
   if (from.orgId !== into.orgId) {
     throw new Error("所属組織が異なる職人どうしは統合できません");
   }
+  await assertOrgInScope(admin, into.orgId); // SELF_ADMIN は自社職人のみ統合可。
 
   // into の別名に「into の別名 + from の氏名 + from の別名」を統合（重複除去・into の氏名は除外）。
   const mergedAliases = Array.from(
@@ -333,7 +380,7 @@ export async function mergeWorkerAction(fd: FormData): Promise<void> {
 // 組織（Organization）: 自社（SELF）/ パートナー（PARTNER）
 // ============================================================
 export async function createOrganizationAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const name = str(fd, "name");
   const kind = str(fd, "kind");
   if (!name) throw new Error("組織名は必須です");
@@ -348,7 +395,7 @@ export async function createOrganizationAction(fd: FormData): Promise<void> {
 }
 
 export async function updateOrganizationAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   const name = str(fd, "name");
@@ -470,9 +517,15 @@ export async function setLumpContractStatusAction(fd: FormData): Promise<void> {
 //   ※ 承認は状態確定のみ。グループ再投稿はしない（誤爆・二重投稿防止）。
 // ============================================================
 export async function confirmReportAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
+  const rep = await prisma.report.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+  if (!rep) throw new Error("出面が見つかりません");
+  await assertOrgInScope(admin, rep.orgId);
   await prisma.report.update({
     where: { id },
     data: { status: "CONFIRMED" },
@@ -482,9 +535,15 @@ export async function confirmReportAction(fd: FormData): Promise<void> {
 }
 
 export async function deleteReportAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
+  const rep = await prisma.report.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+  if (!rep) throw new Error("出面が見つかりません");
+  await assertOrgInScope(admin, rep.orgId);
   // entries は onDelete: Cascade。expenses は任意リレーション（SetNull 既定）の
   // ため、孤児を残さないよう明示削除してから本体を消す（トランザクション）。
   await prisma.$transaction([
@@ -508,7 +567,7 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
  *     モーダルを開いた時だけここで取りに行く（一覧の RSC ペイロード＆ハイドレーション軽量化）。
  */
 export async function getReportForEditAction(id: string): Promise<ReportEditorData> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   if (!id) throw new Error("id がありません");
   const [r, clients, workers] = await Promise.all([
     prisma.report.findUnique({
@@ -527,6 +586,10 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
     }),
   ]);
   if (!r) throw new Error("出面が見つかりません");
+  // SELF_ADMIN は自社の出面のみ閲覧・編集可（協力会社の出面は開けない）。
+  if (adminScope(admin) !== "ALL" && r.org.kind !== "SELF") {
+    throw new Error("FORBIDDEN: 自社のデータのみ操作できます。");
+  }
   return {
     report: {
       id: r.id,
@@ -585,7 +648,7 @@ const reportEditSchema = z.object({
 
 /** 出面1件を総入れ替え更新（本体＋明細＋経費）。明細・経費は delete→create でフル置換。 */
 export async function updateReportAction(input: ReportEditInput): Promise<void> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const parsed = reportEditSchema.safeParse(input);
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
   const {
@@ -598,6 +661,14 @@ export async function updateReportAction(input: ReportEditInput): Promise<void> 
     entries,
     expenses,
   } = parsed.data;
+
+  // SELF_ADMIN は自社の出面のみ編集可。
+  const existing = await prisma.report.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+  if (!existing) throw new Error("出面が見つかりません");
+  await assertOrgInScope(admin, existing.orgId);
 
   // 契約整合: 請負は契約金額（正の整数）必須。常用は金額を持たない（null へ矯正）。
   if (contractType === "UKEOI" && (contractAmount === null || contractAmount <= 0)) {
@@ -722,7 +793,8 @@ const approveSchema = z.object({
 });
 
 export async function approveUserAction(fd: FormData): Promise<void> {
-  const admin = await requireAdminAction();
+  // ロール変更・承認は全社管理者のみ（SELF_ADMIN による自己昇格を防止）。
+  const admin = await requireFullAdminAction();
   const roleRaw = str(fd, "role") as
     | "ADMIN"
     | "SELF_ADMIN"
@@ -798,7 +870,7 @@ const statusSchema = z.object({
 });
 
 export async function setUserStatusAction(fd: FormData): Promise<void> {
-  const admin = await requireAdminAction();
+  const admin = await requireFullAdminAction();
   const parsed = statusSchema.safeParse({
     userId: str(fd, "userId"),
     status: (str(fd, "status") || "ACTIVE") as "ACTIVE" | "DISABLED",
@@ -876,9 +948,23 @@ export async function deleteClientAction(fd: FormData): Promise<DeleteResult> {
  * 職人（Worker）を削除。出面（ReportEntry）に使われている場合は不可（無効化へ誘導）。
  */
 export async function deleteWorkerAction(fd: FormData): Promise<DeleteResult> {
-  await requireAdminAction();
+  const admin = await requireAdminAction();
   const id = str(fd, "id");
   if (!id) return { ok: false, error: "id がありません" };
+  const w = await prisma.worker.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+  if (!w) return { ok: false, error: "職人が見つかりません" };
+  if (adminScope(admin) !== "ALL") {
+    const org = await prisma.organization.findUnique({
+      where: { id: w.orgId },
+      select: { kind: true },
+    });
+    if (!org || org.kind !== "SELF") {
+      return { ok: false, error: "自社の職人のみ削除できます。" };
+    }
+  }
   const used = await prisma.reportEntry.count({ where: { workerId: id } });
   if (used > 0) {
     return {
@@ -899,7 +985,7 @@ export async function deleteWorkerAction(fd: FormData): Promise<DeleteResult> {
 export async function deleteOrganizationAction(
   fd: FormData,
 ): Promise<DeleteResult> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   if (!id) return { ok: false, error: "id がありません" };
   const [users, workers, reports] = await Promise.all([
@@ -936,7 +1022,7 @@ export async function deleteInvoiceAction(fd: FormData): Promise<DeleteResult> {
  *   ため、件数チェックは不要でそのまま削除できる。
  */
 export async function deleteUserAction(fd: FormData): Promise<DeleteResult> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   if (!id) return { ok: false, error: "id がありません" };
   const admin = await getAdminContext();

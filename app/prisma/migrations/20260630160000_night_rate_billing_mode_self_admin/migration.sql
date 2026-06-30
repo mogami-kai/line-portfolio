@@ -11,6 +11,6 @@ EXCEPTION
 END $$;
 ALTER TABLE "Client" ADD COLUMN "billingMode" "BillingMode" NOT NULL DEFAULT 'AGGREGATE';
 
--- ② 自社管理者ロール（自社=SELF のデータのみ閲覧）。
---    enum 値の追加は ADD VALUE IF NOT EXISTS（トランザクション外で実行）。
-ALTER TYPE "Role" ADD VALUE IF NOT EXISTS 'SELF_ADMIN';
+-- ② 自社管理者ロール(SELF_ADMIN)の enum 追加は、PostgreSQL の制約
+--    （ALTER TYPE ... ADD VALUE を他のDDLと同一トランザクションで実行できない）
+--    に従い、専用マイグレーション 20260630155000_role_self_admin に分離した。

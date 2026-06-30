@@ -429,16 +429,26 @@ const UNASSIGNED_PAYER = "未指定";
 
 export async function summarizeExpenses(
   yearMonth: string,
+  opts?: { source?: OrgKind },
 ): Promise<{ payers: ExpensePayerSummary[]; grandTotal: number }> {
   const { from, to } = monthRange(yearMonth);
+  // source 指定時（自社管理者の自社スコープ等）は、その source の出面に紐づく経費のみ。
+  //   出面を持たない経費（reportId=null）は所属が不明なため、スコープ時は除外する。
+  const reportFilter = opts?.source
+    ? { report: { status: "CONFIRMED", org: { active: true }, source: opts.source } }
+    : null;
   const expenses = await prisma.expense.findMany({
     where: {
       workDate: { gte: from, lt: to },
-      // 出面に紐づく経費は確定済み・有効組織のみ。出面を持たない経費はそのまま含める。
-      OR: [
-        { reportId: null },
-        { report: { status: "CONFIRMED", org: { active: true } } },
-      ],
+      ...(reportFilter
+        ? reportFilter
+        : {
+            // 出面に紐づく経費は確定済み・有効組織のみ。出面を持たない経費はそのまま含める。
+            OR: [
+              { reportId: null },
+              { report: { status: "CONFIRMED", org: { active: true } } },
+            ],
+          }),
     },
     select: { paidBy: true, kind: true, amount: true },
   });
