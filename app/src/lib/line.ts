@@ -45,7 +45,14 @@ export async function pushToGroup(text: string): Promise<void> {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`LINE push failed: ${res.status} ${body}`);
+    // 宛先の種別だけ添える（C…=グループ / R…=トークルーム / U…=ユーザー）。
+    // 「グループID のはずが U… 」なら LINE_GROUP_ID の設定ミス。フルIDはログに出さない。
+    const head = to[0];
+    const kind =
+      head === "C" ? "group(C)" : head === "R" ? "room(R)" : head === "U" ? "user(U)" : `other(${head})`;
+    throw new Error(
+      `LINE push failed: ${res.status} to=${kind} len=${to.length} body=${body}`,
+    );
   }
 }
 
