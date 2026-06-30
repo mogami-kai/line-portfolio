@@ -38,6 +38,7 @@ export interface EditableExpense {
   kind: string;
   amount: number;
   billable: boolean;
+  paidBy: string;
 }
 
 /** getReportForEditAction の戻り値＝編集フォームの初期値。 */

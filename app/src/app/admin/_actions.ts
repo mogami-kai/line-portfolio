@@ -517,6 +517,7 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
         kind: x.kind,
         amount: x.amount,
         billable: x.billable,
+        paidBy: x.paidBy ?? "",
       })),
     },
     clients,
@@ -546,6 +547,7 @@ const reportEditSchema = z.object({
       kind: z.string().min(1, "経費の項目名を入力してください"),
       amount: z.number().int().nonnegative(),
       billable: z.boolean(),
+      paidBy: z.string().trim().max(50).optional(),
     }),
   ),
 });
@@ -613,6 +615,7 @@ export async function updateReportAction(input: ReportEditInput): Promise<void> 
               kind: x.kind,
               amount: x.amount,
               billable: x.billable,
+              paidBy: x.paidBy || null,
             })),
           }),
         ]

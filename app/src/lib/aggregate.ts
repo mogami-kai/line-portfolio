@@ -86,8 +86,6 @@ export interface ReportRowForAgg {
   otHours: number;
   /** 請負(UKEOI)の契約金額（税抜）。常用は 0。概算金額に反映する。 */
   contractAmount: number;
-  /** 立替経費の合計（請求/自社負担を問わず合算）。集計表示用で概算金額には混ぜない。 */
-  expense: number;
 }
 
 /**
@@ -113,7 +111,6 @@ export async function loadMonthRows(
       client: { select: { id: true, name: true } },
       site: { select: { name: true } },
       entries: { select: { shift: true, manDays: true, otHours: true } },
-      expenses: { select: { amount: true } },
     },
   });
 
@@ -125,8 +122,6 @@ export async function loadMonthRows(
       manDays += resolveManDays(e.shift as Shift, e.manDays);
       otHours += Number(e.otHours) || 0;
     }
-    let expense = 0;
-    for (const x of r.expenses) expense += Number(x.amount) || 0;
     rows.push({
       clientId: r.client.id,
       clientName: r.client.name,
@@ -137,7 +132,6 @@ export async function loadMonthRows(
       manDays,
       otHours,
       contractAmount: r.contractType === "UKEOI" ? Number(r.contractAmount) || 0 : 0,
-      expense,
     });
   }
   return rows;
@@ -153,8 +147,6 @@ export function toReportLike(rows: ReportRowForAgg[]): ReportLike[] {
     contractType: r.contractType,
     // 請負(UKEOI)の契約金額は概算で「一式」として積む（lump に載せる）。
     lump: r.contractAmount,
-    // 立替経費は取引先ごとに合算（集計表示用。概算金額には混ぜない）。
-    expense: r.expense,
   }));
 }
 
@@ -164,8 +156,6 @@ export interface ClientMonthSummary {
   otHours: number;
   /** RateCard を当てた概算金額（税抜）。単価未設定の現場は 0 として概算。 */
   estimatedAmount: number;
-  /** 立替経費の合計。概算金額(人工・残業)とは別枠で集計表示する。 */
-  expense: number;
 }
 
 /**
@@ -221,8 +211,6 @@ export async function summarizeByClient(
       manDays,
       otHours,
       estimatedAmount: summary.subtotal + summary.exempt,
-      // 立替経費は概算(人工・残業)に混ぜず、別枠で合算（aggregateForInvoice 集計済み）。
-      expense: clientAgg.expense,
     });
   }
   return out;
@@ -313,8 +301,69 @@ export async function summarizeByWorker(
 }
 
 // ============================================================
+// 建て替え集計（立替経費を「立替えた人 × 用途」で集計）
+//   請求書・人工集計とは独立。立替えた人ごとに用途(種別)と金額をまとめる。
+//   立替えた人(paidBy)が未指定の経費は「未指定」にまとめる。
+// ============================================================
+export interface ExpensePayerSummary {
+  /** 立替えた人の名前（未指定は "未指定"）。 */
+  paidBy: string;
+  /** 用途(種別)ごとの金額。 */
+  items: { kind: string; amount: number }[];
+  /** その人の合計。 */
+  total: number;
+}
+
+const UNASSIGNED_PAYER = "未指定";
+
+export async function summarizeExpenses(
+  yearMonth: string,
+): Promise<{ payers: ExpensePayerSummary[]; grandTotal: number }> {
+  const { from, to } = monthRange(yearMonth);
+  const expenses = await prisma.expense.findMany({
+    where: {
+      workDate: { gte: from, lt: to },
+      // 出面に紐づく経費は確定済み・有効組織のみ。出面を持たない経費はそのまま含める。
+      OR: [
+        { reportId: null },
+        { report: { status: "CONFIRMED", org: { active: true } } },
+      ],
+    },
+    select: { paidBy: true, kind: true, amount: true },
+  });
+
+  // 立替えた人 → 用途(種別) → 金額。
+  const byPayer = new Map<string, Map<string, number>>();
+  for (const e of expenses) {
+    const payer = e.paidBy?.trim() || UNASSIGNED_PAYER;
+    const kind = e.kind?.trim() || "その他";
+    const kinds = byPayer.get(payer) ?? new Map<string, number>();
+    kinds.set(kind, (kinds.get(kind) ?? 0) + (Number(e.amount) || 0));
+    byPayer.set(payer, kinds);
+  }
+
+  let grandTotal = 0;
+  const payers: ExpensePayerSummary[] = [];
+  for (const [payer, kinds] of byPayer) {
+    const items = Array.from(kinds.entries())
+      .map(([kind, amount]) => ({ kind, amount }))
+      .sort((a, b) => b.amount - a.amount || a.kind.localeCompare(b.kind, "ja"));
+    const total = items.reduce((a, i) => a + i.amount, 0);
+    grandTotal += total;
+    payers.push({ paidBy: payer, items, total });
+  }
+  // 金額の多い順。未指定は最後に寄せる。
+  payers.sort((a, b) => {
+    if (a.paidBy === UNASSIGNED_PAYER) return 1;
+    if (b.paidBy === UNASSIGNED_PAYER) return -1;
+    return b.total - a.total || a.paidBy.localeCompare(b.paidBy, "ja");
+  });
+  return { payers, grandTotal };
+}
+
+// ============================================================
 // 月次サマリのキャッシュ（管理ダッシュボード）
-//   自社/パートナーの取引先別サマリ＋職人別サマリ＋自社合計を 1 つにまとめ、
+//   自社/パートナーの取引先別サマリ＋職人別サマリ＋建て替え集計を 1 つにまとめ、
 //   unstable_cache でキャッシュ（tag="reports"・revalidate=60s）。出面の
 //   作成/承認/削除時に revalidateTag("reports") で無効化する。
 // ============================================================
@@ -322,14 +371,17 @@ export interface MonthSummaryData {
   self: ClientMonthSummary[];
   partner: ClientMonthSummary[];
   byWorker: WorkerMonthSummary[];
-  selfTotals: { manDays: number; otHours: number; amount: number; expense: number };
+  selfTotals: { manDays: number; otHours: number; amount: number };
+  expensePayers: ExpensePayerSummary[];
+  expenseTotal: number;
 }
 
 async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData> {
-  const [selfRows, partnerRows, byWorker] = await Promise.all([
+  const [selfRows, partnerRows, byWorker, expenseAgg] = await Promise.all([
     loadMonthRows(yearMonth, { source: "SELF" }),
     loadMonthRows(yearMonth, { source: "PARTNER" }),
     summarizeByWorker(yearMonth, { source: "SELF" }),
+    summarizeExpenses(yearMonth),
   ]);
   const [self, partner] = await Promise.all([
     summarizeByClient(yearMonth, selfRows),
@@ -339,9 +391,15 @@ async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData>
     manDays: self.reduce((a, r) => a + r.manDays, 0),
     otHours: self.reduce((a, r) => a + r.otHours, 0),
     amount: self.reduce((a, r) => a + r.estimatedAmount, 0),
-    expense: self.reduce((a, r) => a + r.expense, 0),
   };
-  return { self, partner, byWorker, selfTotals };
+  return {
+    self,
+    partner,
+    byWorker,
+    selfTotals,
+    expensePayers: expenseAgg.payers,
+    expenseTotal: expenseAgg.grandTotal,
+  };
 }
 
 /** 月次サマリをキャッシュして返す（tag="reports" で無効化）。 */

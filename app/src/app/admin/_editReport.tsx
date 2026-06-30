@@ -178,7 +178,10 @@ function EditModal({
 
   // ── 経費行の操作 ──
   function addExpense() {
-    setExpenses((prev) => [...prev, { kind: "", amount: 0, billable: true }]);
+    setExpenses((prev) => [
+      ...prev,
+      { kind: "", amount: 0, billable: true, paidBy: "" },
+    ]);
   }
   function updateExpense(i: number, patch: Partial<EditableExpense>) {
     setExpenses((prev) => prev.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
@@ -470,6 +473,14 @@ function EditModal({
                     onChange={(ev) =>
                       updateExpense(i, { amount: Number(ev.target.value) })
                     }
+                  />
+                  <input
+                    className="input"
+                    type="text"
+                    aria-label="立替えた人"
+                    placeholder="立替えた人（任意）"
+                    value={x.paidBy}
+                    onChange={(ev) => updateExpense(i, { paidBy: ev.target.value })}
                   />
                   <label className="inline-row">
                     <input

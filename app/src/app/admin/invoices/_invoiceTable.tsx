@@ -81,9 +81,6 @@ function Row({ row }: { row: InvoiceTableRow }) {
         </td>
         <td className="inv-c-num inv-c-total">
           {yen(row.total)}
-          {row.exempt > 0 && (
-            <span className="inv-exempt">うち立替 {yen(row.exempt)}</span>
-          )}
         </td>
         <td className="inv-c-ops">{row.actions}</td>
       </tr>

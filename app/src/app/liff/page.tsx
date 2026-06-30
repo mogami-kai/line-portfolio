@@ -99,6 +99,7 @@ interface ExpenseState {
   kind: string;
   amount: string;
   billable: boolean;
+  paidBy: string;
 }
 
 // localStorage に保存する「前回送信」スナップショット。
@@ -452,7 +453,10 @@ export default function LiffPage() {
   }, [newWorkerName, token]);
 
   const addExpense = useCallback(() => {
-    setExpenses((prev) => [...prev, { kind: "", amount: "", billable: true }]);
+    setExpenses((prev) => [
+      ...prev,
+      { kind: "", amount: "", billable: true, paidBy: "" },
+    ]);
   }, []);
   const updateExpense = useCallback(
     (idx: number, patch: Partial<ExpenseState>) => {
@@ -501,6 +505,7 @@ export default function LiffPage() {
         kind: x.kind.trim(),
         amount: Math.round(Number(x.amount)),
         billable: x.billable,
+        paidBy: x.paidBy.trim(),
       }))
       .filter((x) => x.kind && isFinite(x.amount) && x.amount !== 0);
 
@@ -1169,6 +1174,18 @@ export default function LiffPage() {
                       value={x.amount}
                       onChange={(ev) =>
                         updateExpense(i, { amount: ev.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="inline-row" style={{ marginTop: 8 }}>
+                    <input
+                      className="input"
+                      style={{ flex: "1 1 100%" }}
+                      type="text"
+                      placeholder="立替えた人（任意）"
+                      value={x.paidBy}
+                      onChange={(ev) =>
+                        updateExpense(i, { paidBy: ev.target.value })
                       }
                     />
                   </div>

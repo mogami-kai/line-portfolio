@@ -21,6 +21,7 @@ import {
   getMonthSummary,
   monthRange,
   type ClientMonthSummary,
+  type ExpensePayerSummary,
 } from "@/lib/aggregate.js";
 
 export const dynamic = "force-dynamic";
@@ -66,14 +67,53 @@ function ClientAccordion({
               <span className="k">概算金額（税抜）</span>
               <span className="v">{yen(r.estimatedAmount)}</span>
             </div>
-            <div className="kv">
-              <span className="k">立替経費</span>
-              <span className="v">{yen(r.expense)}</span>
-            </div>
           </div>
         </details>
       ))}
     </>
+  );
+}
+
+/** 建て替え集計（立替えた人ごとに用途・金額を一覧）。 */
+function ExpenseAggregation({
+  payers,
+  total,
+}: {
+  payers: ExpensePayerSummary[];
+  total: number;
+}) {
+  if (payers.length === 0) {
+    return <p className="muted">この月の立替はありません。</p>;
+  }
+  return (
+    <table className="worker-table">
+      <thead>
+        <tr>
+          <th>立替えた人</th>
+          <th>用途</th>
+          <th>金額</th>
+        </tr>
+      </thead>
+      <tbody>
+        {payers.map((p) =>
+          p.items.map((it, i) => (
+            <tr key={`${p.paidBy}-${it.kind}`}>
+              {i === 0 && (
+                <td className="wt-name" rowSpan={p.items.length}>
+                  {p.paidBy}
+                </td>
+              )}
+              <td>{it.kind}</td>
+              <td className="num">{yen(it.amount)}</td>
+            </tr>
+          )),
+        )}
+        <tr className="wt-total">
+          <td colSpan={2}>合計</td>
+          <td className="num">{yen(total)}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
 
@@ -83,7 +123,8 @@ function ClientAccordion({
  * ストリーミングする（月スイッチャー等の描画をブロックしない）。
  */
 async function MonthSummary({ ym }: { ym: string }) {
-  const { self, partner, byWorker, selfTotals } = await getMonthSummary(ym);
+  const { self, partner, byWorker, selfTotals, expensePayers, expenseTotal } =
+    await getMonthSummary(ym);
   return (
     <>
       {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
@@ -117,6 +158,13 @@ async function MonthSummary({ ym }: { ym: string }) {
           </tbody>
         </table>
       )}
+
+      {/* 建て替え集計（立替えた人 × 用途 × 金額） */}
+      <div className="section-head">
+        <h3 className="section-subtitle">建て替え集計</h3>
+        {expenseTotal > 0 && <span className="muted">{yen(expenseTotal)}</span>}
+      </div>
+      <ExpenseAggregation payers={expensePayers} total={expenseTotal} />
 
       {/* 自社 取引先別（請求の見方） */}
       <div className="section-head">

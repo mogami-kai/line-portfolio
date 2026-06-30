@@ -368,9 +368,6 @@ export default async function InvoicesPage({
                         <strong style={{ color: "var(--ink)" }}>
                           {yen(s.total)}
                         </strong>
-                        {s.exempt > 0 && (
-                          <span className="muted">　うち立替 {yen(s.exempt)}</span>
-                        )}
                       </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
