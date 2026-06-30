@@ -67,11 +67,14 @@ export async function resolveUser(
     include: { org: true },
   });
   if (found) {
-    // オープンアクセス: 旧フローで作られた未承認(approved=false)の在籍ユーザーも、
-    // ログイン時に自社(SELF)・管理者(ADMIN)・承認済みへ引き上げて入れるようにする
-    // （新規IDだけでなく既存の保留ユーザーも「誰でも入れる」を満たす）。
-    // 既に承認済み（管理者が PARTNER 等へ割り当て済みを含む）と無効化(DISABLED)は尊重する。
-    if (found.status === "ACTIVE" && !found.approved) {
+    // オープンアクセス（一旦全員管理者）: ログイン時、ACTIVE なユーザーは全員
+    // 自社(SELF)・管理者(ADMIN)・承認済みへ引き上げる。これにより、未承認の新規だけで
+    // なく、過去に協力会社(PARTNER)等へ降格された既存ユーザーも管理画面・入力フォームを
+    // 使える（「誰でも入れる」を満たす）。無効化(DISABLED)だけは尊重して引き上げない。
+    if (
+      found.status === "ACTIVE" &&
+      (found.role !== "ADMIN" || !found.approved)
+    ) {
       const org = await ensureSelfOrg();
       const promoted = await prisma.user.update({
         where: { id: found.id },
