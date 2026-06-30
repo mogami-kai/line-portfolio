@@ -88,9 +88,11 @@ export interface ReportRowForAgg {
   contractType: "JOYO" | "UKEOI";
   source: OrgKind;
   manDays: number;
-  /** 日勤（DAY+HALF）の人工。manDays の内訳（manDays = dayManDays + nightManDays）。 */
+  /** 日勤（DAY）の人工。manDays = dayManDays + halfManDays + nightManDays。 */
   dayManDays: number;
-  /** 夜勤（NIGHT）の人工。manDays の内訳。 */
+  /** 半日（HALF）の人工（0.5×件数）。 */
+  halfManDays: number;
+  /** 夜勤（NIGHT）の人工。 */
   nightManDays: number;
   otHours: number;
   /** 請負(UKEOI)の契約金額（税抜）。常用は 0。概算金額に反映する。 */
@@ -129,13 +131,15 @@ export async function loadMonthRows(
   for (const r of reports) {
     let manDays = 0;
     let dayManDays = 0;
+    let halfManDays = 0;
     let nightManDays = 0;
     let otHours = 0;
     for (const e of r.entries) {
       const md = resolveManDays(e.shift as Shift, e.manDays);
       manDays += md;
-      // 夜勤(NIGHT)とそれ以外（日勤 DAY / 半日 HALF）で内訳を分ける。
+      // 日勤(DAY)/半日(HALF)/夜勤(NIGHT)で内訳を分ける。
       if (e.shift === "NIGHT") nightManDays += md;
+      else if (e.shift === "HALF") halfManDays += md;
       else dayManDays += md;
       otHours += Number(e.otHours) || 0;
     }
@@ -148,6 +152,7 @@ export async function loadMonthRows(
       source: r.source,
       manDays,
       dayManDays,
+      halfManDays,
       nightManDays,
       otHours,
       contractAmount: r.contractType === "UKEOI" ? Number(r.contractAmount) || 0 : 0,
@@ -173,8 +178,10 @@ export interface ClientMonthSummary {
   clientId: string;
   clientName: string;
   manDays: number;
-  /** 日勤（DAY+HALF）の人工合計。manDays = dayManDays + nightManDays。 */
+  /** 日勤（DAY）の人工合計。manDays = dayManDays + halfManDays + nightManDays。 */
   dayManDays: number;
+  /** 半日（HALF）の人工合計（0.5×件数）。 */
+  halfManDays: number;
   /** 夜勤（NIGHT）の人工合計。 */
   nightManDays: number;
   otHours: number;
@@ -199,13 +206,18 @@ export async function summarizeByClient(
 ): Promise<ClientMonthSummary[]> {
   const onDate = monthRange(yearMonth).to; // 月末時点の単価で概算。
   const nameToClientId = new Map<string, string>();
-  // 取引先名ごとの日勤/夜勤内訳（invoice の集計は shift を持たないため rows から作る）。
-  const splitByClient = new Map<string, { day: number; night: number }>();
+  // 取引先名ごとの日勤/半日/夜勤内訳（invoice の集計は shift を持たないため rows から作る）。
+  const splitByClient = new Map<
+    string,
+    { day: number; half: number; night: number }
+  >();
   for (const r of rows) {
     if (!nameToClientId.has(r.clientName))
       nameToClientId.set(r.clientName, r.clientId);
-    const cur = splitByClient.get(r.clientName) ?? { day: 0, night: 0 };
+    const cur =
+      splitByClient.get(r.clientName) ?? { day: 0, half: 0, night: 0 };
     cur.day += r.dayManDays;
+    cur.half += r.halfManDays;
     cur.night += r.nightManDays;
     splitByClient.set(r.clientName, cur);
   }
@@ -243,12 +255,14 @@ export async function summarizeByClient(
     );
     const summary = summarize(lines, 0);
 
-    const split = splitByClient.get(clientName) ?? { day: 0, night: 0 };
+    const split =
+      splitByClient.get(clientName) ?? { day: 0, half: 0, night: 0 };
     out.push({
       clientId,
       clientName,
       manDays,
       dayManDays: split.day,
+      halfManDays: split.half,
       nightManDays: split.night,
       otHours,
       estimatedAmount: summary.subtotal + summary.exempt,
@@ -332,8 +346,10 @@ export interface WorkerMonthSummary {
   workerId: string | null;
   workerName: string;
   manDays: number;
-  /** 日勤（DAY+HALF）の人工合計。manDays = dayManDays + nightManDays。 */
+  /** 日勤（DAY）の人工合計。manDays = dayManDays + halfManDays + nightManDays。 */
   dayManDays: number;
+  /** 半日（HALF）の人工合計（0.5×件数）。 */
+  halfManDays: number;
   /** 夜勤（NIGHT）の人工合計。 */
   nightManDays: number;
   otHours: number;
@@ -378,6 +394,7 @@ export async function summarizeByWorker(
     workerName: string;
     manDays: number;
     dayManDays: number;
+    halfManDays: number;
     nightManDays: number;
     otHours: number;
     unitPrice: number | null;
@@ -396,14 +413,16 @@ export async function summarizeByWorker(
           workerName: e.worker?.name ?? "(不明)",
           manDays: 0,
           dayManDays: 0,
+          halfManDays: 0,
           nightManDays: 0,
           otHours: 0,
           unitPrice: e.worker?.unitPrice ?? null,
           otUnitPrice: e.worker?.otUnitPrice ?? null,
         } as Acc);
       cur.manDays += md;
-      // 夜勤(NIGHT)とそれ以外（日勤 DAY / 半日 HALF）で内訳を分ける。
+      // 日勤(DAY)/半日(HALF)/夜勤(NIGHT)で内訳を分ける。
       if (e.shift === "NIGHT") cur.nightManDays += md;
+      else if (e.shift === "HALF") cur.halfManDays += md;
       else cur.dayManDays += md;
       cur.otHours += Number(e.otHours) || 0;
       map.set(key, cur);
@@ -517,6 +536,7 @@ export interface MonthSummaryData {
   selfTotals: {
     manDays: number;
     dayManDays: number;
+    halfManDays: number;
     nightManDays: number;
     otHours: number;
     amount: number;
@@ -539,6 +559,7 @@ async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData>
   const selfTotals = {
     manDays: self.reduce((a, r) => a + r.manDays, 0),
     dayManDays: self.reduce((a, r) => a + r.dayManDays, 0),
+    halfManDays: self.reduce((a, r) => a + r.halfManDays, 0),
     nightManDays: self.reduce((a, r) => a + r.nightManDays, 0),
     otHours: self.reduce((a, r) => a + r.otHours, 0),
     amount: self.reduce((a, r) => a + r.estimatedAmount, 0),

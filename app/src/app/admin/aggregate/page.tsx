@@ -65,11 +65,10 @@ function ClientAccordion({
               <span className="k">人工合計</span>
               <span className="v">
                 {r.manDays}
-                {r.nightManDays > 0 && (
-                  <span className="muted" style={{ marginLeft: 8 }}>
-                    （日勤 {r.dayManDays} / 夜勤 {r.nightManDays}）
-                  </span>
-                )}
+                <span className="muted" style={{ marginLeft: 8 }}>
+                  （日勤 {r.dayManDays} / 半日 {r.halfManDays} / 夜勤{" "}
+                  {r.nightManDays}）
+                </span>
               </span>
             </div>
             <div className="kv">
@@ -103,6 +102,7 @@ function WorkerAccordion({
   totals: {
     manDays: number;
     dayManDays: number;
+    halfManDays: number;
     nightManDays: number;
     otHours: number;
   };
@@ -131,11 +131,10 @@ function WorkerAccordion({
               <span className="k">人工合計</span>
               <span className="v">
                 {w.manDays}
-                {w.nightManDays > 0 && (
-                  <span className="muted" style={{ marginLeft: 8 }}>
-                    （日勤 {w.dayManDays} / 夜勤 {w.nightManDays}）
-                  </span>
-                )}
+                <span className="muted" style={{ marginLeft: 8 }}>
+                  （日勤 {w.dayManDays} / 半日 {w.halfManDays} / 夜勤{" "}
+                  {w.nightManDays}）
+                </span>
               </span>
             </div>
             <div className="kv">
@@ -162,10 +161,9 @@ function WorkerAccordion({
       <div className="acc-total">
         <span>合計</span>
         <span>
-          {totals.manDays} 人工
-          {totals.nightManDays > 0 &&
-            `（日勤 ${totals.dayManDays} / 夜勤 ${totals.nightManDays}）`}{" "}
-          / 残業 {totals.otHours}h
+          {totals.manDays} 人工（日勤 {totals.dayManDays} / 半日{" "}
+          {totals.halfManDays} / 夜勤 {totals.nightManDays}） / 残業{" "}
+          {totals.otHours}h
         </span>
       </div>
     </>
@@ -239,10 +237,11 @@ async function MonthSummary({
       (a, r) => ({
         manDays: a.manDays + r.manDays,
         dayManDays: a.dayManDays + r.dayManDays,
+        halfManDays: a.halfManDays + r.halfManDays,
         nightManDays: a.nightManDays + r.nightManDays,
         otHours: a.otHours + r.otHours,
       }),
-      { manDays: 0, dayManDays: 0, nightManDays: 0, otHours: 0 },
+      { manDays: 0, dayManDays: 0, halfManDays: 0, nightManDays: 0, otHours: 0 },
     );
     return (
       <>
@@ -284,6 +283,7 @@ async function MonthSummary({
         totals={{
           manDays: selfTotals.manDays,
           dayManDays: selfTotals.dayManDays,
+          halfManDays: selfTotals.halfManDays,
           nightManDays: selfTotals.nightManDays,
           otHours: selfTotals.otHours,
         }}
