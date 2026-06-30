@@ -79,6 +79,8 @@ model Worker {
   name    String
   aliases String[] @default([]) // 表記揺れ吸収
   active  Boolean  @default(true)
+  unitPrice   Int?  // 職人の人工単価（給料計算用・円/人工）。null=未設定
+  otUnitPrice Int?  // 職人の残業単価（円/時）。null=未設定なら自動（人工単価÷8×1.25）
   orgId   String
   org     Organization @relation(fields: [orgId], references: [id])
 
@@ -95,6 +97,7 @@ model Client {
   address   String?
   aliases   String[] @default([]) // 名寄せ（工/興・L/R 等）※v3でUIからは廃止（データは残置）
   unitPrice Int?     // v3: 常用の人工単価（取引先で設定）。null=未設定→請求時に¥0警告
+  otUnitPrice Int?   // 残業の時間単価（円/時）。null=未設定なら自動（人工単価÷8×1.25）
   active    Boolean  @default(true)
 
   sites    Site[]

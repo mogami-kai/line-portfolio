@@ -627,6 +627,58 @@ export async function updateReportAction(input: ReportEditInput): Promise<void> 
 }
 
 // ============================================================
+// 集計画面からの単価設定（取引先・職人）
+//   人工単価・残業単価（円/時）を保存。空欄は null（未設定＝自動計算/0扱い）。
+//   保存後は月次集計キャッシュ(reports)を無効化して即反映する。
+// ============================================================
+const rateInputSchema = z.object({
+  unitPrice: z.number().int().min(0).max(10_000_000).nullable(),
+  otUnitPrice: z.number().int().min(0).max(10_000_000).nullable(),
+});
+
+export async function setClientRatesAction(
+  clientId: string,
+  unitPrice: number | null,
+  otUnitPrice: number | null,
+): Promise<void> {
+  await requireAdminAction();
+  if (!clientId) throw new Error("取引先IDがありません");
+  const parsed = rateInputSchema.safeParse({ unitPrice, otUnitPrice });
+  if (!parsed.success)
+    throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  await prisma.client.update({
+    where: { id: clientId },
+    data: {
+      unitPrice: parsed.data.unitPrice,
+      otUnitPrice: parsed.data.otUnitPrice,
+    },
+  });
+  revalidateTag("reports");
+  revalidatePath("/admin/aggregate");
+}
+
+export async function setWorkerRatesAction(
+  workerId: string,
+  unitPrice: number | null,
+  otUnitPrice: number | null,
+): Promise<void> {
+  await requireAdminAction();
+  if (!workerId) throw new Error("職人IDがありません");
+  const parsed = rateInputSchema.safeParse({ unitPrice, otUnitPrice });
+  if (!parsed.success)
+    throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  await prisma.worker.update({
+    where: { id: workerId },
+    data: {
+      unitPrice: parsed.data.unitPrice,
+      otUnitPrice: parsed.data.otUnitPrice,
+    },
+  });
+  revalidateTag("reports");
+  revalidatePath("/admin/aggregate");
+}
+
+// ============================================================
 // ユーザー承認（NEEDS_REVIEW / 未承認 → role/org 割当 ＋ approved）
 //   ★ パートナーは必ず正しい PARTNER 組織へ割り当てる（自社に漏らさない）。
 // ============================================================

@@ -50,6 +50,28 @@ export function overtimeUnit(unitPrice: number): number {
 }
 
 /**
+ * 残業の時間単価を解決する。明示の残業単価(otUnitPrice)が正の数なら最優先で使い、
+ * 未設定（null/0/非数）なら従来通り 人工単価÷8×1.25 を自動計算する。
+ */
+export function resolveOvertimeUnit(
+  unitPrice: number,
+  otUnitPrice?: number | null,
+): number {
+  const explicit = Number(otUnitPrice);
+  if (isFinite(explicit) && explicit > 0) return Math.round(explicit);
+  return overtimeUnit(unitPrice);
+}
+
+/** 残業明細の金額 = round(解決済み残業単価 × 時間)。 */
+export function overtimeLineAmountResolved(
+  otHours: number,
+  unitPrice: number,
+  otUnitPrice?: number | null,
+): number {
+  return Math.round(resolveOvertimeUnit(unitPrice, otUnitPrice) * otHours);
+}
+
+/**
  * 残業明細の金額 = round(表示残業単価 × 時間)。
  * overtimeAmount（生値で丸め）と違い「表示単価 × 数量 = 金額」が帳票上で一致するため、
  * 請求書フェイスで利用者・税理士が検算しても矛盾しない（明細はこちらを使う）。
