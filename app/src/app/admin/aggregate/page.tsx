@@ -67,6 +67,10 @@ function ClientAccordion({
               <span className="k">概算金額（税抜）</span>
               <span className="v">{yen(r.estimatedAmount)}</span>
             </div>
+            <div className="kv">
+              <span className="k">立替経費</span>
+              <span className="v">{yen(r.expense)}</span>
+            </div>
           </div>
         </details>
       ))}
@@ -99,6 +103,10 @@ async function MonthSummary({ ym }: { ym: string }) {
             {selfTotals.otHours}
             <small>h</small>
           </div>
+        </div>
+        <div className="stat">
+          <div className="stat-k">立替経費</div>
+          <div className="stat-v">{yen(selfTotals.expense)}</div>
         </div>
       </div>
 
@@ -148,7 +156,7 @@ async function MonthSummary({ ym }: { ym: string }) {
         <b>請求書を出す単位。</b>{" "}
         取引先ごとの人工・残業・概算金額。月末はこの取引先ごとに請求書を作ります。
         <br />
-        ※ ここの概算は<b>人工・残業（税抜）</b>のみ。立替経費・請負は{" "}
+        ※ <b>概算金額</b>は人工・残業（税抜）のみ。<b>立替経費</b>は別枠で合計を表示します。請負は{" "}
         <a href={`/admin/invoices?ym=${ym}`}>請求書</a>で加算されます。
       </div>
       <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />

@@ -86,6 +86,8 @@ export interface ReportRowForAgg {
   otHours: number;
   /** 請負(UKEOI)の契約金額（税抜）。常用は 0。概算金額に反映する。 */
   contractAmount: number;
+  /** 立替経費の合計（請求/自社負担を問わず合算）。集計表示用で概算金額には混ぜない。 */
+  expense: number;
 }
 
 /**
@@ -111,6 +113,7 @@ export async function loadMonthRows(
       client: { select: { id: true, name: true } },
       site: { select: { name: true } },
       entries: { select: { shift: true, manDays: true, otHours: true } },
+      expenses: { select: { amount: true } },
     },
   });
 
@@ -122,6 +125,8 @@ export async function loadMonthRows(
       manDays += resolveManDays(e.shift as Shift, e.manDays);
       otHours += Number(e.otHours) || 0;
     }
+    let expense = 0;
+    for (const x of r.expenses) expense += Number(x.amount) || 0;
     rows.push({
       clientId: r.client.id,
       clientName: r.client.name,
@@ -132,6 +137,7 @@ export async function loadMonthRows(
       manDays,
       otHours,
       contractAmount: r.contractType === "UKEOI" ? Number(r.contractAmount) || 0 : 0,
+      expense,
     });
   }
   return rows;
@@ -147,6 +153,8 @@ export function toReportLike(rows: ReportRowForAgg[]): ReportLike[] {
     contractType: r.contractType,
     // 請負(UKEOI)の契約金額は概算で「一式」として積む（lump に載せる）。
     lump: r.contractAmount,
+    // 立替経費は取引先ごとに合算（集計表示用。概算金額には混ぜない）。
+    expense: r.expense,
   }));
 }
 
@@ -156,6 +164,8 @@ export interface ClientMonthSummary {
   otHours: number;
   /** RateCard を当てた概算金額（税抜）。単価未設定の現場は 0 として概算。 */
   estimatedAmount: number;
+  /** 立替経費の合計。概算金額(人工・残業)とは別枠で集計表示する。 */
+  expense: number;
 }
 
 /**
@@ -211,6 +221,8 @@ export async function summarizeByClient(
       manDays,
       otHours,
       estimatedAmount: summary.subtotal + summary.exempt,
+      // 立替経費は概算(人工・残業)に混ぜず、別枠で合算（aggregateForInvoice 集計済み）。
+      expense: clientAgg.expense,
     });
   }
   return out;
@@ -310,7 +322,7 @@ export interface MonthSummaryData {
   self: ClientMonthSummary[];
   partner: ClientMonthSummary[];
   byWorker: WorkerMonthSummary[];
-  selfTotals: { manDays: number; otHours: number; amount: number };
+  selfTotals: { manDays: number; otHours: number; amount: number; expense: number };
 }
 
 async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData> {
@@ -327,6 +339,7 @@ async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData>
     manDays: self.reduce((a, r) => a + r.manDays, 0),
     otHours: self.reduce((a, r) => a + r.otHours, 0),
     amount: self.reduce((a, r) => a + r.estimatedAmount, 0),
+    expense: self.reduce((a, r) => a + r.expense, 0),
   };
   return { self, partner, byWorker, selfTotals };
 }
