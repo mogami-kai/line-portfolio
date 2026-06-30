@@ -6,7 +6,6 @@
 //   ロジックは calc / invoice に一元化し、ここでは DB → 集計入力の橋渡しのみ行う。
 // ============================================================
 
-import { unstable_cache } from "next/cache";
 import { prisma } from "./db.js";
 import {
   resolveManDays,
@@ -574,11 +573,13 @@ async function computeMonthSummary(yearMonth: string): Promise<MonthSummaryData>
   };
 }
 
-/** 月次サマリをキャッシュして返す（tag="reports" で無効化）。 */
+/**
+ * 月次サマリを返す。
+ *   以前は unstable_cache でキャッシュしていたが、SQL 直挿入など
+ *   アプリのアクションを経由しないデータ変更でキャッシュが無効化されず
+ *   集計が古くなる問題があったため、キャッシュは廃止し毎回 DB から集計する
+ *   （集計ページは force-dynamic。ホームのデータと常に一致させる）。
+ */
 export function getMonthSummary(yearMonth: string): Promise<MonthSummaryData> {
-  return unstable_cache(
-    () => computeMonthSummary(yearMonth),
-    ["month-summary", yearMonth],
-    { revalidate: 60, tags: ["reports"] },
-  )();
+  return computeMonthSummary(yearMonth);
 }
