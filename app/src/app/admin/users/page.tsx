@@ -211,9 +211,6 @@ export default async function UsersPage({
         })}
       </div>
 
-      <p className="muted" style={{ marginTop: 20 }}>
-        ※ 新規ユーザーは自社として参加します。管理者に昇格させると元に戻せません。無効化したユーザーは入室できません。
-      </p>
     </main>
   );
 }
