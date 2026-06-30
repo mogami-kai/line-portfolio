@@ -80,10 +80,7 @@ export default async function MastersPage() {
   return (
     <main className="container admin-narrow">
       <div className="mst-head">
-        <h1 className="mst-title">マスタ管理</h1>
-        <p className="mst-sub">
-          請求書作成・出面入力で使用する基本情報を管理します。
-        </p>
+        <h1 className="mst-title">設定</h1>
       </div>
 
       <MastersShell

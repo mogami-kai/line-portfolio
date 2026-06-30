@@ -70,11 +70,6 @@ export function OrgsTab({ orgs }: { orgs: OrgRow[] }): JSX.Element {
 
   return (
     <div>
-      {/* 自社 / 協力会社の役割を一行で説明（英語表記なし）。 */}
-      <p className="hint">
-        自社は出面が自社グループへ自動投稿される入力元です。協力会社は管理画面の集計だけに使う相手先で、グループへの自動投稿はありません。
-      </p>
-
       {/* ツールバー: 説明は上にあるので、ここは右側の「協力会社を追加」のみ。
           検索欄が無いので marginLeft:auto で右寄せ（.mst-toolbar は flex）。 */}
       <div className="mst-toolbar">

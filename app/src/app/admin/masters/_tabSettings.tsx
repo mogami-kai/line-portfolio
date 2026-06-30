@@ -72,10 +72,6 @@ export function SettingsTab({
 
   return (
     <div>
-      <p className="hint">
-        ここで登録した内容は請求書の差出人欄・振込先・税率・担当者として使われます。下のプレビューで実際の見え方を確認できます。
-      </p>
-
       <form action={submit}>
         {err && (
           <div className="notice notice--error" role="alert">
