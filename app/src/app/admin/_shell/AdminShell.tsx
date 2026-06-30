@@ -3,11 +3,12 @@
 // ============================================================
 // 管理画面の共通シェル（AppShell）
 //   PC: 左サイドバー固定 ＋ 広い作業領域
-//   スマホ/タブレット: 上部ヘッダー（ロゴ＋ハンバーガー）＋ ドロワー
-//   現在地をハイライト。アイコンは依存なしの最小インラインSVG（テキスト併記）。
+//   スマホ: 上部ヘッダー（ロゴ＋ページ名） ＋ 右端固定の凸凹ストリップ
+//     - 閉じ時: アイコンのみの凸凹タブ（常時表示）
+//     - 開き時: 各タブが左に展開してアイコン＋ラベル表示（ドロワー廃止）
 // ============================================================
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 
 interface NavItem {
@@ -54,6 +55,11 @@ const IconUsers = () => (
     <circle cx="9" cy="8" r="3.2" />
     <path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
     <path d="M16 6.2A3 3 0 0 1 16 12M17 14c2.5.4 4 2.3 4 5" />
+  </svg>
+);
+const IconLogout = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" {...stroke} aria-hidden>
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
   </svg>
 );
 
@@ -133,10 +139,8 @@ export function AdminShell({
 }) {
   const pathname = usePathname() || "/admin";
   const [open, setOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
   const current = NAV.find((n) => n.match(pathname))?.label ?? "管理";
 
-  // ドロワー: 開いている間は背面スクロールを止め、Esc で閉じ、パネルへフォーカス。
   useEffect(() => {
     if (!open) return;
     const prevOverflow = document.body.style.overflow;
@@ -145,7 +149,6 @@ export function AdminShell({
       if (e.key === "Escape") setOpen(false);
     };
     document.addEventListener("keydown", onKey);
-    panelRef.current?.focus();
     return () => {
       document.body.style.overflow = prevOverflow;
       document.removeEventListener("keydown", onKey);
@@ -170,25 +173,49 @@ export function AdminShell({
         </div>
       </aside>
 
-      {/* スマホ/タブレット: 上部ヘッダー（ハンバーガーを元の位置に戻す） */}
+      {/* スマホ: ヘッダー（ハンバーガーはストリップへ統合） */}
       <header className="app-header">
         <Brand />
         <span className="app-header-title">{current}</span>
-        <button
-          type="button"
-          className="app-burger app-burger--menu"
-          aria-label="メニュー"
-          aria-expanded={open}
-          onClick={() => setOpen(true)}
-        >
-          <svg viewBox="0 0 24 24" width="24" height="24" {...stroke} aria-hidden>
-            <path d="M4 7h16M4 12h16M4 17h16" />
-          </svg>
-        </button>
       </header>
 
-      {/* スマホ: 右端固定の凸凹ナビストリップ（常時表示・ドロワーの上） */}
-      <div className="app-icon-bar" aria-hidden={open}>
+      {/* スマホ: スクリム（ストリップ展開時・背面） */}
+      {open && (
+        <button
+          type="button"
+          className="app-icon-scrim"
+          onClick={() => setOpen(false)}
+          aria-label="閉じる"
+        />
+      )}
+
+      {/* スマホ: 右端固定の凸凹ナビストリップ */}
+      <div className={`app-icon-bar${open ? " is-open" : ""}`}>
+        {/* ハンバーガー（ストリップ最上部・ヘッダー同位置） */}
+        <button
+          type="button"
+          className="app-icon-bar-burger"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          aria-label={open ? "閉じる" : "メニュー"}
+        >
+          <span className="app-icon-bar-label app-icon-bar-burger-label">
+            {userName}
+          </span>
+          <span className="app-icon-bar-ico">
+            {open ? (
+              <svg viewBox="0 0 24 24" width="22" height="22" {...stroke} aria-hidden>
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" width="22" height="22" {...stroke} aria-hidden>
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            )}
+          </span>
+        </button>
+
+        {/* ナビアイコン（凸凹） */}
         {NAV.map((item) => {
           const active = item.match(pathname);
           const Icon = item.icon;
@@ -196,50 +223,26 @@ export function AdminShell({
             <a
               key={item.href}
               href={item.href}
-              className={`app-icon-bar-item ${active ? "is-active" : ""}`}
-              aria-label={item.label}
+              className={`app-icon-bar-item${active ? " is-active" : ""}`}
               aria-current={active ? "page" : undefined}
+              onClick={() => setOpen(false)}
             >
-              <span className="app-icon-bar-ico"><Icon /></span>
               <span className="app-icon-bar-label">{item.label}</span>
+              <span className="app-icon-bar-ico">
+                <Icon />
+              </span>
             </a>
           );
         })}
-      </div>
 
-      {/* ドロワー */}
-      {open && (
-        <div className="app-drawer" role="dialog" aria-modal="true">
-          <button
-            type="button"
-            className="app-drawer-scrim"
-            aria-label="閉じる"
-            onClick={() => setOpen(false)}
-          />
-          <div className="app-drawer-panel" ref={panelRef} tabIndex={-1}>
-            <div className="app-drawer-head">
-              <Brand />
-              <button
-                type="button"
-                className="app-burger"
-                aria-label="閉じる"
-                onClick={() => setOpen(false)}
-              >
-                <svg viewBox="0 0 24 24" width="24" height="24" {...stroke} aria-hidden>
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
-              </button>
-            </div>
-            <NavLinks pathname={pathname} onNavigate={() => setOpen(false)} />
-            <div className="app-sidebar-foot">
-              <div className="sb-user">{userName}</div>
-              <a href="/api/auth/logout" className="sb-logout">
-                ログアウト
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
+        {/* ログアウト */}
+        <a href="/api/auth/logout" className="app-icon-bar-item app-icon-bar-item--logout">
+          <span className="app-icon-bar-label">ログアウト</span>
+          <span className="app-icon-bar-ico">
+            <IconLogout />
+          </span>
+        </a>
+      </div>
 
       {/* 作業領域 */}
       <main className="app-main">

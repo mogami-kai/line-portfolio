@@ -460,7 +460,7 @@ a {
   align-items: center;
   gap: 10px;
   height: var(--header-h);
-  padding: 0 12px;
+  padding: 0 54px 0 12px; /* 右はストリップ(48px+border)分確保 */
   background: var(--card);
   border-bottom: 1px solid var(--line);
 }
@@ -485,35 +485,65 @@ a {
 .app-burger:hover {
   background: #eef1f4;
 }
-/* 右端固定の凸凹ナビストリップ（スマホのみ・ドロワーより前面） */
+/* スクリム（凸凹ストリップ展開時の背面暗幕） */
+.app-icon-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(16, 24, 32, 0.4);
+  border: none;
+  cursor: pointer;
+  width: 100%;
+}
+/* 右端固定の凸凹ナビストリップ（スマホのみ） */
 .app-icon-bar {
   position: fixed;
-  top: var(--header-h);
+  top: 0;
   right: 0;
-  z-index: 60; /* ドロワー(50)より前面 */
+  z-index: 60;
   display: flex;
   flex-direction: column;
   gap: 44px; /* アイコン1個分の空白 = 凸凹の凹 */
-  padding: 8px 0;
-  pointer-events: auto;
   background: transparent;
 }
-/* 凸のセル：アイコン＋ラベル。左側が丸く右端はフラット */
+/* ストリップ上部のハンバーガー（ヘッダーと同位置・同高さ） */
+.app-icon-bar-burger {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  height: var(--header-h);
+  width: 48px;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 0 0 0 10px;
+  cursor: pointer;
+  transition: width 0.25s ease;
+}
+.app-icon-bar-burger:hover {
+  background: var(--accent-dark);
+}
+/* ナビアイコンタブ（凸のセル） */
 .app-icon-bar-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: 52px;
-  padding: 8px 4px;
+  justify-content: flex-end;
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  overflow: hidden;
   background: var(--card);
   border: 1px solid var(--line);
   border-right: none;
   border-radius: 10px 0 0 10px;
   color: var(--ink-2);
   text-decoration: none;
-  box-shadow: -2px 2px 8px rgba(16,24,32,0.08);
+  box-shadow: -2px 2px 8px rgba(16, 24, 32, 0.08);
+  transition: width 0.25s ease;
 }
 .app-icon-bar-item:hover {
   background: #eef1f4;
@@ -524,17 +554,43 @@ a {
   color: var(--accent-dark);
   border-color: var(--accent-soft);
 }
+.app-icon-bar-item--logout {
+  color: var(--ink-2);
+}
+/* アイコン部分（右端固定・常時表示） */
 .app-icon-bar-ico {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  flex-shrink: 0;
 }
+/* ラベル（通常は非表示・展開時に左から出現） */
 .app-icon-bar-label {
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1.1;
-  text-align: center;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  padding-left: 14px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.08s;
 }
-/* メニュー開くボタン＝青いハンバーガー（右）。会社ロゴは持たず、これが唯一のメニュー。 */
+.app-icon-bar-burger-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+}
+/* 展開状態 */
+.app-icon-bar.is-open .app-icon-bar-burger {
+  width: 180px;
+}
+.app-icon-bar.is-open .app-icon-bar-item {
+  width: 180px;
+}
+.app-icon-bar.is-open .app-icon-bar-label {
+  opacity: 1;
+  transition-delay: 0.12s;
+}
+/* メニュー開くボタン（PC サイドバー内）*/
 .app-burger--menu {
   background: var(--accent);
   color: #fff;
@@ -673,7 +729,8 @@ a {
   .app-header {
     display: none;
   }
-  .app-icon-bar {
+  .app-icon-bar,
+  .app-icon-scrim {
     display: none;
   }
   .app-sidebar {
