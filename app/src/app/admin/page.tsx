@@ -20,7 +20,7 @@
 // ============================================================
 
 import { prisma } from "@/lib/db.js";
-import { getAdminContext, getSessionUserIfExists, adminScope } from "@/lib/auth.js";
+import { getAdminContext, getSessionUserIfExists, adminScopeOrgId } from "@/lib/auth.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
 import { confirmReportAction } from "./_actions.js";
@@ -115,9 +115,9 @@ export default async function AdminPage({
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
   const { from, to } = monthRange(ym);
 
-  // 自社管理者(SELF_ADMIN)は自社のみ閲覧。協力会社（PARTNER）の出面を一覧から除外する。
-  const selfScoped = adminScope(admin) === "SELF";
-  const scopeWhere = selfScoped ? { org: { kind: "SELF" as const } } : {};
+  // スコープ管理者は自分の所属組織のみ閲覧。他組織の出面を一覧から除外する。
+  const scopeOrgId = adminScopeOrgId(admin);
+  const scopeWhere = scopeOrgId ? { orgId: scopeOrgId } : {};
 
   // 「日々のチェック」の主役データだけを取得（要確認＋当月フィード）。
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。

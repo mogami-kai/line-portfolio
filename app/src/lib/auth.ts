@@ -114,37 +114,51 @@ export function isApproved(u: ResolvedUser): boolean {
 }
 
 /**
- * 管理画面に入れるロールか（ADMIN または SELF_ADMIN）。
- * SELF_ADMIN は「自社のみ閲覧」の管理者タイプ。
+ * 管理画面に入れる「スコープ管理者」ロール（自分の所属組織のみ閲覧）。
+ *   SELF_ADMIN … 自社のみ閲覧（所属＝自社 SELF 組織）。
+ *   ORG_ADMIN  … 自分の所属組織のみ閲覧（自社でも特定の協力会社でも可）。
+ * いずれも閲覧範囲は u.org（自分の所属組織）に限定される。
  */
+const SCOPED_ADMIN_ROLES = ["SELF_ADMIN", "ORG_ADMIN"] as const;
+
+/** 管理画面に入れるロールか（ADMIN またはスコープ管理者）。 */
 export function isAdmin(u: ResolvedUser): boolean {
-  return u.user.role === "ADMIN" || u.user.role === "SELF_ADMIN";
+  return (
+    u.user.role === "ADMIN" ||
+    (SCOPED_ADMIN_ROLES as readonly string[]).includes(u.user.role)
+  );
 }
 
 /**
  * 管理者の閲覧スコープ。
- *   "ALL"  : 自社＋全協力会社（フル管理者 ADMIN）。
- *   "SELF" : 自社のみ（自社管理者 SELF_ADMIN。協力会社データは非表示）。
+ *   "ALL" : 自社＋全協力会社（フル管理者 ADMIN）。
+ *   "ORG" : 自分の所属組織のみ（SELF_ADMIN / ORG_ADMIN）。
  */
-export function adminScope(u: ResolvedUser): "ALL" | "SELF" {
-  return u.user.role === "SELF_ADMIN" ? "SELF" : "ALL";
+export function adminScope(u: ResolvedUser): "ALL" | "ORG" {
+  return (SCOPED_ADMIN_ROLES as readonly string[]).includes(u.user.role)
+    ? "ORG"
+    : "ALL";
 }
 
-/** 自社のみ閲覧の管理者（SELF_ADMIN）か。 */
-export function isSelfScoped(u: ResolvedUser): boolean {
-  return adminScope(u) === "SELF";
+/** スコープ管理者（自組織のみ閲覧）なら、その対象 orgId。フル管理者は null。 */
+export function adminScopeOrgId(u: ResolvedUser): string | null {
+  return adminScope(u) === "ORG" ? u.org.id : null;
+}
+
+/** スコープ管理者（自組織のみ閲覧）か。 */
+export function isScopedAdmin(u: ResolvedUser): boolean {
+  return adminScope(u) === "ORG";
 }
 
 /**
- * 管理者（ADMIN / SELF_ADMIN）を要求。違反時は Error を投げる
+ * 管理者（ADMIN / スコープ管理者）を要求。違反時は Error を投げる
  * （ページ/ハンドラ側で 403 等に変換）。
  */
 export function requireAdmin(u: ResolvedUser | null): ResolvedUser {
   if (!u) throw new Error("UNAUTHENTICATED");
   if (u.user.status === "DISABLED") throw new Error("DISABLED");
   if (!u.user.approved) throw new Error("NOT_APPROVED");
-  if (u.user.role !== "ADMIN" && u.user.role !== "SELF_ADMIN")
-    throw new Error("FORBIDDEN");
+  if (!isAdmin(u)) throw new Error("FORBIDDEN");
   return u;
 }
 
@@ -181,7 +195,7 @@ export async function findApprovedAdminByLineUserId(
   const admin = await prisma.user.findFirst({
     where: {
       lineUserId,
-      role: { in: ["ADMIN", "SELF_ADMIN"] },
+      role: { in: ["ADMIN", "SELF_ADMIN", "ORG_ADMIN"] },
       approved: true,
       status: "ACTIVE",
     },

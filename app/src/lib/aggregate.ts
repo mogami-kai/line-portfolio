@@ -104,7 +104,7 @@ export interface ReportRowForAgg {
  */
 export async function loadMonthRows(
   yearMonth: string,
-  opts?: { source?: OrgKind },
+  opts?: { source?: OrgKind; orgId?: string },
 ): Promise<ReportRowForAgg[]> {
   const { from, to } = monthRange(yearMonth);
   const reports = await prisma.report.findMany({
@@ -115,6 +115,8 @@ export async function loadMonthRows(
       // 無効化した組織の出面は集計・請求から除外。
       org: { active: true },
       ...(opts?.source ? { source: opts.source } : {}),
+      // 特定組織スコープ（組織管理者など）。
+      ...(opts?.orgId ? { orgId: opts.orgId } : {}),
     },
     include: {
       client: { select: { id: true, name: true } },
@@ -334,7 +336,7 @@ export interface WorkerMonthSummary {
 
 export async function summarizeByWorker(
   yearMonth: string,
-  opts?: { source?: OrgKind },
+  opts?: { source?: OrgKind; orgId?: string },
 ): Promise<WorkerMonthSummary[]> {
   const { from, to } = monthRange(yearMonth);
   const reports = await prisma.report.findMany({
@@ -344,6 +346,7 @@ export async function summarizeByWorker(
       status: "CONFIRMED",
       org: { active: true },
       ...(opts?.source ? { source: opts.source } : {}),
+      ...(opts?.orgId ? { orgId: opts.orgId } : {}),
     },
     select: {
       entries: {
@@ -429,14 +432,22 @@ const UNASSIGNED_PAYER = "未指定";
 
 export async function summarizeExpenses(
   yearMonth: string,
-  opts?: { source?: OrgKind },
+  opts?: { source?: OrgKind; orgId?: string },
 ): Promise<{ payers: ExpensePayerSummary[]; grandTotal: number }> {
   const { from, to } = monthRange(yearMonth);
-  // source 指定時（自社管理者の自社スコープ等）は、その source の出面に紐づく経費のみ。
+  // source / orgId 指定時（スコープ管理者など）は、その出面に紐づく経費のみ。
   //   出面を持たない経費（reportId=null）は所属が不明なため、スコープ時は除外する。
-  const reportFilter = opts?.source
-    ? { report: { status: "CONFIRMED", org: { active: true }, source: opts.source } }
-    : null;
+  const reportFilter =
+    opts?.source || opts?.orgId
+      ? {
+          report: {
+            status: "CONFIRMED" as const,
+            org: { active: true },
+            ...(opts.source ? { source: opts.source } : {}),
+            ...(opts.orgId ? { orgId: opts.orgId } : {}),
+          },
+        }
+      : null;
   const expenses = await prisma.expense.findMany({
     where: {
       workDate: { gte: from, lt: to },

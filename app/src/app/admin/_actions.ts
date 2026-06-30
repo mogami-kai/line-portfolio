@@ -14,10 +14,15 @@
 import { revalidatePath, revalidateTag } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db.js";
-import { getAdminContext, adminScope, type ResolvedUser } from "@/lib/auth.js";
+import {
+  getAdminContext,
+  adminScope,
+  adminScopeOrgId,
+  type ResolvedUser,
+} from "@/lib/auth.js";
 import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
-/** ADMIN / SELF_ADMIN を要求し、実行中の管理者コンテキストを返す。違反時は throw。 */
+/** 管理者（ADMIN / スコープ管理者）を要求し、実行中のコンテキストを返す。違反時は throw。 */
 async function requireAdminAction(): Promise<ResolvedUser> {
   const admin = await getAdminContext();
   if (!admin) throw new Error("FORBIDDEN: 管理者ログインが必要です。");
@@ -25,9 +30,9 @@ async function requireAdminAction(): Promise<ResolvedUser> {
 }
 
 /**
- * 全社管理者（ADMIN）のみを要求する。自社管理者（SELF_ADMIN）は拒否。
- * ユーザー管理・ロール変更・組織管理など、協力会社を含む全社操作に使う
- * （SELF_ADMIN は自社のみ閲覧で、これらの全社的な変更はできない）。
+ * 全社管理者（ADMIN）のみを要求する。スコープ管理者（SELF_ADMIN / ORG_ADMIN）は拒否。
+ * ユーザー管理・ロール変更・組織管理など、全社的な変更操作に使う
+ * （スコープ管理者は自組織の閲覧中心で、これらの全社操作はできない）。
  */
 async function requireFullAdminAction(): Promise<ResolvedUser> {
   const admin = await requireAdminAction();
@@ -38,22 +43,18 @@ async function requireFullAdminAction(): Promise<ResolvedUser> {
 }
 
 /**
- * SELF_ADMIN（自社スコープ）の場合、対象が自社（SELF）組織であることを要求する。
- * ADMIN（全社）は素通り。orgId 不明や協力会社（PARTNER）なら throw。
- * 出面・職人など組織に紐づくデータの変更を自社のみに限定するために使う。
+ * スコープ管理者の場合、対象が「自分の所属組織」であることを要求する。
+ * ADMIN（全社）は素通り。orgId が自組織と異なる／不明なら throw。
+ * 出面・職人など組織に紐づくデータの変更を自組織のみに限定するために使う。
  */
 async function assertOrgInScope(
   admin: ResolvedUser,
   orgId: string | null | undefined,
 ): Promise<void> {
-  if (adminScope(admin) === "ALL") return;
-  if (!orgId) throw new Error("FORBIDDEN: 自社のデータのみ操作できます。");
-  const org = await prisma.organization.findUnique({
-    where: { id: orgId },
-    select: { kind: true },
-  });
-  if (!org || org.kind !== "SELF") {
-    throw new Error("FORBIDDEN: 自社のデータのみ操作できます。");
+  const scopeOrgId = adminScopeOrgId(admin);
+  if (scopeOrgId === null) return; // 全社管理者
+  if (!orgId || orgId !== scopeOrgId) {
+    throw new Error("FORBIDDEN: 自組織のデータのみ操作できます。");
   }
 }
 
@@ -586,10 +587,8 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
     }),
   ]);
   if (!r) throw new Error("出面が見つかりません");
-  // SELF_ADMIN は自社の出面のみ閲覧・編集可（協力会社の出面は開けない）。
-  if (adminScope(admin) !== "ALL" && r.org.kind !== "SELF") {
-    throw new Error("FORBIDDEN: 自社のデータのみ操作できます。");
-  }
+  // スコープ管理者は自組織の出面のみ閲覧・編集可（他組織の出面は開けない）。
+  await assertOrgInScope(admin, r.orgId);
   return {
     report: {
       id: r.id,
@@ -786,18 +785,19 @@ export async function setWorkerRatesAction(
 // ============================================================
 const approveSchema = z.object({
   userId: z.string().min(1),
-  role: z.enum(["ADMIN", "SELF_ADMIN", "OWNER", "PARTNER"]),
-  // PARTNER の場合のみ使用。OWNER/ADMIN/SELF_ADMIN は自社(SELF)組織へ自動割当。
+  role: z.enum(["ADMIN", "SELF_ADMIN", "ORG_ADMIN", "OWNER", "PARTNER"]),
+  // PARTNER / ORG_ADMIN で使用。OWNER/ADMIN/SELF_ADMIN は自社(SELF)組織へ自動割当。
   orgId: z.string().optional(),
   approved: z.boolean(),
 });
 
 export async function approveUserAction(fd: FormData): Promise<void> {
-  // ロール変更・承認は全社管理者のみ（SELF_ADMIN による自己昇格を防止）。
+  // ロール変更・承認は全社管理者のみ（スコープ管理者による自己昇格を防止）。
   const admin = await requireFullAdminAction();
   const roleRaw = str(fd, "role") as
     | "ADMIN"
     | "SELF_ADMIN"
+    | "ORG_ADMIN"
     | "OWNER"
     | "PARTNER";
   const parsed = approveSchema.safeParse({
@@ -818,13 +818,23 @@ export async function approveUserAction(fd: FormData): Promise<void> {
   }
 
   // 役割に応じて所属組織を決める。
-  // PARTNER: 指定された orgId（PARTNER 組織）。OWNER/ADMIN/SELF_ADMIN: SELF 組織へ自動割当。
+  //   PARTNER  : 指定された PARTNER 組織。
+  //   ORG_ADMIN: 指定された任意の組織（自社 or 特定の協力会社）＝閲覧対象。
+  //   OWNER/ADMIN/SELF_ADMIN: 自社(SELF)組織へ自動割当。
   let resolvedOrgId: string;
   if (parsed.data.role === "PARTNER") {
     if (!parsed.data.orgId) throw new Error("協力会社の組織を選択してください。");
     const org = await prisma.organization.findUnique({ where: { id: parsed.data.orgId } });
     if (!org || org.kind !== "PARTNER")
       throw new Error("協力会社の組織を選択してください。");
+    resolvedOrgId = org.id;
+  } else if (parsed.data.role === "ORG_ADMIN") {
+    if (!parsed.data.orgId)
+      throw new Error("組織管理者の対象組織を選択してください。");
+    const org = await prisma.organization.findUnique({
+      where: { id: parsed.data.orgId },
+    });
+    if (!org) throw new Error("対象組織が見つかりません。");
     resolvedOrgId = org.id;
   } else {
     const selfOrg = await prisma.organization.findFirst({
@@ -956,14 +966,9 @@ export async function deleteWorkerAction(fd: FormData): Promise<DeleteResult> {
     select: { orgId: true },
   });
   if (!w) return { ok: false, error: "職人が見つかりません" };
-  if (adminScope(admin) !== "ALL") {
-    const org = await prisma.organization.findUnique({
-      where: { id: w.orgId },
-      select: { kind: true },
-    });
-    if (!org || org.kind !== "SELF") {
-      return { ok: false, error: "自社の職人のみ削除できます。" };
-    }
+  const scopeOrgId = adminScopeOrgId(admin);
+  if (scopeOrgId !== null && w.orgId !== scopeOrgId) {
+    return { ok: false, error: "自組織の職人のみ削除できます。" };
   }
   const used = await prisma.reportEntry.count({ where: { workerId: id } });
   if (used > 0) {

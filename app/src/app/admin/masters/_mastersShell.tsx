@@ -40,19 +40,17 @@ export function MastersShell({
   workers,
   orgs,
   setting,
-  selfScoped = false,
+  scoped = false,
 }: {
   clients: ClientRow[];
   workers: WorkerRow[];
   orgs: OrgRow[];
   setting: SettingRow | null;
-  /** 自社管理者(SELF_ADMIN)＝協力会社（PARTNER）をロールタブで非表示。 */
-  selfScoped?: boolean;
+  /** スコープ管理者（自組織のみ閲覧）＝協力会社の追加を不可にする。 */
+  scoped?: boolean;
 }): JSX.Element {
-  // SELF スコープではロールタブに自社（SELF）組織のみを渡す（協力会社を隠す）。
-  const orgsForRoles = selfScoped
-    ? orgs.filter((o) => o.kind === "SELF")
-    : orgs;
+  // orgs は呼び出し側（page）でスコープ済み。ロールタブにはそのまま渡す。
+  const orgsForRoles = orgs;
   const [tab, setTab] = useState<MasterTab>("clients");
 
   // 必須の初期設定（自社情報・取引先・職人）が未完了か。
@@ -114,7 +112,7 @@ export function MastersShell({
       {tab === "clients" && <ClientsTab clients={clients} />}
       {tab === "workers" && <WorkersTab workers={workers} orgs={orgs} />}
       {tab === "orgs" && (
-        <OrgsTab orgs={orgsForRoles} canAddPartner={!selfScoped} />
+        <OrgsTab orgs={orgsForRoles} canAddPartner={!scoped} />
       )}
       {tab === "settings" && <SettingsTab setting={setting} />}
     </div>

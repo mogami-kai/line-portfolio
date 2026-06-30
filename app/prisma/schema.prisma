@@ -44,7 +44,8 @@ model Organization {
 // ── 利用者（LINEアカウント）──
 enum Role {
   ADMIN // 管理者（全org集約・マスタ・請求・管理画面に入れる）
-  SELF_ADMIN // 自社管理者（管理画面に入れるが、自社=SELF のデータのみ閲覧。協力会社は見えない）
+  SELF_ADMIN // 自社管理者（管理画面に入れるが、自社=SELF のデータのみ閲覧）
+  ORG_ADMIN // 組織管理者（管理画面に入れるが、自分の所属組織＝自社 or 特定の協力会社のみ閲覧）
   OWNER // 自社代表（自社=SELF組織の入力／approved必須）
   VIEWER // 自社メンバー（閲覧想定・現状はOWNERと同等の入力可）
   PARTNER // 協力会社（自組織=PARTNERの入力のみ）

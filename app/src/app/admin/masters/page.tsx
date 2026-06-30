@@ -13,7 +13,7 @@
 
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
-import { getAdminContext, adminScope } from "@/lib/auth.js";
+import { getAdminContext, adminScopeOrgId } from "@/lib/auth.js";
 import { MastersShell } from "./_mastersShell.js";
 import type {
   ClientRow,
@@ -28,8 +28,8 @@ export default async function MastersPage() {
   const admin = await getAdminContext();
   if (!admin) redirect("/admin?error=login");
 
-  // 自社管理者(SELF_ADMIN)は自社のみ閲覧。ロールタブで協力会社（PARTNER）を隠す。
-  const selfScoped = adminScope(admin) === "SELF";
+  // スコープ管理者は自分の所属組織のみ閲覧（職人・ロールタブを自組織に限定）。
+  const scopeOrgId = adminScopeOrgId(admin);
 
   const [clientRows, workerRows, orgRows, setting] = await Promise.all([
     prisma.client.findMany({ orderBy: { name: "asc" } }),
@@ -53,22 +53,28 @@ export default async function MastersPage() {
     active: c.active,
   }));
 
-  const workers: WorkerRow[] = workerRows.map((w) => ({
-    id: w.id,
-    name: w.name,
-    aliases: w.aliases,
-    active: w.active,
-    orgId: w.orgId,
-    orgName: w.org.name,
-    orgKind: w.org.kind as "SELF" | "PARTNER",
-  }));
+  const workers: WorkerRow[] = workerRows
+    // スコープ管理者は自組織の職人のみ。
+    .filter((w) => !scopeOrgId || w.orgId === scopeOrgId)
+    .map((w) => ({
+      id: w.id,
+      name: w.name,
+      aliases: w.aliases,
+      active: w.active,
+      orgId: w.orgId,
+      orgName: w.org.name,
+      orgKind: w.org.kind as "SELF" | "PARTNER",
+    }));
 
-  const orgs: OrgRow[] = orgRows.map((o) => ({
-    id: o.id,
-    name: o.name,
-    kind: o.kind as "SELF" | "PARTNER",
-    active: o.active,
-  }));
+  const orgs: OrgRow[] = orgRows
+    // スコープ管理者はロールタブに自組織のみ表示。
+    .filter((o) => !scopeOrgId || o.id === scopeOrgId)
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      kind: o.kind as "SELF" | "PARTNER",
+      active: o.active,
+    }));
 
   const settingRow: SettingRow | null = setting
     ? {
@@ -94,7 +100,7 @@ export default async function MastersPage() {
         workers={workers}
         orgs={orgs}
         setting={settingRow}
-        selfScoped={selfScoped}
+        scoped={scopeOrgId !== null}
       />
     </main>
   );

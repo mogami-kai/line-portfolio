@@ -15,11 +15,14 @@
 
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { getAdminContext, adminScope } from "@/lib/auth.js";
+import { getAdminContext, adminScopeOrgId } from "@/lib/auth.js";
 import {
   currentYearMonth,
   getMonthSummary,
+  loadMonthRows,
   monthRange,
+  summarizeByClient,
+  summarizeByWorker,
   summarizeExpenses,
   type ClientMonthSummary,
   type ExpensePayerSummary,
@@ -218,23 +221,57 @@ function ExpenseAggregation({
  */
 async function MonthSummary({
   ym,
-  selfScoped,
+  scopeOrgId,
 }: {
   ym: string;
-  selfScoped: boolean;
+  scopeOrgId: string | null;
 }) {
+  // スコープ管理者（自組織のみ）: 自組織1つ分の集計を計算して表示する。
+  if (scopeOrgId) {
+    const rows = await loadMonthRows(ym, { orgId: scopeOrgId });
+    const [clients, byWorker, expenses] = await Promise.all([
+      summarizeByClient(ym, rows),
+      summarizeByWorker(ym, { orgId: scopeOrgId }),
+      summarizeExpenses(ym, { orgId: scopeOrgId }),
+    ]);
+    const totals = clients.reduce(
+      (a, r) => ({
+        manDays: a.manDays + r.manDays,
+        dayManDays: a.dayManDays + r.dayManDays,
+        nightManDays: a.nightManDays + r.nightManDays,
+        otHours: a.otHours + r.otHours,
+      }),
+      { manDays: 0, dayManDays: 0, nightManDays: 0, otHours: 0 },
+    );
+    return (
+      <>
+        <div className="section-head">
+          <h3 className="section-subtitle">職人別（給料の見方）</h3>
+        </div>
+        <WorkerAccordion rows={byWorker} totals={totals} />
+
+        <div className="section-head">
+          <h3 className="section-subtitle">建て替え集計</h3>
+          {expenses.grandTotal > 0 && (
+            <span className="muted">{yen(expenses.grandTotal)}</span>
+          )}
+        </div>
+        <ExpenseAggregation
+          payers={expenses.payers}
+          total={expenses.grandTotal}
+        />
+
+        <div className="section-head">
+          <h3 className="section-subtitle">取引先別（請求の見方）</h3>
+        </div>
+        <ClientAccordion rows={clients} emptyLabel="この月のデータはありません。" />
+      </>
+    );
+  }
+
+  // フル管理者: 自社 ＋ 協力会社（全社）。
   const { self, partner, byWorker, selfTotals, expensePayers, expenseTotal } =
     await getMonthSummary(ym);
-
-  // 自社管理者(SELF_ADMIN)には自社の立替のみ集計し直す（協力会社の立替を漏らさない）。
-  //   getMonthSummary のキャッシュは全社の立替を含むため、スコープ時は別取得して差し替える。
-  let payers = expensePayers;
-  let payTotal = expenseTotal;
-  if (selfScoped) {
-    const scoped = await summarizeExpenses(ym, { source: "SELF" });
-    payers = scoped.payers;
-    payTotal = scoped.grandTotal;
-  }
   return (
     <>
       {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
@@ -254,9 +291,9 @@ async function MonthSummary({
       {/* 建て替え集計（立替えた人 × 用途 × 金額） */}
       <div className="section-head">
         <h3 className="section-subtitle">建て替え集計</h3>
-        {payTotal > 0 && <span className="muted">{yen(payTotal)}</span>}
+        {expenseTotal > 0 && <span className="muted">{yen(expenseTotal)}</span>}
       </div>
-      <ExpenseAggregation payers={payers} total={payTotal} />
+      <ExpenseAggregation payers={expensePayers} total={expenseTotal} />
 
       {/* 自社 取引先別（請求の見方） */}
       <div className="section-head">
@@ -266,18 +303,14 @@ async function MonthSummary({
       </div>
       <ClientAccordion rows={self} emptyLabel="この月のデータはありません。" />
 
-      {/* パートナー 取引先別（自社管理者(SELF_ADMIN)には表示しない） */}
-      {!selfScoped && (
-        <>
-          <div className="section-head">
-            <h3 className="section-subtitle">取引先別（協力会社）</h3>
-          </div>
-          <ClientAccordion
-            rows={partner}
-            emptyLabel="この月の協力会社のデータはありません。"
-          />
-        </>
-      )}
+      {/* パートナー 取引先別 */}
+      <div className="section-head">
+        <h3 className="section-subtitle">取引先別（協力会社）</h3>
+      </div>
+      <ClientAccordion
+        rows={partner}
+        emptyLabel="この月の協力会社のデータはありません。"
+      />
     </>
   );
 }
@@ -304,8 +337,8 @@ export default async function AggregatePage({
     redirect("/admin?error=login");
   }
 
-  // 自社管理者(SELF_ADMIN)は自社のみ閲覧（協力会社の集計を非表示）。
-  const selfScoped = adminScope(admin) === "SELF";
+  // スコープ管理者は自分の所属組織のみ閲覧。
+  const scopeOrgId = adminScopeOrgId(admin);
 
   const sp = await searchParams;
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
@@ -362,7 +395,7 @@ export default async function AggregatePage({
         </a>
 
         <Suspense fallback={<SummarySkeleton />}>
-          <MonthSummary ym={ym} selfScoped={selfScoped} />
+          <MonthSummary ym={ym} scopeOrgId={scopeOrgId} />
         </Suspense>
       </section>
     </main>
