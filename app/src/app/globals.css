@@ -1245,6 +1245,43 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 集計のインライン単価エディタ（シンプル・シック） ── */
+.rate-editor {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+.rate-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.rate-label {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.rate-editor .input--num {
+  width: 100%;
+}
+.rate-editor .btn {
+  flex: 0 0 auto;
+}
+
+/* 職人別アコーディオンの合計行 */
+.acc-total {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
 /* ── ランディングの大ボタン ── */
 .hero {
   padding: 32px 16px 16px;

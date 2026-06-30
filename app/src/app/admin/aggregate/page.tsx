@@ -22,7 +22,9 @@ import {
   monthRange,
   type ClientMonthSummary,
   type ExpensePayerSummary,
+  type WorkerMonthSummary,
 } from "@/lib/aggregate.js";
+import { RateEditor } from "./_rateEditor.js";
 
 export const dynamic = "force-dynamic";
 
@@ -67,9 +69,78 @@ function ClientAccordion({
               <span className="k">概算金額（税抜）</span>
               <span className="v">{yen(r.estimatedAmount)}</span>
             </div>
+            <RateEditor
+              kind="client"
+              targetId={r.clientId}
+              unitPrice={r.unitPrice}
+              otUnitPrice={r.otUnitPrice}
+            />
           </div>
         </details>
       ))}
+    </>
+  );
+}
+
+/** 職人別アコーディオン（人工・残業・給料＋単価編集）。 */
+function WorkerAccordion({
+  rows,
+  totals,
+}: {
+  rows: WorkerMonthSummary[];
+  totals: { manDays: number; otHours: number };
+}) {
+  if (rows.length === 0) {
+    return <p className="muted">この月のデータはありません。</p>;
+  }
+  return (
+    <>
+      {rows.map((w) => (
+        <details className="acc" key={w.workerId ?? w.workerName}>
+          <summary>
+            <span className="acc-name">{w.workerName}</span>
+            <span>
+              <span className="acc-amt">
+                {w.pay > 0 ? yen(w.pay) : `${w.manDays} 人工`}
+              </span>
+              <span className="acc-caret" aria-hidden>
+                {" "}
+                ▾
+              </span>
+            </span>
+          </summary>
+          <div className="acc-body">
+            <div className="kv">
+              <span className="k">人工合計</span>
+              <span className="v">{w.manDays}</span>
+            </div>
+            <div className="kv">
+              <span className="k">残業合計</span>
+              <span className="v">{w.otHours} h</span>
+            </div>
+            <div className="kv">
+              <span className="k">給料（概算）</span>
+              <span className="v">{w.pay > 0 ? yen(w.pay) : "単価未設定"}</span>
+            </div>
+            {w.workerId ? (
+              <RateEditor
+                kind="worker"
+                targetId={w.workerId}
+                unitPrice={w.unitPrice}
+                otUnitPrice={w.otUnitPrice}
+              />
+            ) : (
+              <p className="muted">職人未登録のため単価設定できません。</p>
+            )}
+          </div>
+        </details>
+      ))}
+      <div className="acc-total">
+        <span>合計</span>
+        <span>
+          {totals.manDays} 人工 / 残業 {totals.otHours}h
+        </span>
+      </div>
     </>
   );
 }
@@ -131,33 +202,10 @@ async function MonthSummary({ ym }: { ym: string }) {
       <div className="section-head">
         <h3 className="section-subtitle">職人別（給料の見方）</h3>
       </div>
-      {byWorker.length === 0 ? (
-        <p className="muted">この月のデータはありません。</p>
-      ) : (
-        <table className="worker-table">
-          <thead>
-            <tr>
-              <th>職人</th>
-              <th>人工</th>
-              <th>残業</th>
-            </tr>
-          </thead>
-          <tbody>
-            {byWorker.map((w) => (
-              <tr key={w.workerName}>
-                <td className="wt-name">{w.workerName}</td>
-                <td>{w.manDays}</td>
-                <td className="wt-ot">{w.otHours ? `${w.otHours}h` : "—"}</td>
-              </tr>
-            ))}
-            <tr className="wt-total">
-              <td>合計</td>
-              <td>{selfTotals.manDays}</td>
-              <td>{selfTotals.otHours}h</td>
-            </tr>
-          </tbody>
-        </table>
-      )}
+      <WorkerAccordion
+        rows={byWorker}
+        totals={{ manDays: selfTotals.manDays, otHours: selfTotals.otHours }}
+      />
 
       {/* 建て替え集計（立替えた人 × 用途 × 金額） */}
       <div className="section-head">

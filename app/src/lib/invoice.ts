@@ -19,7 +19,13 @@
 // ============================================================
 
 import ExcelJS from "exceljs";
-import { joyoAmount, overtimeUnit, overtimeLineAmount } from "./calc.js";
+import {
+  joyoAmount,
+  overtimeUnit,
+  overtimeLineAmount,
+  resolveOvertimeUnit,
+  overtimeLineAmountResolved,
+} from "./calc.js";
 
 /** 請求書明細1行（Prisma model InvoiceLine と一致）。 */
 export interface InvoiceLine {
@@ -250,10 +256,16 @@ export function buildInvoiceLines(
 // ============================================================
 export function buildClientLines(
   totals: ClientTotals,
-  opts: { unitPrice: number; taxRate: number; joyoItemName?: string },
+  opts: {
+    unitPrice: number;
+    taxRate: number;
+    joyoItemName?: string;
+    /** 残業の時間単価（円/時）。未指定なら 人工単価÷8×1.25 を自動採用。 */
+    otUnitPrice?: number | null;
+  },
 ): InvoiceLine[] {
   const lines: InvoiceLine[] = [];
-  const { unitPrice, taxRate } = opts;
+  const { unitPrice, taxRate, otUnitPrice } = opts;
   // 委託料の品目名（既定「委託料」。請求書では「○月委託料」を渡す）。
   const joyoItemName = (opts.joyoItemName ?? "委託料").trim() || "委託料";
   let sortNo = 0;
@@ -281,8 +293,8 @@ export function buildClientLines(
       itemName: "残業",
       qty: ot,
       unitLabel: "時間",
-      unitPrice: overtimeUnit(unitPrice),
-      amount: overtimeLineAmount(ot, unitPrice),
+      unitPrice: resolveOvertimeUnit(unitPrice, otUnitPrice),
+      amount: overtimeLineAmountResolved(ot, unitPrice, otUnitPrice),
       taxRate,
     });
   }

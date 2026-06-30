@@ -8,7 +8,12 @@
 
 import { unstable_cache } from "next/cache";
 import { prisma } from "./db.js";
-import { resolveManDays, type Shift } from "./calc.js";
+import {
+  resolveManDays,
+  joyoAmount,
+  overtimeLineAmountResolved,
+  type Shift,
+} from "./calc.js";
 import {
   aggregateForInvoice,
   buildClientLines,
@@ -151,11 +156,16 @@ export function toReportLike(rows: ReportRowForAgg[]): ReportLike[] {
 }
 
 export interface ClientMonthSummary {
+  clientId: string;
   clientName: string;
   manDays: number;
   otHours: number;
   /** RateCard を当てた概算金額（税抜）。単価未設定の現場は 0 として概算。 */
   estimatedAmount: number;
+  /** 取引先に設定済みの人工単価（円）。未設定は null（編集フォームの初期値用）。 */
+  unitPrice: number | null;
+  /** 取引先に設定済みの残業単価（円/時）。未設定は null（未設定なら自動計算）。 */
+  otUnitPrice: number | null;
 }
 
 /**
@@ -181,13 +191,14 @@ export async function summarizeByClient(
   // いた（取引先×現場ぶんの DB 往復＝East/Tokyo 間で致命的）。概算は取引先既定単価
   // のみ使うため、現場別の引き当ては不要。
   const clientIds = Array.from(new Set(nameToClientId.values()));
-  const rateByClient = await loadDefaultJoyoRates(clientIds, onDate);
+  const rateByClient = await loadClientRates(clientIds, onDate);
 
   const out: ClientMonthSummary[] = [];
   for (const clientName of Object.keys(agg).sort()) {
     const clientAgg: ClientAgg = agg[clientName];
     const clientId = nameToClientId.get(clientName)!;
-    const unit = rateByClient.get(clientId) ?? 0;
+    const rate = rateByClient.get(clientId);
+    const unit = rate?.resolvedUnit ?? 0;
 
     let manDays = 0;
     let otHours = 0;
@@ -197,54 +208,79 @@ export async function summarizeByClient(
       otHours += s.otHours;
     }
 
-    // 取引先ごとの委託料（人工×単価）＋残業＋請負(UKEOI)契約金額で概算（請求書と同じ作り）。
+    // 取引先ごとの委託料（人工×単価）＋残業（設定残業単価 or 自動）＋請負(UKEOI)で概算。
     // 概算は税抜小計のみ使うため、請負はその月の合算を 1 件にまとめて積めば十分。
     const ukeoiAmounts = clientAgg.lump > 0 ? [clientAgg.lump] : [];
     const lines: InvoiceLine[] = buildClientLines(
       { manDays, otHours, expenses: [], ukeoiAmounts },
-      { unitPrice: unit, taxRate: 0 }, // 概算は税抜小計のみ使うので税率0でよい。
+      { unitPrice: unit, otUnitPrice: rate?.otUnitPrice ?? null, taxRate: 0 },
     );
     const summary = summarize(lines, 0);
 
     out.push({
+      clientId,
       clientName,
       manDays,
       otHours,
       estimatedAmount: summary.subtotal + summary.exempt,
+      unitPrice: rate?.clientUnitPrice ?? null,
+      otUnitPrice: rate?.otUnitPrice ?? null,
     });
   }
   return out;
 }
 
+interface ClientRateInfo {
+  /** 概算に使う人工単価（取引先設定優先・無ければ旧RateCard・無ければ0）。 */
+  resolvedUnit: number;
+  /** 取引先に明示設定された人工単価（編集フォーム初期値）。未設定は null。 */
+  clientUnitPrice: number | null;
+  /** 取引先に明示設定された残業単価（円/時）。未設定は null（自動計算）。 */
+  otUnitPrice: number | null;
+}
+
 /**
- * 取引先既定単価（JOYO・siteId=null・effectiveFrom<=on）を 1 クエリでまとめ取りし、
- * clientId → 最新有効 unitPrice の Map にして返す（N+1 回避）。
+ * 取引先の単価情報（人工・残業）を 1〜2 クエリでまとめ取りする（N+1 回避）。
+ * 人工単価は 取引先設定 → 旧RateCard既定 の順で解決。残業単価は取引先設定のみ。
  */
-async function loadDefaultJoyoRates(
+async function loadClientRates(
   clientIds: string[],
   on: Date,
-): Promise<Map<string, number>> {
-  const map = new Map<string, number>();
+): Promise<Map<string, ClientRateInfo>> {
+  const map = new Map<string, ClientRateInfo>();
   if (clientIds.length === 0) return map;
-  // v3: 取引先の常用単価を優先（1クエリ）。
   const clients = await prisma.client.findMany({
     where: { id: { in: clientIds } },
-    select: { id: true, unitPrice: true },
+    select: { id: true, unitPrice: true, otUnitPrice: true },
   });
-  for (const c of clients) if (c.unitPrice != null) map.set(c.id, c.unitPrice);
-  // 未設定分のみ旧RateCard既定でフォールバック（過去分維持）。
-  const cards = await prisma.rateCard.findMany({
-    where: {
-      clientId: { in: clientIds },
-      siteId: null,
-      contractType: "JOYO",
-      effectiveFrom: { lte: on },
-    },
-    orderBy: { effectiveFrom: "desc" },
-    select: { clientId: true, unitPrice: true },
-  });
-  // effectiveFrom 降順なので、各 clientId 最初の 1 件が最新有効単価。
-  for (const c of cards) if (!map.has(c.clientId)) map.set(c.clientId, c.unitPrice);
+  for (const c of clients) {
+    map.set(c.id, {
+      resolvedUnit: c.unitPrice ?? 0,
+      clientUnitPrice: c.unitPrice ?? null,
+      otUnitPrice: c.otUnitPrice ?? null,
+    });
+  }
+  // 人工単価が未設定の取引先のみ旧RateCard既定でフォールバック（過去分維持）。
+  const needFallback = Array.from(map.entries())
+    .filter(([, r]) => r.resolvedUnit === 0)
+    .map(([id]) => id);
+  if (needFallback.length > 0) {
+    const cards = await prisma.rateCard.findMany({
+      where: {
+        clientId: { in: needFallback },
+        siteId: null,
+        contractType: "JOYO",
+        effectiveFrom: { lte: on },
+      },
+      orderBy: { effectiveFrom: "desc" },
+      select: { clientId: true, unitPrice: true },
+    });
+    // effectiveFrom 降順なので、各 clientId 最初の 1 件が最新有効単価。
+    for (const c of cards) {
+      const cur = map.get(c.clientId);
+      if (cur && cur.resolvedUnit === 0) cur.resolvedUnit = c.unitPrice;
+    }
+  }
   return map;
 }
 
@@ -254,9 +290,17 @@ async function loadDefaultJoyoRates(
 //   出面の entries を職人ごとに 人工・残業 で合算する（自社=SELF が対象）。
 // ============================================================
 export interface WorkerMonthSummary {
+  /** 職人ID。集計画面から単価編集する対象。worker 未紐付けの行は null。 */
+  workerId: string | null;
   workerName: string;
   manDays: number;
   otHours: number;
+  /** 職人に設定済みの人工単価（円）。未設定は null。 */
+  unitPrice: number | null;
+  /** 職人に設定済みの残業単価（円/時）。未設定は null（自動計算）。 */
+  otUnitPrice: number | null;
+  /** 給料概算（人工×単価 ＋ 残業×残業単価）。単価未設定なら 0。 */
+  pay: number;
 }
 
 export async function summarizeByWorker(
@@ -278,26 +322,57 @@ export async function summarizeByWorker(
           manDays: true,
           otHours: true,
           shift: true,
-          worker: { select: { name: true } },
+          worker: {
+            select: { id: true, name: true, unitPrice: true, otUnitPrice: true },
+          },
         },
       },
     },
   });
 
-  const map = new Map<string, { manDays: number; otHours: number }>();
+  interface Acc {
+    workerId: string | null;
+    workerName: string;
+    manDays: number;
+    otHours: number;
+    unitPrice: number | null;
+    otUnitPrice: number | null;
+  }
+  // 職人ID単位で集計（未紐付けは "(不明)" にまとめる）。
+  const map = new Map<string, Acc>();
   for (const r of reports) {
     for (const e of r.entries) {
-      const name = e.worker?.name ?? "(不明)";
+      const key = e.worker?.id ?? "__unknown__";
       const md = resolveManDays(e.shift as Shift, e.manDays);
-      const cur = map.get(name) ?? { manDays: 0, otHours: 0 };
+      const cur =
+        map.get(key) ??
+        ({
+          workerId: e.worker?.id ?? null,
+          workerName: e.worker?.name ?? "(不明)",
+          manDays: 0,
+          otHours: 0,
+          unitPrice: e.worker?.unitPrice ?? null,
+          otUnitPrice: e.worker?.otUnitPrice ?? null,
+        } as Acc);
       cur.manDays += md;
       cur.otHours += Number(e.otHours) || 0;
-      map.set(name, cur);
+      map.set(key, cur);
     }
   }
-  return Array.from(map.entries())
-    .map(([workerName, v]) => ({ workerName, manDays: v.manDays, otHours: v.otHours }))
-    .sort((a, b) => b.manDays - a.manDays || a.workerName.localeCompare(b.workerName, "ja"));
+  return Array.from(map.values())
+    .map((v) => {
+      const unit = v.unitPrice ?? 0;
+      const pay =
+        unit > 0
+          ? joyoAmount(v.manDays, unit) +
+            overtimeLineAmountResolved(v.otHours, unit, v.otUnitPrice)
+          : 0;
+      return { ...v, pay };
+    })
+    .sort(
+      (a, b) =>
+        b.manDays - a.manDays || a.workerName.localeCompare(b.workerName, "ja"),
+    );
 }
 
 // ============================================================

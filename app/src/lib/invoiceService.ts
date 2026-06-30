@@ -84,14 +84,24 @@ export async function buildClientInvoiceLines(
     return [];
   }
 
-  // 単価（取引先既定・JOYO・月末時点）。管理者がマスタに入れた値。無ければ0。
+  // 単価（取引先既定・JOYO・月末時点）。管理者がマスタ/集計画面で入れた値。無ければ0。
   const unitPrice = (await resolveDefaultRate(clientId, to)) ?? 0;
+  // 残業の時間単価（取引先設定）。未設定なら buildClientLines 側で自動計算。
+  const clientOt = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { otUnitPrice: true },
+  });
 
   // 委託料の品目名は「○月委託料」（常用・請負とも共通。写真の体裁に合わせる）。
   const month = parseInt(yearMonth.split("-")[1] ?? "0", 10);
   return buildClientLines(
     { manDays, otHours, expenses: [], lumpItems, ukeoiAmounts },
-    { unitPrice, taxRate, joyoItemName: `${month}月委託料` },
+    {
+      unitPrice,
+      otUnitPrice: clientOt?.otUnitPrice ?? null,
+      taxRate,
+      joyoItemName: `${month}月委託料`,
+    },
   );
 }
 
