@@ -65,6 +65,7 @@ model User {
   lineUserId  String   @unique
   displayName String
   role        Role     @default(PARTNER)
+  superAdmin  Boolean  @default(false) // 👑最高管理者（最上1名）。降格/無効化/削除されず、他の管理者を降格できる。
   approved    Boolean  @default(false) // 初回 false → 管理者が org/role を承認
   status      UserStatus @default(ACTIVE) // 拒否/無効化用（DISABLED は一切入室不可）
   orgId       String

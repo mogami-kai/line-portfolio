@@ -25,12 +25,11 @@ import type {
 } from "./_mastersTypes.js";
 import { ClientsTab } from "./_tabClients.js";
 import { WorkersTab } from "./_tabWorkers.js";
-import { OrgsTab } from "./_tabOrgs.js";
 import { SettingsTab } from "./_tabSettings.js";
 
+// ロール（組織）の管理はユーザー管理ページへ移設したため、設定タブからは外した。
 const TABS: { key: MasterTab; label: string; group?: "blue" }[] = [
   { key: "workers", label: "職人" },
-  { key: "orgs", label: "ロール" },
   { key: "clients", label: "取引先設定", group: "blue" },
   { key: "settings", label: "請求書設定", group: "blue" },
 ];
@@ -40,18 +39,13 @@ export function MastersShell({
   workers,
   orgs,
   setting,
-  scoped = false,
 }: {
   clients: ClientRow[];
   workers: WorkerRow[];
   orgs: OrgRow[];
   setting: SettingRow | null;
-  /** スコープ管理者（自組織のみ閲覧）＝協力会社の追加を不可にする。 */
-  scoped?: boolean;
 }): JSX.Element {
-  // orgs は呼び出し側（page）でスコープ済み。ロールタブにはそのまま渡す。
-  const orgsForRoles = orgs;
-  const [tab, setTab] = useState<MasterTab>("clients");
+  const [tab, setTab] = useState<MasterTab>("workers");
 
   // 必須の初期設定（自社情報・取引先・職人）が未完了か。
   //   未完了が1つでもあれば、.mst-setup の控えめな1行だけ出して導線にする。
@@ -111,9 +105,6 @@ export function MastersShell({
 
       {tab === "clients" && <ClientsTab clients={clients} />}
       {tab === "workers" && <WorkersTab workers={workers} orgs={orgs} />}
-      {tab === "orgs" && (
-        <OrgsTab orgs={orgsForRoles} canAddPartner={!scoped} />
-      )}
       {tab === "settings" && <SettingsTab setting={setting} />}
     </div>
   );

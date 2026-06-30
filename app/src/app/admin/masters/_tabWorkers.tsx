@@ -28,10 +28,7 @@ import {
   createWorkerAction,
   updateWorkerAction,
   setWorkerActiveAction,
-  deleteWorkerAction,
-  mergeWorkerAction,
 } from "../_actions.js";
-import { ConfirmDeleteButton } from "../_confirmDelete.js";
 
 /** 種別ラベル（英語表記は画面に出さない）。 */
 function kindLabel(kind: "SELF" | "PARTNER"): string {
@@ -166,13 +163,6 @@ export function WorkersTab({
     [workers],
   );
 
-  // 統合先候補: 編集中の職人と同じ組織の、別の職人。
-  const mergeTargets = useMemo(
-    () =>
-      row ? workers.filter((w) => w.orgId === row.orgId && w.id !== row.id) : [],
-    [workers, row],
-  );
-
   // ── 追加（createWorkerAction） ──
   function submitAdd(fd: FormData): void {
     start(async () => {
@@ -204,30 +194,6 @@ export function WorkersTab({
     start(async () => {
       try {
         await setWorkerActiveAction(fd);
-        router.refresh();
-        closeDrawer();
-      } catch (e) {
-        setErr(String((e as Error).message || e));
-      }
-    });
-  }
-
-  // ── 統合（mergeWorkerAction）。重複職人を1つにまとめる（破壊的なので確認を挟む）。 ──
-  function submitMerge(fd: FormData): void {
-    const intoId = String(fd.get("intoId") || "");
-    if (!intoId) {
-      setErr("統合先の職人を選択してください。");
-      return;
-    }
-    if (
-      !window.confirm(
-        "この職人を選んだ職人に統合します。出面記録を付け替えて、この職人は削除されます（取り消せません）。よろしいですか？",
-      )
-    )
-      return;
-    start(async () => {
-      try {
-        await mergeWorkerAction(fd);
         router.refresh();
         closeDrawer();
       } catch (e) {
@@ -417,23 +383,6 @@ export function WorkersTab({
                 required
               />
             </div>
-
-            <div className="field">
-              <label className="label" htmlFor="w-aliases">
-                別名（任意）
-              </label>
-              <input
-                id="w-aliases"
-                name="aliases"
-                className="input"
-                type="text"
-                autoComplete="off"
-                placeholder="例: たろう、田中太郎"
-              />
-              <p className="hint">
-                出面入力での表記ゆれを吸収します。読点・カンマ・改行で区切って複数登録できます。
-              </p>
-            </div>
           </form>
         ) : (
           row && (
@@ -454,24 +403,6 @@ export function WorkersTab({
                     defaultValue={row.name}
                     required
                   />
-                </div>
-
-                <div className="field">
-                  <label className="label" htmlFor="w-aliases-e">
-                    別名（任意）
-                  </label>
-                  <input
-                    id="w-aliases-e"
-                    name="aliases"
-                    className="input"
-                    type="text"
-                    autoComplete="off"
-                    defaultValue={(row.aliases ?? []).join("、")}
-                    placeholder="例: たろう、田中太郎"
-                  />
-                  <p className="hint">
-                    保存すると別名はこの入力内容で置き換わります。空のまま保存すると別名は消去されます。
-                  </p>
                 </div>
 
                 <div className="field">
@@ -520,57 +451,6 @@ export function WorkersTab({
                 </form>
                 <p className="hint">
                   無効化しても過去の出面記録は残ります。再び有効化すれば選択肢に戻ります。
-                </p>
-              </div>
-
-              {/* 重複の統合（mergeWorkerAction）。同じ組織の別の職人にまとめる。 */}
-              {mergeTargets.length > 0 && (
-                <div style={auxStyle}>
-                  <form action={submitMerge}>
-                    <input type="hidden" name="fromId" value={row.id} />
-                    <label className="label" htmlFor="w-merge">
-                      重複の統合（この職人を別の職人にまとめる）
-                    </label>
-                    <select
-                      id="w-merge"
-                      name="intoId"
-                      className="select"
-                      defaultValue=""
-                    >
-                      <option value="" disabled>
-                        統合先の職人を選択…
-                      </option>
-                      {mergeTargets.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          {w.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="submit"
-                      className="btn btn--danger-text btn--sm"
-                      disabled={pending}
-                      style={{ marginTop: 8 }}
-                    >
-                      「{row.name}」を統合（この職人は削除）
-                    </button>
-                  </form>
-                  <p className="hint">
-                    「{row.name}」の出面記録を統合先に付け替え、別名としてまとめてから「{row.name}」を削除します（取り消せません）。同名で二重登録された職人を1つにまとめるときに使います。
-                  </p>
-                </div>
-              )}
-
-              {/* 完全削除（deleteWorkerAction）。出面に未使用のときだけ可能。 */}
-              <div style={auxStyle}>
-                <ConfirmDeleteButton
-                  action={deleteWorkerAction}
-                  id={row.id}
-                  label="完全に削除"
-                  confirmText="この職人を完全に削除します（出面に未使用の場合のみ）。よろしいですか？"
-                />
-                <p className="hint">
-                  無効化＝出面記録は残す / 完全削除＝出面に未使用のときだけ可能。出面で使用中の職人は削除できません（無効化してください）。
                 </p>
               </div>
             </>

@@ -291,7 +291,8 @@ export async function updateWorkerAction(fd: FormData): Promise<void> {
     where: { id },
     data: {
       name,
-      aliases: parseAliases(str(fd, "aliases")),
+      // aliases 欄は UI 廃止。フォームに含まれるときだけ更新し、無ければ既存値を保持。
+      ...(fd.has("aliases") ? { aliases: parseAliases(str(fd, "aliases")) } : {}),
       active: fd.get("active") === "on" || fd.get("active") === "true",
     },
   });
@@ -839,13 +840,18 @@ export async function approveUserAction(fd: FormData): Promise<void> {
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
 
-  // 管理者は降格不可（一度昇格したら下げられない）。
+  // 👑最高管理者は保護（降格・ロール変更不可）。通常の管理者の降格は👑のみ可能。
   const target = await prisma.user.findUnique({
     where: { id: parsed.data.userId },
-    select: { role: true },
+    select: { role: true, superAdmin: true },
   });
+  if (target?.superAdmin) {
+    throw new Error("👑最高管理者は変更できません。");
+  }
   if (target?.role === "ADMIN" && parsed.data.role !== "ADMIN") {
-    throw new Error("管理者は降格できません。");
+    if (!admin.user.superAdmin) {
+      throw new Error("管理者を降格できるのは👑最高管理者のみです。");
+    }
   }
 
   // 役割に応じて所属組織を決める。
@@ -921,6 +927,14 @@ export async function setUserStatusAction(fd: FormData): Promise<void> {
   // 安全弁: 自分自身の無効化を禁止（ロックアウト防止）。
   if (parsed.data.status === "DISABLED" && parsed.data.userId === admin.user.id) {
     throw new Error("自分自身は無効化できません（ロックアウト防止）。");
+  }
+  // 👑最高管理者は無効化できない。
+  if (parsed.data.status === "DISABLED") {
+    const tgt = await prisma.user.findUnique({
+      where: { id: parsed.data.userId },
+      select: { superAdmin: true },
+    });
+    if (tgt?.superAdmin) throw new Error("👑最高管理者は無効化できません。");
   }
   // 更新を advisory xact lock で直列化し、最後の有効ADMINが 0 人になる更新は
   // 同一トランザクション内の再カウントで検知してロールバックする（TOCTOU 対策）。
@@ -1073,8 +1087,9 @@ export async function deleteUserAction(fd: FormData): Promise<DeleteResult> {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('admin-guard'))`;
       const target = await tx.user.findUnique({
         where: { id },
-        select: { role: true, approved: true, status: true },
+        select: { role: true, approved: true, status: true, superAdmin: true },
       });
+      if (target?.superAdmin) throw new Error("SUPER_ADMIN");
       const wasActiveAdmin =
         target?.role === "ADMIN" && target.approved && target.status === "ACTIVE";
       if (wasActiveAdmin) {
@@ -1088,6 +1103,9 @@ export async function deleteUserAction(fd: FormData): Promise<DeleteResult> {
   } catch (e) {
     if (e instanceof Error && e.message === "LAST_ADMIN") {
       return { ok: false, error: "最後の管理者は削除できません。" };
+    }
+    if (e instanceof Error && e.message === "SUPER_ADMIN") {
+      return { ok: false, error: "👑最高管理者は削除できません。" };
     }
     throw e;
   }

@@ -6,7 +6,7 @@
 // ============================================================
 
 import type { ReactNode } from "react";
-import { getAdminContext } from "@/lib/auth.js";
+import { getAdminContext, adminScope } from "@/lib/auth.js";
 import { AdminShell } from "./_shell/AdminShell.js";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +14,10 @@ export const dynamic = "force-dynamic";
 export default async function AdminLayout({ children }: { children: ReactNode }) {
   const admin = await getAdminContext();
   if (!admin) return <>{children}</>;
+  // スコープ管理者（自社管理者/協力会社管理者）は ホーム・集計・請求 のみ表示。
+  const scoped = adminScope(admin) === "ORG";
   return (
-    <AdminShell userName={admin.user.displayName}>
+    <AdminShell userName={admin.user.displayName} scoped={scoped}>
       {children}
     </AdminShell>
   );

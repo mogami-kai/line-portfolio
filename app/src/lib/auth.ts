@@ -150,6 +150,11 @@ export function isScopedAdmin(u: ResolvedUser): boolean {
   return adminScope(u) === "ORG";
 }
 
+/** 👑最高管理者か（降格/無効化/削除されず、他の管理者を降格できる）。 */
+export function isSuperAdmin(u: ResolvedUser): boolean {
+  return u.user.superAdmin === true;
+}
+
 /**
  * 管理者（ADMIN / スコープ管理者）を要求。違反時は Error を投げる
  * （ページ/ハンドラ側で 403 等に変換）。

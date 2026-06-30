@@ -101,14 +101,16 @@ function Brand() {
 
 function NavLinks({
   pathname,
+  items,
   onNavigate,
 }: {
   pathname: string;
+  items: NavItem[];
   onNavigate?: () => void;
 }) {
   return (
     <nav className="nav">
-      {NAV.map((item) => {
+      {items.map((item) => {
         const active = item.match(pathname);
         const Icon = item.icon;
         return (
@@ -132,14 +134,23 @@ function NavLinks({
 
 export function AdminShell({
   userName,
+  scoped = false,
   children,
 }: {
   userName: string;
+  /** スコープ管理者＝ホーム・集計・請求のみ（設定/ユーザー管理を隠す）。 */
+  scoped?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname() || "/admin";
   const [open, setOpen] = useState(false);
-  const current = NAV.find((n) => n.match(pathname))?.label ?? "管理";
+  // スコープ管理者は ホーム/集計/請求書 のみ。
+  const nav = scoped
+    ? NAV.filter((n) =>
+        ["/admin", "/admin/aggregate", "/admin/invoices"].includes(n.href),
+      )
+    : NAV;
+  const current = nav.find((n) => n.match(pathname))?.label ?? "管理";
 
   useEffect(() => {
     if (!open) return;
@@ -162,7 +173,7 @@ export function AdminShell({
         <div className="app-sidebar-top">
           <Brand />
         </div>
-        <NavLinks pathname={pathname} />
+        <NavLinks pathname={pathname} items={nav} />
         <div className="app-sidebar-foot">
           <div className="sb-user" title={userName}>
             {userName}
@@ -216,7 +227,7 @@ export function AdminShell({
         </button>
 
         {/* ナビアイコン（凸凹） */}
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const active = item.match(pathname);
           const Icon = item.icon;
           return (
