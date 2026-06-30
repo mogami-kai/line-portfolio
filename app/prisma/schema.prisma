@@ -43,7 +43,8 @@ model Organization {
 
 // ── 利用者（LINEアカウント）──
 enum Role {
-  ADMIN // 管理者（全org集約・マスタ・請求・管理画面に入れる唯一のロール）
+  ADMIN // 管理者（全org集約・マスタ・請求・管理画面に入れる）
+  SELF_ADMIN // 自社管理者（管理画面に入れるが、自社=SELF のデータのみ閲覧。協力会社は見えない）
   OWNER // 自社代表（自社=SELF組織の入力／approved必須）
   VIEWER // 自社メンバー（閲覧想定・現状はOWNERと同等の入力可）
   PARTNER // 協力会社（自組織=PARTNERの入力のみ）
@@ -89,6 +90,14 @@ model Worker {
   @@index([orgId])
 }
 
+// ── 請求方式（取引先ごと）──
+//   AGGREGATE = 集約: 委託料(日勤)/委託料(夜勤)/残業 を合算した行で請求
+//   PER_SITE  = 現場ごと: 現場名ごとに1行（＋「現場名 夜勤」別行・残業代行）で請求
+enum BillingMode {
+  AGGREGATE
+  PER_SITE
+}
+
 // ── 取引先（請求先）──
 model Client {
   id        String   @id @default(cuid())
@@ -96,8 +105,10 @@ model Client {
   honorific String   @default("様") // 御中 / 様
   address   String?
   aliases   String[] @default([]) // 名寄せ（工/興・L/R 等）※v3でUIからは廃止（データは残置）
-  unitPrice Int?     // v3: 常用の人工単価（取引先で設定）。null=未設定→請求時に¥0警告
+  unitPrice Int?     // v3: 常用の人工単価（日勤・取引先で設定）。null=未設定→請求時に¥0警告
+  nightUnitPrice Int? // 夜勤の人工単価（円/人工）。null=未設定なら日勤単価(unitPrice)を流用
   otUnitPrice Int?   // 残業の時間単価（円/時）。null=未設定なら自動（人工単価÷8×1.25）
+  billingMode BillingMode @default(AGGREGATE) // 請求方式（集約 / 現場ごと）
   active    Boolean  @default(true)
 
   sites    Site[]
