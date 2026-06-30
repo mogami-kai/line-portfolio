@@ -310,8 +310,7 @@ export default async function InvoicesPage({
       )}
       {anyRateMissing && (
         <div className="notice notice--warn" style={{ marginBottom: 12 }}>
-          常用単価が未登録の取引先があります（委託料・残業が ¥0 になります）。{" "}
-          <a href="/admin/masters">設定 → 取引先</a> を開いて単価を登録してください。
+          単価が未設定の取引先があります。<a href="/admin/masters">設定</a>から確認してください。
         </div>
       )}
 
