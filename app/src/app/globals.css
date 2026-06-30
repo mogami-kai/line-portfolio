@@ -485,14 +485,18 @@ a {
 .app-burger:hover {
   background: #eef1f4;
 }
-/* ヘッダー直下のアイコンバー（スマホのみ。PCでは非表示） */
+/* 右端固定の縦アイコンバー（スマホのみ。PCでは非表示） */
 .app-icon-bar {
+  position: fixed;
+  top: var(--header-h);
+  right: 0;
+  z-index: 20;
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
   gap: 2px;
-  padding: 4px 8px;
+  padding: 6px 4px;
   background: var(--card);
-  border-bottom: 1px solid var(--line);
+  border-left: 1px solid var(--line);
 }
 .app-icon-bar-item {
   display: inline-flex;
@@ -593,7 +597,7 @@ a {
 .app-content {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: 16px 16px 40px;
+  padding: 16px 52px 40px 16px; /* 右は縦アイコンバー(44px)分確保 */
 }
 /* シェル内ではページ側の .container（幅480px制約）を解除し作業領域いっぱいに */
 .app-content .container {
