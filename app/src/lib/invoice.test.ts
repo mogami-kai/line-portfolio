@@ -225,12 +225,13 @@ describe("buildClientLines（v3: 請負=数量1委託料 / 常用=人工×単価
     expect(lines[1].amount).toBe(300000);
     expect(lines[2].amount).toBe(150000);
 
-    // 二重計上していない＝小計は 252000 + 300000 + 150000。
+    // 二重計上していない＝課税税込は 252000 + 300000 + 150000 = 702000。
+    // 内税: 小計(税抜)=round(702000/1.1)=638182、消費税=702000−638182、合計=702000。
     const s = summarize(lines, 0.1);
-    expect(s.subtotal).toBe(702000);
-    expect(s.tax).toBe(70200);
+    expect(s.subtotal).toBe(638182);
+    expect(s.tax).toBe(702000 - 638182);
     expect(s.exempt).toBe(0);
-    expect(s.total).toBe(702000 + 70200);
+    expect(s.total).toBe(702000);
   });
 
   it("joyoItemName 未指定なら請負は既定の「委託料」で計上", () => {
@@ -245,15 +246,16 @@ describe("buildClientLines（v3: 請負=数量1委託料 / 常用=人工×単価
   });
 });
 
-describe("summarize", () => {
-  it("subtotal=課税合計, tax=round(subtotal*0.1), exempt=立替, total一致", () => {
+describe("summarize（内税/税込）", () => {
+  it("小計=round(課税税込/1.1), 消費税=課税税込−小計, exempt=立替, 合計=課税税込+対象外(=集計額)", () => {
     const s = summarize(lines, TAX);
-    // 課税: 40000(常用) + 3125(残業) + 500000(請負) = 543125
-    expect(s.subtotal).toBe(543125);
-    expect(s.tax).toBe(Math.round(543125 * 0.1)); // 54313 (round 54312.5→54313)
-    expect(s.tax).toBe(54313);
+    // 課税(税込): 40000(常用) + 3125(残業) + 500000(請負) = 543125
+    expect(s.subtotal).toBe(493750); // round(543125/1.1)=493750
+    expect(s.tax).toBe(543125 - 493750); // 49375
+    expect(s.tax).toBe(49375);
     expect(s.exempt).toBe(8000);
-    expect(s.total).toBe(543125 + 54313 + 8000);
+    // 合計（税込）は課税税込＋対象外＝集計の額。従来の「合計が10%上がる」外税ではない。
+    expect(s.total).toBe(543125 + 8000);
   });
 });
 
@@ -329,7 +331,8 @@ describe("toXlsx（template_013 空テンプレ注入）", () => {
     expect(String(txt("B6"))).toContain("様");
     expect(String(txt("B8"))).toContain("ダミー県");
     expect(String(txt("K6"))).toContain("ダミー銀行");
-    expect(ws.getCell("F11").value).toBe(140000 + 46000 + 3125 + Math.round((140000 + 46000 + 3125) * 0.1));
+    // 内税: ご請求金額（税込）= 課税税込の合計（10%上乗せしない）。
+    expect(ws.getCell("F11").value).toBe(140000 + 46000 + 3125);
 
     // 明細（B=品目 / J=数量 / K=単価 / M=金額）
     expect(txt(`B${FIRST}`)).toBe("みなとみらい");
@@ -339,11 +342,12 @@ describe("toXlsx（template_013 空テンプレ注入）", () => {
     expect(txt(`B${FIRST + 1}`)).toBe("橋本 夜勤");
     expect(txt(`B${FIRST + 2}`)).toBe("残業代");
 
-    // 合計（小計 I50 / 消費税 K50 / 合計 M50）
-    const subtotal = 140000 + 46000 + 3125;
+    // 合計（内税: 小計 I50 / 消費税 K50 / 合計 M50）
+    const taxableIncl = 140000 + 46000 + 3125; // 189125（税込）
+    const subtotal = Math.round(taxableIncl / 1.1); // 171932
     expect(ws.getCell("I50").value).toBe(subtotal);
-    expect(ws.getCell("K50").value).toBe(Math.round(subtotal * 0.1));
-    expect(ws.getCell("M50").value).toBe(subtotal + Math.round(subtotal * 0.1));
+    expect(ws.getCell("K50").value).toBe(taxableIncl - subtotal);
+    expect(ws.getCell("M50").value).toBe(taxableIncl);
 
     // 日付は Excel シリアル値（数値）で入れる → 日付書式セルとして解釈され、
     // 読み戻すと Date になる（＝書式の日付部・「支払期限:」ラベルが効く）。文字列ではない。
@@ -370,9 +374,10 @@ describe("toXlsx（template_013 空テンプレ注入）", () => {
     const wb2 = new ExcelJS.Workbook();
     await wb2.xlsx.load(buf as ArrayBuffer);
     const ws = wb2.worksheets[0]!;
-    // 小計=課税20000 / 消費税=2000 / 合計=20000+2000+800(対象外)=22800
-    expect(ws.getCell("I50").value).toBe(20000);
-    expect(ws.getCell("K50").value).toBe(2000);
-    expect(ws.getCell("M50").value).toBe(22800);
+    // 内税: 小計=round(20000/1.1)=18182 / 消費税=20000−18182=1818 /
+    //   合計=課税税込20000＋対象外800=20800（10%上乗せしない）。
+    expect(ws.getCell("I50").value).toBe(18182);
+    expect(ws.getCell("K50").value).toBe(1818);
+    expect(ws.getCell("M50").value).toBe(20800);
   });
 });

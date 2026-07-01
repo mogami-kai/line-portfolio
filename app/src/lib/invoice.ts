@@ -539,19 +539,32 @@ export function buildBillingLines(
 }
 
 // ============================================================
-// サマリ: 小計（課税）/ 消費税 / 対象外 / 合計
+// サマリ: 小計（税抜）/ 消費税 / 対象外 / 合計（税込）
+//
+//   ★ 内税（税込）方式:
+//     明細金額（人工×単価 など）は「税込」として扱う。集計の金額をそのまま
+//     合計（税込）にしたいので、消費税は上乗せせず、税込金額から逆算する。
+//       課税税込 = Σ(税率>0 の明細金額)
+//       小計(税抜) = round(課税税込 / (1 + 税率))
+//       消費税     = 課税税込 − 小計(税抜)
+//       合計(税込) = 課税税込 + 対象外（立替など税率0）
+//     → 合計（税込）は集計の額と一致する（従来の「合計が10%上がる」外税をやめた）。
 // ============================================================
 export function summarize(
   lines: InvoiceLine[],
   taxRate: number,
 ): InvoiceSummary {
-  let subtotal = 0;
-  let exempt = 0;
+  let taxableIncl = 0; // 課税明細（税込扱い）
+  let exempt = 0; // 対象外（立替など・税率0）
   for (const l of lines || []) {
-    if (l.taxRate > 0) subtotal += l.amount;
+    if (l.taxRate > 0) taxableIncl += l.amount;
     else exempt += l.amount;
   }
-  const tax = Math.round(subtotal * taxRate);
+  // 税込金額から税抜小計を逆算（税率0/未設定なら税抜=税込）。
+  const subtotal =
+    taxRate > 0 ? Math.round(taxableIncl / (1 + taxRate)) : taxableIncl;
+  const tax = taxableIncl - subtotal;
+  // total = subtotal + tax + exempt（= 課税税込 + 対象外 = 集計の額）。
   return { subtotal, tax, exempt, total: subtotal + tax + exempt };
 }
 
@@ -625,15 +638,12 @@ export async function toXlsx(data: {
 
   const issuer = data.issuer || {};
   const lines = data.lines || [];
-  const subtotal = lines
-    .filter((l) => l.taxRate > 0)
-    .reduce((a, l) => a + l.amount, 0);
-  const exempt = lines
-    .filter((l) => l.taxRate === 0)
-    .reduce((a, l) => a + l.amount, 0);
-  const tax = Math.round(subtotal * (data.taxRate || 0.1));
-  const total = subtotal + tax + exempt;
-  const taxPct = Math.round((data.taxRate || 0.1) * 100);
+  // 内税（税込）方式で小計・消費税・合計を算出（summarize に一元化）。
+  //   明細金額は税込。小計(税抜)=round(課税税込/(1+税率))、消費税=課税税込−小計、
+  //   合計(税込)=課税税込+対象外（= 集計の額）。
+  const rate = data.taxRate || 0.1;
+  const { subtotal, tax, exempt, total } = summarize(lines, rate);
+  const taxPct = Math.round(rate * 100);
 
   const put = (addr: string, v: ExcelJS.CellValue) => {
     ws.getCell(addr).value = v;
