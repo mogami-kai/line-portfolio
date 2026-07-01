@@ -112,7 +112,7 @@ function priceOrNull(fd: FormData, key: string): number | null {
 }
 
 export async function createClientAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const parsed = clientSchema.safeParse({
     name: str(fd, "name"),
     honorific: str(fd, "honorific") || "様",
@@ -140,7 +140,7 @@ export async function createClientAction(fd: FormData): Promise<void> {
 }
 
 export async function updateClientAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   const parsed = clientSchema
@@ -179,7 +179,7 @@ export async function updateClientAction(fd: FormData): Promise<void> {
 // 現場（Site）
 // ============================================================
 export async function createSiteAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const clientId = str(fd, "clientId");
   const name = str(fd, "name");
   if (!clientId) throw new Error("取引先を選択してください");
@@ -192,7 +192,7 @@ export async function createSiteAction(fd: FormData): Promise<void> {
 }
 
 export async function deleteSiteAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   // 出面/単価が紐づく現場は削除不可（参照を壊さない）。
@@ -219,7 +219,7 @@ const rateSchema = z.object({
 });
 
 export async function createRateAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const unitPriceNum = Number(str(fd, "unitPrice"));
   const siteIdRaw = str(fd, "siteId");
   const effRaw = str(fd, "effectiveFrom");
@@ -255,7 +255,7 @@ export async function createRateAction(fd: FormData): Promise<void> {
 }
 
 export async function deleteRateAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   await prisma.rateCard.delete({ where: { id } });
@@ -433,7 +433,7 @@ const settingSchema = z.object({
 });
 
 export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   // 税率は % 入力（例: 10）を 0.10 に変換。
   const pct = Number(str(fd, "taxRatePct"));
   const taxRate = Number.isFinite(pct) ? pct / 100 : NaN;
@@ -480,7 +480,7 @@ const lumpSchema = z.object({
 });
 
 export async function createLumpContractAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const amount = Number(str(fd, "amount"));
   const parsed = lumpSchema.safeParse({
     clientId: str(fd, "clientId"),
@@ -507,7 +507,7 @@ export async function createLumpContractAction(fd: FormData): Promise<void> {
 }
 
 export async function setLumpContractStatusAction(fd: FormData): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const id = str(fd, "id");
   const status = str(fd, "status");
   if (!id) throw new Error("id がありません");
@@ -832,7 +832,7 @@ export async function setClientRatesAction(
   nightUnitPrice: number | null,
   otUnitPrice: number | null,
 ): Promise<void> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   if (!clientId) throw new Error("取引先IDがありません");
   const parsed = clientRateSchema.safeParse({
     unitPrice,
@@ -1052,7 +1052,7 @@ type DeleteResult = { ok: boolean; error?: string };
  *   （これらは Client への onDelete 未指定リレーション＝先に消さないと本体削除が失敗する）
  */
 export async function deleteClientAction(fd: FormData): Promise<DeleteResult> {
-  await requireFullAdminAction();
+  await requireAdminAction();
   const id = str(fd, "id");
   if (!id) return { ok: false, error: "id がありません" };
   const [reports, invoices] = await Promise.all([

@@ -13,42 +13,36 @@
 
 ## P0（リリース前に必須）
 
-### P0-1. 新規 LINE ユーザーが自動承認されていた ✅
-**リスク:** 以前は未登録の LINE ユーザーが初回アクセスで `approved:true` / 実質自社権限で作成され、
-誰でも出面 API を叩けてしまう状態だった（認可バイパス）。
+### P0-1. 新規 LINE ユーザーが自動承認されている 📝（未対応・要修正）
+**リスク:** 未登録の LINE ユーザーが初回アクセスで `approved:true` / 実質自社権限（OWNER）で
+作成され、誰でも出面 API を叩けてしまう状態（認可バイパス）。**リリース前に修正すべき最重要項目。**
 
-**対応（`src/lib/auth.ts` resolveUser）:**
-- 初回作成を `approved:false` / 最小ロール `VIEWER` に変更。管理者が `/admin/users` で
-  組織・ロールを割り当て承認するまで、入力 API は `requireApproved()` で全拒否。
+**推奨対応（未実装）:**
+- `src/lib/auth.ts` の `resolveUser` を、初回作成 `approved:false` / 最小ロール `VIEWER` に変更。
+  管理者が `/admin/users` で組織・ロールを割り当て承認するまで、入力 API を全拒否する。
 - 初期管理者だけは環境変数 `ADMIN_LINE_USER_IDS`（カンマ区切りの LINE userId）で bootstrap。
   この経路のみ `role:ADMIN` / `approved:true` で作成し、通常ユーザーの自動承認とは分離。
 - 入力 API（`/api/reports` `/api/masters` `/api/workers`）は既に `requireApproved()` を
-  呼んでおり、未承認ユーザーは 403（`not_approved`）で遮断される（確認済み）。
+  呼んでいるため、`resolveUser` の修正だけで未承認ユーザーは 403 で遮断される。
 
-**テスト:** `src/lib/auth.test.ts`
-- `bootstrapAdminIds()` の env パース、`requireApproved()` の未承認/無効化遮断、
-  `requireAdmin()` の非管理者遮断。
-
-**手動確認:** 本番環境変数に `ADMIN_LINE_USER_IDS`（自分の LINE userId）を設定 →
-初回ログインで管理者になれること。別アカウントで LIFF を開くと「承認待ち」で送信できないこと。
+**注記:** 本 PR では実装を見送り、次段の対応項目として記録する。
 
 ---
 
-### P0-2. Server Actions の権限境界（UI 非表示に依存しない） ✅
+### P0-2. Server Actions の権限境界（UI 非表示に依存しない） 📝（一部のみ・要拡張）
 **リスク:** UI で隠していても Server Action は直接呼べる。全社マスタの変更や
 他組織データの操作がスコープ管理者から実行できると越権になる。
 
-**対応（`src/app/admin/_actions.ts`）:**
-- **全社マスタ系**（取引先・現場・単価・請求設定・一括契約・取引先別単価）の 11 アクションを
-  `requireFullAdminAction()` に統一 → スコープ管理者（SELF_ADMIN / ORG_ADMIN）は拒否。
-- **組織スコープデータ系**（職人・出面の作成/更新/削除、承認）は
-  `requireAdminAction()` ＋ `assertOrgInScope()` で「自組織のみ」に限定。
-- **ユーザー/ロール/組織管理**は `requireFullAdminAction()`。
-  👑最高管理者（`superAdmin`）は降格/無効化/削除不可、ADMIN の降格は super のみ可。
+**現状:**
+- ユーザー/ロール/組織管理、職人・出面（組織スコープ）は `requireFullAdminAction()` /
+  `assertOrgInScope()` で既に保護済み。
+- **未対応:** 全社マスタ系（取引先・現場・単価・請求設定・一括契約・取引先別単価）は
+  `requireAdminAction()` のままで、スコープ管理者からの変更を許してしまう。
+  `requireFullAdminAction()` への統一が必要。
 
-**テスト:** `src/lib/auth.test.ts` で `adminScope` / `requireFullAdminAction` の基礎判定
-（ALL/ORG、スコープ orgId）を担保。
-**残課題(📝):** Server Action 本体の統合テスト（DB/セッションモック）は別途整備。
+**推奨対応（未実装）:** 上記マスタ系アクションを `requireFullAdminAction()` に統一し、
+Server Action 本体の権限統合テスト（DB/セッションモック）を整備する。
+本 PR では実装を見送り、次段の対応項目として記録する。
 
 ---
 
@@ -139,12 +133,15 @@
 ---
 
 ## まとめ（本PRの実装範囲）
+本 PR では **P0-5（LINE 投稿失敗の検知＋再投稿）のみ**を実装する。
+その他の P0/P1/P2 は本ドキュメントに危険度順で記録し、次段の対応項目とする。
+
 | 項目 | 状態 |
 |---|---|
-| P0-1 自動承認の廃止＋bootstrap | ✅ 実装 |
-| P0-2 Server Action 権限境界 | ✅ 実装 |
+| P0-1 自動承認の廃止＋bootstrap | 📝 未対応（要修正・最重要） |
+| P0-2 Server Action 権限境界（全社マスタ） | 📝 未対応（一部のみ保護済み） |
 | P0-3 Cookie/CSRF/Origin | 🟡 緩和済み（`__Host-`化は別PR） |
 | P0-4 Webhook 署名検証 | 🟡 実装済み・文書化 |
-| P0-5 未投稿検知＋再投稿 | ✅ 実装 |
+| **P0-5 未投稿検知＋再投稿** | **✅ 本PRで実装** |
 | P0-6 依存監査 | 📝 記録（強制更新はしない） |
 | P1 / P2 | 📝 残課題として整理 |
