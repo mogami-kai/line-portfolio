@@ -19,6 +19,7 @@
 // ============================================================
 
 import ExcelJS from "exceljs";
+import { INVOICE_TEMPLATE_B64 } from "./invoiceTemplateB64.js";
 import {
   joyoAmount,
   overtimeUnit,
@@ -599,18 +600,14 @@ export function toCSV(
 }
 
 // ============================================================
-// xlsx（ユーザー提供テンプレ template_013 準拠）— exceljs Workbook を返す
-//
-//   体裁: 青いタイトル「請求書」/ 請求日(右上) / 宛先(取引先 様)＋住所 /
-//         発行元TEL ＋ 振込先ボックス / ご請求金額（税込）/ 明細テーブル
-//         （商品名・品目 | 数量 | 単価 | 金額 | 備考）/ 小計・消費税(10%)・合計 /
-//         支払期限 / 備考欄。税率列・単位列は出さない（テンプレに無い）。
-//   発行元・宛先・振込先は実行時に DB（InvoiceSetting / Client）から埋める
-//   （口座・実名・住所はコードに焼かない＝公開リポジトリ対策）。
-//   金額・小計・消費税・合計は数式 ＋ cached result（再計算なしでも数字が出る）。
-//   明細の金額 D = 数量(B) × 単価(C)。
+// xlsx（ユーザー提供テンプレ template_013 準拠）
+//   空テンプレ（invoiceTemplateB64・個人情報除去済み）を読み込み、
+//   発行元・宛先・振込先・明細・合計を DB から注入して返す。
+//   罫線/結合/列幅/書式/青タイトルはテンプレのまま維持する。
+//   明細: B=品目 / J=数量 / K=単価 / M=金額（18〜48行）。
+//   合計: I50=小計(税抜) / K50=消費税 / M50=合計(税込) / L49=税率% / B49=支払期限。
 // ============================================================
-export function toXlsx(data: {
+export async function toXlsx(data: {
   invoiceNo: string;
   issueDate: string;
   yearMonth?: string;
@@ -620,57 +617,13 @@ export function toXlsx(data: {
   issuer?: Partial<InvoiceSettingLike>;
   lines: InvoiceLine[];
   taxRate: number;
-}): ExcelJS.Workbook {
+}): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = data.issuer?.issuerName || "請求書";
-  wb.created = new Date();
-  const ws = wb.addWorksheet("請求書");
-
-  // 列: A=商品名/品目, B=数量, C=単価, D=金額, E=備考
-  ws.columns = [
-    { width: 34 },
-    { width: 10 },
-    { width: 14 },
-    { width: 16 },
-    { width: 16 },
-  ];
+  const tpl = Buffer.from(INVOICE_TEMPLATE_B64, "base64");
+  await wb.xlsx.load(tpl as unknown as ExcelJS.Buffer);
+  const ws = wb.worksheets[0] ?? wb.addWorksheet("請求書");
 
   const issuer = data.issuer || {};
-  const MONEY = '¥#,##0;"-¥"#,##0;""';
-  const ACCENT = "FF3B5BA5"; // タイトル帯・見出しの青
-  const ACCENT_TXT = { argb: "FF1F4E9B" };
-  const WHITE = { argb: "FFFFFFFF" };
-
-  type CellOpts = {
-    font?: Partial<ExcelJS.Font>;
-    align?: Partial<ExcelJS.Alignment>;
-    numFmt?: string;
-    fill?: string;
-    border?: Partial<ExcelJS.Borders>;
-  };
-  const set = (addr: string, value: ExcelJS.CellValue, opts: CellOpts = {}) => {
-    const c = ws.getCell(addr);
-    c.value = value;
-    if (opts.font) c.font = opts.font;
-    if (opts.align) c.alignment = opts.align;
-    if (opts.numFmt) c.numFmt = opts.numFmt;
-    if (opts.fill)
-      c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: opts.fill } };
-    if (opts.border) c.border = opts.border;
-    return c;
-  };
-  const RIGHT = { horizontal: "right" as const };
-  const CENTER = { horizontal: "center" as const };
-  const MIDLEFT = { horizontal: "left" as const, vertical: "middle" as const };
-  const thin = { style: "thin" as const, color: { argb: "FFBFBFBF" } };
-  const boxBorder: Partial<ExcelJS.Borders> = {
-    top: thin,
-    bottom: thin,
-    left: thin,
-    right: thin,
-  };
-
-  // ── 計算済み（cached result）。金額は保存済み明細 amount を正とする。──
   const lines = data.lines || [];
   const subtotal = lines
     .filter((l) => l.taxRate > 0)
@@ -682,144 +635,39 @@ export function toXlsx(data: {
   const total = subtotal + tax + exempt;
   const taxPct = Math.round((data.taxRate || 0.1) * 100);
 
-  // ── 行アンカー（明細は最低18行・テンプレの見た目／件数が多ければ伸ばす）──
-  const itemRows = Math.max(18, lines.length);
-  const HEAD = 11; // テーブル見出し行
-  const FIRST = HEAD + 1;
-  const LAST = FIRST + itemRows - 1;
-  const R_SUMLBL = LAST + 1;
-  const R_SUMVAL = LAST + 2;
-  const R_NOTE = R_SUMVAL + 2;
+  const put = (addr: string, v: ExcelJS.CellValue) => {
+    ws.getCell(addr).value = v;
+  };
 
-  // ── 請求日（右上）──
-  ws.mergeCells("C2:E2");
-  set("C2", `請求日： ${data.issueDate}`, { align: RIGHT });
-
-  // ── タイトル（青帯）「請求書」──
-  ws.mergeCells("A3:B4");
-  set("A3", "請　求　書", {
-    font: { bold: true, size: 22, color: WHITE },
-    align: { horizontal: "center", vertical: "middle" },
-    fill: ACCENT,
-  });
-  ws.getRow(3).height = 22;
-  ws.getRow(4).height = 22;
-
-  // ── 宛先（取引先）──
-  set("A5", "〒");
-  ws.mergeCells("A6:B6");
-  set("A6", `${data.client}　${data.honorific || "様"}`, {
-    font: { bold: true, size: 14 },
-  });
-  ws.mergeCells("A7:B7");
-  set("A7", String(data.address ?? ""), {
-    border: { bottom: { style: "thin", color: { argb: "FF333333" } } },
-  });
-
-  // ── 発行元TEL ＋ 振込先ボックス（右側）──
+  // ── ヘッダー（発行元・宛先・振込先） ──
+  put("O1", data.issueDate); // 請求日
+  put("B6", `${data.client}　${data.honorific || "様"}`); // 宛先
+  put("B8", data.address ?? ""); // 宛先住所
   const tel = String(issuer.tel ?? "").trim();
-  set("D5", tel ? `☎ ${tel}` : "");
-  ws.mergeCells("C6:E7");
-  set("C6", issuer.bankInfo ? String(issuer.bankInfo) : "", {
-    align: { horizontal: "center", vertical: "middle", wrapText: true },
-    border: boxBorder,
-  });
+  put("K8", tel ? `☎ ${tel}` : ""); // 発行元TEL
+  put("K6", issuer.bankInfo ? String(issuer.bankInfo) : ""); // 振込先
+  put("F11", total); // ご請求金額（税込）
 
-  // ── リード文 ──
-  ws.mergeCells("A8:B8");
-  set("A8", "下記の通りご請求申し上げます。");
-
-  // ── ご請求金額（税込）──
-  set("A9", "請求金額（税込）", {
-    font: { bold: true, color: ACCENT_TXT, size: 12 },
-    align: { horizontal: "center", vertical: "middle" },
-    fill: "FFE8EEF7",
-    border: boxBorder,
-  });
-  ws.mergeCells("B9:C9");
-  set("B9", { formula: `D${R_SUMVAL}`, result: total }, {
-    font: { bold: true, size: 16 },
-    align: { horizontal: "center", vertical: "middle" },
-    numFmt: '¥#,##0"-"',
-    border: boxBorder,
-  });
-  ws.getRow(9).height = 28;
-
-  // ── 明細ヘッダ ──
-  const heads = ["商品名 / 品目", "数 量", "単 価", "金 額", "備 考"];
-  heads.forEach((h, i) => {
-    const c = ws.getRow(HEAD).getCell(i + 1);
-    c.value = h;
-    c.font = { bold: true, color: ACCENT_TXT };
-    c.alignment = i === 0 ? MIDLEFT : CENTER;
-    c.border = boxBorder;
-  });
-  ws.getRow(HEAD).height = 22;
-
-  // ── 明細（D=数量×単価 を数式。空行も枠だけ残す）──
-  for (let i = 0; i < itemRows; i++) {
+  // ── 明細（18〜48行：品目B / 数量J / 単価K / 金額M）──
+  //   明細数が枠(31行)を超える分は表示から溢れるが、合計は全明細で計算済み。
+  const FIRST = 18;
+  const LAST = 48;
+  const slots = LAST - FIRST + 1;
+  for (let i = 0; i < slots; i++) {
     const r = FIRST + i;
     const l = lines[i];
-    set(`A${r}`, l ? l.itemName : "", { align: MIDLEFT, border: boxBorder });
-    set(`B${r}`, l ? l.qty : "", {
-      numFmt: "#,##0.##",
-      align: RIGHT,
-      border: boxBorder,
-    });
-    set(`C${r}`, l ? l.unitPrice : "", {
-      numFmt: "¥#,##0",
-      align: RIGHT,
-      border: boxBorder,
-    });
-    set(
-      `D${r}`,
-      { formula: `IF(OR(B${r}="",C${r}=""),"",B${r}*C${r})`, result: l ? l.amount : "" },
-      { numFmt: "¥#,##0", align: RIGHT, border: boxBorder },
-    );
-    set(`E${r}`, "", { border: boxBorder });
-    ws.getRow(r).height = 18;
+    put(`B${r}`, l ? l.itemName : null);
+    put(`J${r}`, l ? l.qty : null);
+    put(`K${r}`, l ? l.unitPrice : null);
+    put(`M${r}`, l ? l.amount : null);
   }
 
-  // ── 支払期限（左下）──
-  set(`A${R_SUMLBL}`, `支払期限：${data.issueDate}`);
-
-  // ── 小計（税抜）/ 消費税(10%) / 合計（税込）──
-  set(`B${R_SUMLBL}`, "小 計（税抜）", {
-    font: { bold: true, color: ACCENT_TXT },
-    align: CENTER,
-    border: boxBorder,
-  });
-  set(`C${R_SUMLBL}`, `消費税 (${taxPct}%)`, {
-    font: { bold: true, color: ACCENT_TXT },
-    align: CENTER,
-    border: boxBorder,
-  });
-  set(`D${R_SUMLBL}`, "合 計（税込）", {
-    font: { bold: true, color: ACCENT_TXT },
-    align: CENTER,
-    border: boxBorder,
-  });
-  // 小計は課税対象のみ（対象外＝立替があっても税抜小計に含めない）。cached を正とする。
-  set(`B${R_SUMVAL}`, subtotal, { numFmt: MONEY, align: RIGHT, border: boxBorder });
-  set(
-    `C${R_SUMVAL}`,
-    { formula: `ROUND(B${R_SUMVAL}*${data.taxRate || 0.1},0)`, result: tax },
-    { numFmt: MONEY, align: RIGHT, border: boxBorder },
-  );
-  set(
-    `D${R_SUMVAL}`,
-    { formula: `B${R_SUMVAL}+C${R_SUMVAL}${exempt ? `+${exempt}` : ""}`, result: total },
-    { font: { bold: true }, numFmt: MONEY, align: RIGHT, border: boxBorder },
-  );
-  ws.getRow(R_SUMLBL).height = 20;
-  ws.getRow(R_SUMVAL).height = 20;
-
-  // ── 備考欄 ──
-  ws.mergeCells(`A${R_NOTE}:E${R_NOTE + 2}`);
-  set(`A${R_NOTE}`, "備考欄： 今後ともよろしくお願いします", {
-    align: { horizontal: "left", vertical: "top", wrapText: true },
-    border: boxBorder,
-  });
+  // ── 合計・支払期限 ──
+  put("B49", data.issueDate); // 支払期限（末締め）
+  put("L49", taxPct); // 税率(%)
+  put("I50", subtotal); // 小計（税抜）
+  put("K50", tax); // 消費税
+  put("M50", total); // 合計（税込）
 
   return wb;
 }

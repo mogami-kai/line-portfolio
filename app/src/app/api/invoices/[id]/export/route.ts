@@ -37,7 +37,7 @@ export async function GET(
   const safeNo = data.invoiceNo.replace(/[^\w.-]/g, "_");
 
   if (format === "xlsx") {
-    const wb = toXlsx({
+    const wb = await toXlsx({
       invoiceNo: data.invoiceNo,
       issueDate: data.issueDate,
       yearMonth: data.yearMonth,

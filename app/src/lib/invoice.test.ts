@@ -291,33 +291,31 @@ describe("toCSV", () => {
   });
 });
 
-describe("toXlsx（PDFテンプレ準拠）", () => {
-  // 新レイアウト（template_013）: タイトル A3 / 請求日 C2 / 宛先 A6 / 振込先 C6 /
-  //   請求金額 B9 / 明細ヘッダ 11行目 / 明細 FIRST=12（A=品目 B=数量 C=単価 D=金額）/
-  //   18行確保 → 小計ラベル30・値31（小計 B31 / 消費税 C31 / 合計 D31）。
-  const FIRST = 12;
-  const R_SUMVAL = FIRST + 18 + 1; // 31
+describe("toXlsx（template_013 空テンプレ注入）", () => {
+  // テンプレ注入レイアウト: 宛先 B6 / 住所 B8 / 振込先 K6 / 請求金額 F11 /
+  //   明細 FIRST=18（B=品目 J=数量 K=単価 M=金額）/ 小計 I50 / 消費税 K50 / 合計 M50。
+  const FIRST = 18;
 
-  it("宛先/振込先/明細(数式)/合計(数式) を埋め、再読込で検証できる", async () => {
-    const tlines = buildClientLines(
-      { manDays: 106, otHours: 1, expenses: [{ kind: "駐車", amount: 3000 }] },
-      { unitPrice: 22000, taxRate: 0.1, joyoItemName: "6月委託料" },
-    );
-    const wb = toXlsx({
+  it("宛先/振込先/明細/合計をテンプレに注入し、再読込で検証できる", async () => {
+    const wb = await toXlsx({
       invoiceNo: "2026-001",
       issueDate: "2026/06/30",
       yearMonth: "2026-06",
       client: "ダミー商事",
       honorific: "様",
       address: "ダミー県1-2-3",
-      issuer: { issuerName: "ダミー工務店", bankInfo: "ダミー銀行 ダミー支店 普通 0000000" },
-      lines: tlines,
+      issuer: { issuerName: "ダミー工務店", tel: "090-0000-0000", bankInfo: "ダミー銀行 ダミー支店 普通 0000000" },
+      lines: [
+        { sortNo: 1, itemName: "みなとみらい", qty: 7, unitLabel: "人工", unitPrice: 20000, amount: 140000, taxRate: 0.1 },
+        { sortNo: 2, itemName: "橋本 夜勤", qty: 2, unitLabel: "人工", unitPrice: 23000, amount: 46000, taxRate: 0.1 },
+        { sortNo: 3, itemName: "残業代", qty: 1, unitLabel: "時間", unitPrice: 3125, amount: 3125, taxRate: 0.1 },
+      ],
       taxRate: 0.1,
     });
     const buf = await wb.xlsx.writeBuffer();
     const wb2 = new ExcelJS.Workbook();
     await wb2.xlsx.load(buf as ArrayBuffer);
-    const ws = wb2.getWorksheet("請求書")!;
+    const ws = wb2.worksheets[0]!;
     const txt = (addr: string) => {
       const v = ws.getCell(addr).value as unknown;
       if (v && typeof v === "object" && "richText" in (v as object)) {
@@ -326,72 +324,46 @@ describe("toXlsx（PDFテンプレ準拠）", () => {
       return v;
     };
 
-    expect(txt("A3")).toBe("請　求　書");
-    expect(String(txt("C2"))).toContain("2026/06/30");
-    expect(String(txt("A6"))).toContain("ダミー商事");
-    expect(String(txt("A6"))).toContain("様");
-    // 振込先（C6 ボックス）に DB の bankInfo を反映
-    expect(String(txt("C6"))).toContain("ダミー銀行");
+    // 宛先・振込先・請求金額
+    expect(String(txt("B6"))).toContain("ダミー商事");
+    expect(String(txt("B6"))).toContain("様");
+    expect(String(txt("B8"))).toContain("ダミー県");
+    expect(String(txt("K6"))).toContain("ダミー銀行");
+    expect(ws.getCell("F11").value).toBe(140000 + 46000 + 3125 + Math.round((140000 + 46000 + 3125) * 0.1));
 
-    // 明細1行目＝○月委託料、A=品目 B=数量 C=単価 D=金額(数式)
-    expect(txt(`A${FIRST}`)).toBe("6月委託料");
-    expect(ws.getCell(`B${FIRST}`).value).toBe(106);
-    expect(ws.getCell(`C${FIRST}`).value).toBe(22000);
-    const dFirst = ws.getCell(`D${FIRST}`).value as { formula: string; result: number };
-    expect(dFirst.formula).toContain(`B${FIRST}*C${FIRST}`);
-    expect(dFirst.result).toBe(106 * 22000);
+    // 明細（B=品目 / J=数量 / K=単価 / M=金額）
+    expect(txt(`B${FIRST}`)).toBe("みなとみらい");
+    expect(ws.getCell(`J${FIRST}`).value).toBe(7);
+    expect(ws.getCell(`K${FIRST}`).value).toBe(20000);
+    expect(ws.getCell(`M${FIRST}`).value).toBe(140000);
+    expect(txt(`B${FIRST + 1}`)).toBe("橋本 夜勤");
+    expect(txt(`B${FIRST + 2}`)).toBe("残業代");
 
-    // 三桁区切り（数量・単価・金額すべてカンマ書式）
-    expect(ws.getCell(`B${FIRST}`).numFmt).toContain("#,##0");
-    expect(ws.getCell(`C${FIRST}`).numFmt).toContain("#,##0");
-    expect(ws.getCell(`D${FIRST}`).numFmt).toContain("#,##0");
-
-    // 2行目＝残業、3行目＝立替
-    expect(txt(`A${FIRST + 1}`)).toBe("残業");
-    expect(String(txt(`A${FIRST + 2}`))).toContain("立替");
-
-    // 合計（税込）は数式（小計 B31 ＋ 消費税 C31 ＋ 対象外）
-    const total = ws.getCell(`D${R_SUMVAL}`).value as { formula: string; result: number };
-    expect(total.formula).toContain(`B${R_SUMVAL}+C${R_SUMVAL}`);
+    // 合計（小計 I50 / 消費税 K50 / 合計 M50）
+    const subtotal = 140000 + 46000 + 3125;
+    expect(ws.getCell("I50").value).toBe(subtotal);
+    expect(ws.getCell("K50").value).toBe(Math.round(subtotal * 0.1));
+    expect(ws.getCell("M50").value).toBe(subtotal + Math.round(subtotal * 0.1));
   });
 
-  it("保存済み amount を金額の正とし、税は round（画面/CSV と一致）", async () => {
-    // qty×unitPrice = 0.5×3131 = 1565.5 だが、保存 amount は 1566（round 済み）。
-    // XLSX 明細の cached result は保存 amount（1566）を採用すること。
-    // 小計は保存 amount 合計、税は round(156.6)=157（floor の 156 ではない）。
-    const lines = [
-      {
-        sortNo: 1,
-        itemName: "残業代",
-        qty: 0.5,
-        unitLabel: "時間",
-        unitPrice: 3131,
-        amount: 1566,
-        taxRate: 0.1,
-      },
-    ];
-    const wb = toXlsx({
-      invoiceNo: "2026-001",
+  it("立替（対象外・税率0）は小計に含めず合計に加算する", async () => {
+    const wb = await toXlsx({
+      invoiceNo: "2026-002",
       issueDate: "2026/06/30",
       client: "ダミー商事",
-      lines,
+      lines: [
+        { sortNo: 1, itemName: "みなとみらい", qty: 1, unitLabel: "人工", unitPrice: 20000, amount: 20000, taxRate: 0.1 },
+        { sortNo: 2, itemName: "立替 パーキング", qty: 1, unitLabel: "式", unitPrice: 800, amount: 800, taxRate: 0 },
+      ],
       taxRate: 0.1,
     });
     const buf = await wb.xlsx.writeBuffer();
     const wb2 = new ExcelJS.Workbook();
     await wb2.xlsx.load(buf as ArrayBuffer);
-    const ws = wb2.getWorksheet("請求書")!;
-    const cell = (addr: string) =>
-      ws.getCell(addr).value as { formula: string; result: number };
-
-    // 明細金額 D12 の cached result は保存 amount（1566）。
-    expect(cell(`D${FIRST}`).result).toBe(1566);
-    // 小計（B31）は保存 amount の合計（静的値）。
-    expect(ws.getCell(`B${R_SUMVAL}`).value).toBe(1566);
-    // 消費税（C31）は round(1566×0.1)=157（floor の 156 ではない）。
-    expect(cell(`C${R_SUMVAL}`).formula).toContain("ROUND(");
-    expect(cell(`C${R_SUMVAL}`).result).toBe(157);
-    // 合計（D31）= 小計 + 税 = 1723。
-    expect(cell(`D${R_SUMVAL}`).result).toBe(1723);
+    const ws = wb2.worksheets[0]!;
+    // 小計=課税20000 / 消費税=2000 / 合計=20000+2000+800(対象外)=22800
+    expect(ws.getCell("I50").value).toBe(20000);
+    expect(ws.getCell("K50").value).toBe(2000);
+    expect(ws.getCell("M50").value).toBe(22800);
   });
 });
