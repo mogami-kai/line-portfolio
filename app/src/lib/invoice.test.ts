@@ -344,6 +344,15 @@ describe("toXlsx（template_013 空テンプレ注入）", () => {
     expect(ws.getCell("I50").value).toBe(subtotal);
     expect(ws.getCell("K50").value).toBe(Math.round(subtotal * 0.1));
     expect(ws.getCell("M50").value).toBe(subtotal + Math.round(subtotal * 0.1));
+
+    // 日付は Excel シリアル値（数値）で入れる → 日付書式セルとして解釈され、
+    // 読み戻すと Date になる（＝書式の日付部・「支払期限:」ラベルが効く）。文字列ではない。
+    const o1 = ws.getCell("O1").value as Date;
+    expect(o1 instanceof Date).toBe(true);
+    expect(o1.toISOString().slice(0, 10)).toBe("2026-06-30");
+    const b49 = ws.getCell("B49").value as Date;
+    expect(b49 instanceof Date).toBe(true);
+    expect(b49.toISOString().slice(0, 10)).toBe("2026-06-30");
   });
 
   it("立替（対象外・税率0）は小計に含めず合計に加算する", async () => {

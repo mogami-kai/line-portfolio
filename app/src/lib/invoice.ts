@@ -639,8 +639,19 @@ export async function toXlsx(data: {
     ws.getCell(addr).value = v;
   };
 
+  // "YYYY/MM/DD" → Excel シリアル値（数値）。日付書式セル(O1/B49)に文字列を入れると
+  //   書式の日付部が効かず「支払期限:」ラベル等が消えるため、数値で入れる。解析不能なら原文字列。
+  const excelSerial = (s: string): number | string => {
+    const m = /^(\d{4})\/(\d{1,2})\/(\d{1,2})$/.exec(s);
+    if (!m) return s;
+    const days = Math.round(
+      (Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000,
+    );
+    return days;
+  };
+
   // ── ヘッダー（発行元・宛先・振込先） ──
-  put("O1", data.issueDate); // 請求日
+  put("O1", excelSerial(data.issueDate)); // 請求日
   put("B6", `${data.client}　${data.honorific || "様"}`); // 宛先
   put("B8", data.address ?? ""); // 宛先住所
   const tel = String(issuer.tel ?? "").trim();
@@ -663,7 +674,7 @@ export async function toXlsx(data: {
   }
 
   // ── 合計・支払期限 ──
-  put("B49", data.issueDate); // 支払期限（末締め）
+  put("B49", excelSerial(data.issueDate)); // 支払期限（末締め・書式で「支払期限:」を付与）
   put("L49", taxPct); // 税率(%)
   put("I50", subtotal); // 小計（税抜）
   put("K50", tax); // 消費税
