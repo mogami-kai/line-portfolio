@@ -626,6 +626,29 @@ export async function resendReportToGroupAction(fd: FormData): Promise<void> {
   revalidatePath("/admin");
 }
 
+/**
+ * 「再投稿しない」＝この出面はグループに投稿しなくてよいものとして、未投稿アラートから外す。
+ *   - 実際には LINE へ投稿せず postedToGroup=true にするだけ（投稿済み扱い＝一覧から消える）。
+ *   - スコープ管理者は自組織のみ（assertOrgInScope）。
+ */
+export async function dismissUnpostedReportAction(fd: FormData): Promise<void> {
+  const admin = await requireAdminAction();
+  const id = str(fd, "id");
+  if (!id) throw new Error("id がありません");
+  const rep = await prisma.report.findUnique({
+    where: { id },
+    select: { orgId: true },
+  });
+  if (!rep) throw new Error("出面が見つかりません");
+  await assertOrgInScope(admin, rep.orgId);
+  // 投稿はせず、未投稿アラートから外すだけ（投稿済み扱い）。
+  await prisma.report.update({
+    where: { id },
+    data: { postedToGroup: true },
+  });
+  revalidatePath("/admin");
+}
+
 // ============================================================
 // 出面のインライン編集（管理ホームのフィード/要確認カードから開く大モーダル）
 //   getReportForEditAction: カード押下時に当該出面の全項目をオンデマンド取得。

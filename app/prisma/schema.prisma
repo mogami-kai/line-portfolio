@@ -243,7 +243,7 @@ model Expense {
   kind     String // パーキング / ガソリン / 弁当 …
   amount   Int
   billable Boolean  @default(true) // true=請求 / false=自社負担
-  paidBy   String?  // 立替えた人の名前（建て替え集計用。未指定可）
+  paidBy   String?  // 立替えた人の名前（立替集計用。未指定可）
   reportId String?
   report   Report?  @relation(fields: [reportId], references: [id])
 

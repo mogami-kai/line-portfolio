@@ -170,7 +170,7 @@ function WorkerAccordion({
   );
 }
 
-/** 建て替え集計（立替えた人ごとに用途・金額を一覧）。 */
+/** 立替集計（立替えた人ごとに用途・金額を一覧）。 */
 function ExpenseAggregation({
   payers,
   total,
@@ -251,7 +251,7 @@ async function MonthSummary({
         <WorkerAccordion rows={byWorker} totals={totals} />
 
         <div className="section-head">
-          <h3 className="section-subtitle">建て替え集計</h3>
+          <h3 className="section-subtitle">立替集計</h3>
           {expenses.grandTotal > 0 && (
             <span className="muted">{yen(expenses.grandTotal)}</span>
           )}
@@ -289,9 +289,9 @@ async function MonthSummary({
         }}
       />
 
-      {/* 建て替え集計（立替えた人 × 用途 × 金額） */}
+      {/* 立替集計（立替えた人 × 用途 × 金額） */}
       <div className="section-head">
-        <h3 className="section-subtitle">建て替え集計</h3>
+        <h3 className="section-subtitle">立替集計</h3>
         {expenseTotal > 0 && <span className="muted">{yen(expenseTotal)}</span>}
       </div>
       <ExpenseAggregation payers={expensePayers} total={expenseTotal} />
