@@ -20,6 +20,11 @@ import {
   adminScopeOrgId,
   type ResolvedUser,
 } from "@/lib/auth.js";
+import {
+  formatReportLog,
+  pushToGroup,
+  type ReportLogInput,
+} from "@/lib/line.js";
 import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
 /** 管理者（ADMIN / スコープ管理者）を要求し、実行中のコンテキストを返す。違反時は throw。 */
@@ -553,6 +558,71 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
     prisma.report.delete({ where: { id } }),
   ]);
   revalidateTag("reports"); // 月次集計キャッシュを無効化
+  revalidatePath("/admin");
+}
+
+/**
+ * LINE グループへの再投稿（自社 SELF の出面が投稿失敗＝postedToGroup=false のとき）。
+ *   - 投稿成功で初めて postedToGroup=true にする（二重投稿を避けるため、
+ *     既に true のものは何もしない）。
+ *   - SELF（自社）以外は投稿対象外（協力会社はグループ非投稿の仕様）。
+ *   - スコープ管理者は自組織のみ（assertOrgInScope）。
+ */
+export async function resendReportToGroupAction(fd: FormData): Promise<void> {
+  const admin = await requireAdminAction();
+  const id = str(fd, "id");
+  if (!id) throw new Error("id がありません");
+
+  const rep = await prisma.report.findUnique({
+    where: { id },
+    include: {
+      client: { select: { name: true } },
+      org: { select: { kind: true } },
+      entries: { include: { worker: { select: { name: true } } } },
+      expenses: { select: { kind: true, amount: true } },
+    },
+  });
+  if (!rep) throw new Error("出面が見つかりません");
+  await assertOrgInScope(admin, rep.orgId);
+
+  // 自社のみ投稿対象。協力会社はグループ非投稿の仕様なので何もしない。
+  if (rep.org.kind !== "SELF") {
+    throw new Error("この出面はグループ投稿の対象ではありません（協力会社は非投稿）。");
+  }
+  // 既に投稿済みなら二重投稿を避けて終了（成功したものを再送しない）。
+  if (rep.postedToGroup) {
+    revalidatePath("/admin");
+    return;
+  }
+
+  // reports API と同じ整形ロジック（請負金額の併記含む）。
+  const baseSiteName = rep.siteName ?? "";
+  const ukeoiNote =
+    rep.contractType === "UKEOI" && rep.contractAmount != null
+      ? `（請負 ¥${rep.contractAmount.toLocaleString("ja-JP")}）`
+      : "";
+  const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
+  const logInput: ReportLogInput = {
+    workDate: rep.workDate,
+    contractType: rep.contractType,
+    client: rep.client,
+    site: displaySiteName ? { name: displaySiteName } : null,
+    entries: rep.entries.map((e) => ({
+      shift: e.shift,
+      manDays: e.manDays,
+      otHours: e.otHours,
+      worker: e.worker,
+    })),
+    expenses: rep.expenses.map((x) => ({ kind: x.kind, amount: x.amount })),
+  };
+
+  // 投稿が成功した場合のみ postedToGroup=true。失敗時は例外を投げて
+  // フラグを変えない（未投稿のまま／画面にエラー表示）。
+  await pushToGroup(formatReportLog(logInput));
+  await prisma.report.update({
+    where: { id },
+    data: { postedToGroup: true },
+  });
   revalidatePath("/admin");
 }
 
