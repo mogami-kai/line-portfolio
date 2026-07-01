@@ -2093,9 +2093,15 @@ details.card .field {
   z-index: 1;
   width: 100%;
   max-width: 560px;
+  /* モバイルはアドレスバーで vh が実際の表示領域より大きくなるため dvh を優先。
+     dvh 未対応環境向けに vh をフォールバックとして先に置く。 */
   max-height: 90vh;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch; /* iOS の慣性スクロール */
+  max-height: 90dvh;
+  /* 縦 3 段: ヘッダ（固定）/ 本文（スクロール）/ フッタ（固定）。
+     本文だけをスクロールさせ、保存・削除などの下部ボタンを常に操作可能にする。 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* スクロールは .rem-body 側が担う */
   overscroll-behavior: contain; /* 背面へのスクロール波及を防ぐ */
   -webkit-text-size-adjust: 100%; /* ポータル内でも文字自動拡大を無効化 */
   text-size-adjust: 100%;
@@ -2106,10 +2112,20 @@ details.card .field {
   padding: 16px;
 }
 .rem-head {
+  flex: 0 0 auto; /* 上部固定 */
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
+}
+/* スクロールする本文。min-height:0 が無いと flex 子が縮まずスクロールできない。
+   左右はパネルのパディング内、スクロールバー分だけ内側に余白を確保する。 */
+.rem-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch; /* iOS の慣性スクロール */
+  overscroll-behavior: contain;
 }
 .rem-title {
   font-size: 17px;
@@ -2195,6 +2211,7 @@ details.card .field {
 /* フッター（削除は左・キャンセル/保存は右。狭い端末では折り返す）。
    flex-wrap と nowrap で、文字が途中改行して巨大化したように見える崩れを防ぐ。 */
 .rem-foot {
+  flex: 0 0 auto; /* 下部固定（本文をスクロールしても常に操作可能） */
   display: flex;
   align-items: center;
   flex-wrap: wrap;

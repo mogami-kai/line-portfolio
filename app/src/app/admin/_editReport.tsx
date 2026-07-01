@@ -278,11 +278,16 @@ function EditModal({
         </div>
 
         {loadErr ? (
-          <div className="notice notice--error">{loadErr}</div>
+          <div className="rem-body">
+            <div className="notice notice--error">{loadErr}</div>
+          </div>
         ) : !data ? (
-          <div className="rem-loading">読み込み中…</div>
+          <div className="rem-body">
+            <div className="rem-loading">読み込み中…</div>
+          </div>
         ) : (
           <>
+            <div className="rem-body">
             {/* ── ① 基本 ── */}
             <div className="rem-sec">
               <div className="rem-sec-title">基本</div>
@@ -511,6 +516,7 @@ function EditModal({
             </div>
 
             {errMsg && <div className="notice notice--error">{errMsg}</div>}
+            </div>
 
             <div className="rem-foot">
               <button
