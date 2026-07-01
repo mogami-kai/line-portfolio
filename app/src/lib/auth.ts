@@ -68,20 +68,35 @@ export async function resolveUser(
     return { user: found, org: found.org };
   }
 
-  // 初回ユーザー作成。自社メンバー(OWNER)として登録。管理画面は管理者が昇格させる。
+  // 初回ユーザー作成。
+  //   ★ 本番安全化: 未登録ユーザーは自動承認しない（approved:false・最小権限 VIEWER）。
+  //     管理者が /admin/users で組織・役割を割り当てて承認するまで、入力APIは
+  //     requireApproved() で全て拒否される。org は FK 必須のため保留先として SELF に
+  //     置くが、approved:false なので実質的な自社権限は持たない。
+  //   ★ 初期管理者だけは ADMIN_LINE_USER_IDS（環境変数・カンマ区切り）で bootstrap 可能。
+  //     この経路のみ ADMIN/approved:true で作成し、通常ユーザーの自動承認とは分離する。
   const org = await ensureSelfOrg();
+  const isBootstrapAdmin = bootstrapAdminIds().includes(lineUserId);
   const created = await prisma.user.create({
     data: {
       lineUserId,
       displayName: displayName?.trim() || "未設定ユーザー",
-      role: "OWNER",
-      approved: true,
+      role: isBootstrapAdmin ? "ADMIN" : "VIEWER",
+      approved: isBootstrapAdmin,
       orgId: org.id,
     },
     include: { org: true },
   });
 
   return { user: created, org: created.org };
+}
+
+/** 初期管理者 bootstrap 用の LINE userId 一覧（環境変数 ADMIN_LINE_USER_IDS・カンマ区切り）。 */
+export function bootstrapAdminIds(): string[] {
+  return (process.env.ADMIN_LINE_USER_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /**

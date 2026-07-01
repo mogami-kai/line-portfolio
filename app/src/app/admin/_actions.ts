@@ -20,6 +20,11 @@ import {
   adminScopeOrgId,
   type ResolvedUser,
 } from "@/lib/auth.js";
+import {
+  formatReportLog,
+  pushToGroup,
+  type ReportLogInput,
+} from "@/lib/line.js";
 import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
 /** 管理者（ADMIN / スコープ管理者）を要求し、実行中のコンテキストを返す。違反時は throw。 */
@@ -107,7 +112,7 @@ function priceOrNull(fd: FormData, key: string): number | null {
 }
 
 export async function createClientAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const parsed = clientSchema.safeParse({
     name: str(fd, "name"),
     honorific: str(fd, "honorific") || "様",
@@ -135,7 +140,7 @@ export async function createClientAction(fd: FormData): Promise<void> {
 }
 
 export async function updateClientAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   const parsed = clientSchema
@@ -174,7 +179,7 @@ export async function updateClientAction(fd: FormData): Promise<void> {
 // 現場（Site）
 // ============================================================
 export async function createSiteAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const clientId = str(fd, "clientId");
   const name = str(fd, "name");
   if (!clientId) throw new Error("取引先を選択してください");
@@ -187,7 +192,7 @@ export async function createSiteAction(fd: FormData): Promise<void> {
 }
 
 export async function deleteSiteAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   // 出面/単価が紐づく現場は削除不可（参照を壊さない）。
@@ -214,7 +219,7 @@ const rateSchema = z.object({
 });
 
 export async function createRateAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const unitPriceNum = Number(str(fd, "unitPrice"));
   const siteIdRaw = str(fd, "siteId");
   const effRaw = str(fd, "effectiveFrom");
@@ -250,7 +255,7 @@ export async function createRateAction(fd: FormData): Promise<void> {
 }
 
 export async function deleteRateAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
   await prisma.rateCard.delete({ where: { id } });
@@ -428,7 +433,7 @@ const settingSchema = z.object({
 });
 
 export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   // 税率は % 入力（例: 10）を 0.10 に変換。
   const pct = Number(str(fd, "taxRatePct"));
   const taxRate = Number.isFinite(pct) ? pct / 100 : NaN;
@@ -475,7 +480,7 @@ const lumpSchema = z.object({
 });
 
 export async function createLumpContractAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const amount = Number(str(fd, "amount"));
   const parsed = lumpSchema.safeParse({
     clientId: str(fd, "clientId"),
@@ -502,7 +507,7 @@ export async function createLumpContractAction(fd: FormData): Promise<void> {
 }
 
 export async function setLumpContractStatusAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   const status = str(fd, "status");
   if (!id) throw new Error("id がありません");
@@ -553,6 +558,71 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
     prisma.report.delete({ where: { id } }),
   ]);
   revalidateTag("reports"); // 月次集計キャッシュを無効化
+  revalidatePath("/admin");
+}
+
+/**
+ * LINE グループへの再投稿（自社 SELF の出面が投稿失敗＝postedToGroup=false のとき）。
+ *   - 投稿成功で初めて postedToGroup=true にする（二重投稿を避けるため、
+ *     既に true のものは何もしない）。
+ *   - SELF（自社）以外は投稿対象外（協力会社はグループ非投稿の仕様）。
+ *   - スコープ管理者は自組織のみ（assertOrgInScope）。
+ */
+export async function resendReportToGroupAction(fd: FormData): Promise<void> {
+  const admin = await requireAdminAction();
+  const id = str(fd, "id");
+  if (!id) throw new Error("id がありません");
+
+  const rep = await prisma.report.findUnique({
+    where: { id },
+    include: {
+      client: { select: { name: true } },
+      org: { select: { kind: true } },
+      entries: { include: { worker: { select: { name: true } } } },
+      expenses: { select: { kind: true, amount: true } },
+    },
+  });
+  if (!rep) throw new Error("出面が見つかりません");
+  await assertOrgInScope(admin, rep.orgId);
+
+  // 自社のみ投稿対象。協力会社はグループ非投稿の仕様なので何もしない。
+  if (rep.org.kind !== "SELF") {
+    throw new Error("この出面はグループ投稿の対象ではありません（協力会社は非投稿）。");
+  }
+  // 既に投稿済みなら二重投稿を避けて終了（成功したものを再送しない）。
+  if (rep.postedToGroup) {
+    revalidatePath("/admin");
+    return;
+  }
+
+  // reports API と同じ整形ロジック（請負金額の併記含む）。
+  const baseSiteName = rep.siteName ?? "";
+  const ukeoiNote =
+    rep.contractType === "UKEOI" && rep.contractAmount != null
+      ? `（請負 ¥${rep.contractAmount.toLocaleString("ja-JP")}）`
+      : "";
+  const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
+  const logInput: ReportLogInput = {
+    workDate: rep.workDate,
+    contractType: rep.contractType,
+    client: rep.client,
+    site: displaySiteName ? { name: displaySiteName } : null,
+    entries: rep.entries.map((e) => ({
+      shift: e.shift,
+      manDays: e.manDays,
+      otHours: e.otHours,
+      worker: e.worker,
+    })),
+    expenses: rep.expenses.map((x) => ({ kind: x.kind, amount: x.amount })),
+  };
+
+  // 投稿が成功した場合のみ postedToGroup=true。失敗時は例外を投げて
+  // フラグを変えない（未投稿のまま／画面にエラー表示）。
+  await pushToGroup(formatReportLog(logInput));
+  await prisma.report.update({
+    where: { id },
+    data: { postedToGroup: true },
+  });
   revalidatePath("/admin");
 }
 
@@ -762,7 +832,7 @@ export async function setClientRatesAction(
   nightUnitPrice: number | null,
   otUnitPrice: number | null,
 ): Promise<void> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   if (!clientId) throw new Error("取引先IDがありません");
   const parsed = clientRateSchema.safeParse({
     unitPrice,
@@ -982,7 +1052,7 @@ type DeleteResult = { ok: boolean; error?: string };
  *   （これらは Client への onDelete 未指定リレーション＝先に消さないと本体削除が失敗する）
  */
 export async function deleteClientAction(fd: FormData): Promise<DeleteResult> {
-  await requireAdminAction();
+  await requireFullAdminAction();
   const id = str(fd, "id");
   if (!id) return { ok: false, error: "id がありません" };
   const [reports, invoices] = await Promise.all([

@@ -23,7 +23,7 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext, getSessionUserIfExists, adminScopeOrgId } from "@/lib/auth.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
-import { confirmReportAction } from "./_actions.js";
+import { confirmReportAction, resendReportToGroupAction } from "./_actions.js";
 import { currentYearMonth, monthRange } from "@/lib/aggregate.js";
 
 export const dynamic = "force-dynamic";
@@ -123,7 +123,7 @@ export default async function AdminPage({
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。
   // 編集の取引先/職人ドロップダウンは、カードの「編集」を押した時にモーダル側で
   // 取得する（一覧へ巨大配列を撒かない＝ホームの転送量とハイドレーションを軽く保つ）。
-  const [needsReview, recent] = await Promise.all([
+  const [needsReview, recent, unposted] = await Promise.all([
     prisma.report.findMany({
       where: { status: "NEEDS_REVIEW", ...scopeWhere },
       orderBy: { createdAt: "desc" },
@@ -151,6 +151,29 @@ export default async function AdminPage({
         entries: {
           select: { manDays: true, otHours: true, worker: { select: { name: true } } },
         },
+      },
+    }),
+    // 自社(SELF)の出面で LINE グループ投稿に失敗したもの（postedToGroup=false）。
+    // 投稿漏れは請求・共有の抜けにつながるため、ホームで警告し「再投稿」できるようにする。
+    // 直近90日を対象（古すぎる投稿漏れは実運用上ノイズになるため範囲を絞る）。
+    prisma.report.findMany({
+      where: {
+        postedToGroup: false,
+        org: { kind: "SELF" },
+        workDate: {
+          gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
+        },
+        ...scopeWhere,
+      },
+      orderBy: { workDate: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        workDate: true,
+        siteName: true,
+        client: { select: { name: true } },
+        site: { select: { name: true } },
+        entries: { select: { worker: { select: { name: true } } } },
       },
     }),
   ]);
@@ -201,6 +224,50 @@ export default async function AdminPage({
       <div className="admin-grid">
         {/* ───────── 左：日々のチェック（主役）───────── */}
         <div className="admin-main">
+          {/* ⓪ 未投稿アラート（自社SELFのグループ投稿失敗） */}
+          {unposted.length > 0 && (
+            <section className="block">
+              <div className="notice notice--warn" style={{ marginBottom: 12 }}>
+                LINE グループに投稿できていない出面が {unposted.length} 件あります。
+                内容を確認して「再投稿」してください。
+              </div>
+              <div className="review-list">
+                {unposted.map((r) => {
+                  const names = r.entries
+                    .map((e) => e.worker?.name)
+                    .filter(Boolean)
+                    .join("　");
+                  return (
+                    <div className="review-card" key={r.id}>
+                      <div className="review-body">
+                        <div className="review-title">
+                          <span className="review-date">{mdW(r.workDate)}</span>
+                          {r.client.name}
+                          <span className="badge badge--review">未投稿</span>
+                        </div>
+                        <div className="review-meta">
+                          {r.siteName || r.site?.name || "(現場未設定)"}
+                        </div>
+                        {names && <div className="review-names">{names}</div>}
+                      </div>
+                      <div className="review-actions">
+                        <form action={resendReportToGroupAction}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <button
+                            type="submit"
+                            className="btn btn--primary btn--sm"
+                          >
+                            再投稿
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {/* ① 要確認（行動カード） */}
           <section className="block">
             <div className="section-head">
