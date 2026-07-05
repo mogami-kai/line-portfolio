@@ -2078,7 +2078,10 @@ details.card .field {
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: 24px 14px;
+  /* 下は端末のホームバー/ジェスチャ領域(safe-area)を避け、保存ボタンが
+     ブラウザ下部UIに隠れて押せなくなるのを防ぐ。 */
+  padding: 20px 14px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
 }
 .rem-scrim {
@@ -2094,9 +2097,11 @@ details.card .field {
   width: 100%;
   max-width: 560px;
   /* モバイルはアドレスバーで vh が実際の表示領域より大きくなるため dvh を優先。
-     dvh 未対応環境向けに vh をフォールバックとして先に置く。 */
-  max-height: 90vh;
-  max-height: 90dvh;
+     dvh 未対応環境向けに vh をフォールバックとして先に置く。
+     オーバーレイの上下パディング(20px×2)＋下部 safe-area を差し引き、
+     パネル全体（＝固定フッタの保存ボタン含む）が必ず画面内に収まるようにする。 */
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px - env(safe-area-inset-bottom, 0px));
   /* 縦 3 段: ヘッダ（固定）/ 本文（スクロール）/ フッタ（固定）。
      本文だけをスクロールさせ、保存・削除などの下部ボタンを常に操作可能にする。 */
   display: flex;
