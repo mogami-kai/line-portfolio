@@ -23,11 +23,8 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext, getSessionUserIfExists, adminScopeOrgId } from "@/lib/auth.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
-import {
-  confirmReportAction,
-  resendReportToGroupAction,
-  dismissUnpostedReportAction,
-} from "./_actions.js";
+import { confirmReportAction } from "./_actions.js";
+import { UnpostedActions } from "./_unpostedActions.js";
 import { currentYearMonth, monthRange } from "@/lib/aggregate.js";
 
 export const dynamic = "force-dynamic";
@@ -255,24 +252,7 @@ export default async function AdminPage({
                         {names && <div className="review-names">{names}</div>}
                       </div>
                       <div className="review-actions">
-                        <form action={resendReportToGroupAction}>
-                          <input type="hidden" name="id" value={r.id} />
-                          <button
-                            type="submit"
-                            className="btn btn--primary btn--sm"
-                          >
-                            再投稿
-                          </button>
-                        </form>
-                        <form action={dismissUnpostedReportAction}>
-                          <input type="hidden" name="id" value={r.id} />
-                          <button
-                            type="submit"
-                            className="btn btn--danger-text btn--sm"
-                          >
-                            再投稿しない
-                          </button>
-                        </form>
+                        <UnpostedActions reportId={r.id} />
                       </div>
                     </div>
                   );
