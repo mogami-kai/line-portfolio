@@ -561,69 +561,112 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
   revalidatePath("/admin");
 }
 
+/** 再投稿/再投稿しない の結果（クライアントにインライン表示するため throw しない）。 */
+export type UnpostedActionResult = { ok: boolean; error?: string };
+
+/** LINE push の失敗を、現場の人が読める日本語メッセージに変換する。 */
+function lineErrorMessage(e: unknown): string {
+  const raw = String((e as Error)?.message ?? e ?? "");
+  if (raw.includes(" 429") || raw.includes("monthly limit")) {
+    return "LINEの月間メッセージ通数の上限に達している可能性があります（無料プランは月200通）。翌月まで待つか、LINE公式アカウントのプランをご確認ください。";
+  }
+  if (raw.includes(" 401")) {
+    return "LINEのアクセストークンが無効です。Vercel の LINE_CHANNEL_ACCESS_TOKEN を確認してください。";
+  }
+  if (raw.includes(" 400")) {
+    return "送信先グループの設定（LINE_GROUP_ID）が正しくない可能性があります。Vercel の環境変数を確認してください。";
+  }
+  return `LINEへの投稿に失敗しました。時間をおいて再試行してください。（${raw.slice(0, 120)}）`;
+}
+
 /**
  * LINE グループへの再投稿（自社 SELF の出面が投稿失敗＝postedToGroup=false のとき）。
  *   - 投稿成功で初めて postedToGroup=true にする（二重投稿を避けるため、
  *     既に true のものは何もしない）。
  *   - SELF（自社）以外は投稿対象外（協力会社はグループ非投稿の仕様）。
  *   - スコープ管理者は自組織のみ（assertOrgInScope）。
+ *   - 失敗は throw せず { ok:false, error } で返す（ボタンの横に理由を表示するため。
+ *     throw すると Next の汎用エラー画面になり「なぜ失敗したか」が伝わらない）。
  */
-export async function resendReportToGroupAction(fd: FormData): Promise<void> {
-  const admin = await requireAdminAction();
-  const id = str(fd, "id");
-  if (!id) throw new Error("id がありません");
+export async function resendReportToGroupAction(
+  id: string,
+): Promise<UnpostedActionResult> {
+  try {
+    const admin = await requireAdminAction();
+    if (!id) return { ok: false, error: "id がありません" };
 
-  const rep = await prisma.report.findUnique({
-    where: { id },
-    include: {
-      client: { select: { name: true } },
-      org: { select: { kind: true } },
-      entries: { include: { worker: { select: { name: true } } } },
-      expenses: { select: { kind: true, amount: true } },
-    },
-  });
-  if (!rep) throw new Error("出面が見つかりません");
-  await assertOrgInScope(admin, rep.orgId);
+    const rep = await prisma.report.findUnique({
+      where: { id },
+      include: {
+        client: { select: { name: true } },
+        org: { select: { kind: true } },
+        entries: { include: { worker: { select: { name: true } } } },
+        expenses: { select: { kind: true, amount: true } },
+      },
+    });
+    if (!rep) return { ok: false, error: "出面が見つかりません" };
+    await assertOrgInScope(admin, rep.orgId);
 
-  // 自社のみ投稿対象。協力会社はグループ非投稿の仕様なので何もしない。
-  if (rep.org.kind !== "SELF") {
-    throw new Error("この出面はグループ投稿の対象ではありません（協力会社は非投稿）。");
-  }
-  // 既に投稿済みなら二重投稿を避けて終了（成功したものを再送しない）。
-  if (rep.postedToGroup) {
+    // 自社のみ投稿対象。協力会社はグループ非投稿の仕様なので何もしない。
+    if (rep.org.kind !== "SELF") {
+      return {
+        ok: false,
+        error: "この出面はグループ投稿の対象ではありません（協力会社は非投稿）。",
+      };
+    }
+    // 既に投稿済みなら二重投稿を避けて終了（成功したものを再送しない）。
+    if (rep.postedToGroup) {
+      revalidatePath("/admin");
+      return { ok: true };
+    }
+
+    // 送信先未設定のまま「成功扱い」で流れるのを防ぐ（pushToGroup は未設定だと
+    // 何もせず戻るため、ここで先に弾いて理由を伝える）。
+    if (!process.env.LINE_GROUP_ID) {
+      return {
+        ok: false,
+        error:
+          "送信先グループが未設定です（Vercel の LINE_GROUP_ID）。設定後にもう一度お試しください。",
+      };
+    }
+
+    // reports API と同じ整形ロジック（請負金額の併記含む）。
+    const baseSiteName = rep.siteName ?? "";
+    const ukeoiNote =
+      rep.contractType === "UKEOI" && rep.contractAmount != null
+        ? `（請負 ¥${rep.contractAmount.toLocaleString("ja-JP")}）`
+        : "";
+    const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
+    const logInput: ReportLogInput = {
+      workDate: rep.workDate,
+      contractType: rep.contractType,
+      client: rep.client,
+      site: displaySiteName ? { name: displaySiteName } : null,
+      entries: rep.entries.map((e) => ({
+        shift: e.shift,
+        manDays: e.manDays,
+        otHours: e.otHours,
+        worker: e.worker,
+      })),
+      expenses: rep.expenses.map((x) => ({ kind: x.kind, amount: x.amount })),
+    };
+
+    // 投稿が成功した場合のみ postedToGroup=true。失敗時はフラグを変えず理由を返す。
+    try {
+      await pushToGroup(formatReportLog(logInput));
+    } catch (e) {
+      console.error("[resend] pushToGroup failed", e);
+      return { ok: false, error: lineErrorMessage(e) };
+    }
+    await prisma.report.update({
+      where: { id },
+      data: { postedToGroup: true },
+    });
     revalidatePath("/admin");
-    return;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e) };
   }
-
-  // reports API と同じ整形ロジック（請負金額の併記含む）。
-  const baseSiteName = rep.siteName ?? "";
-  const ukeoiNote =
-    rep.contractType === "UKEOI" && rep.contractAmount != null
-      ? `（請負 ¥${rep.contractAmount.toLocaleString("ja-JP")}）`
-      : "";
-  const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
-  const logInput: ReportLogInput = {
-    workDate: rep.workDate,
-    contractType: rep.contractType,
-    client: rep.client,
-    site: displaySiteName ? { name: displaySiteName } : null,
-    entries: rep.entries.map((e) => ({
-      shift: e.shift,
-      manDays: e.manDays,
-      otHours: e.otHours,
-      worker: e.worker,
-    })),
-    expenses: rep.expenses.map((x) => ({ kind: x.kind, amount: x.amount })),
-  };
-
-  // 投稿が成功した場合のみ postedToGroup=true。失敗時は例外を投げて
-  // フラグを変えない（未投稿のまま／画面にエラー表示）。
-  await pushToGroup(formatReportLog(logInput));
-  await prisma.report.update({
-    where: { id },
-    data: { postedToGroup: true },
-  });
-  revalidatePath("/admin");
 }
 
 /**
@@ -631,22 +674,28 @@ export async function resendReportToGroupAction(fd: FormData): Promise<void> {
  *   - 実際には LINE へ投稿せず postedToGroup=true にするだけ（投稿済み扱い＝一覧から消える）。
  *   - スコープ管理者は自組織のみ（assertOrgInScope）。
  */
-export async function dismissUnpostedReportAction(fd: FormData): Promise<void> {
-  const admin = await requireAdminAction();
-  const id = str(fd, "id");
-  if (!id) throw new Error("id がありません");
-  const rep = await prisma.report.findUnique({
-    where: { id },
-    select: { orgId: true },
-  });
-  if (!rep) throw new Error("出面が見つかりません");
-  await assertOrgInScope(admin, rep.orgId);
-  // 投稿はせず、未投稿アラートから外すだけ（投稿済み扱い）。
-  await prisma.report.update({
-    where: { id },
-    data: { postedToGroup: true },
-  });
-  revalidatePath("/admin");
+export async function dismissUnpostedReportAction(
+  id: string,
+): Promise<UnpostedActionResult> {
+  try {
+    const admin = await requireAdminAction();
+    if (!id) return { ok: false, error: "id がありません" };
+    const rep = await prisma.report.findUnique({
+      where: { id },
+      select: { orgId: true },
+    });
+    if (!rep) return { ok: false, error: "出面が見つかりません" };
+    await assertOrgInScope(admin, rep.orgId);
+    // 投稿はせず、未投稿アラートから外すだけ（投稿済み扱い）。
+    await prisma.report.update({
+      where: { id },
+      data: { postedToGroup: true },
+    });
+    revalidatePath("/admin");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String((e as Error)?.message ?? e) };
+  }
 }
 
 // ============================================================

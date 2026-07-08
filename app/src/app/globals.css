@@ -1647,6 +1647,17 @@ details.card .field {
   border: 1.5px solid var(--danger-line);
   background: var(--danger-bg);
 }
+/* 再投稿失敗の理由（ボタン直下にインライン表示） */
+.unposted-err {
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
 
 /* 請求書 CTA（脇から月末発行へ 1 タップ） */
 .invoice-cta {
