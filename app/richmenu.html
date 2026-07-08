@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="hz:canvas-width" content="2500" />
+<meta name="hz:canvas-height" content="843" />
+<meta name="hz:slide-selector" content=".slide" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@500;700;900&display=swap" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 2500px; height: 843px; }
+  .slide {
+    position: relative;
+    width: 2500px;
+    height: 843px;
+    overflow: hidden;
+    font-family: "Noto Sans JP", sans-serif;
+    background: linear-gradient(125deg, #2b5fb3 0%, #224d92 55%, #1b3f78 100%);
+  }
+  /* 装飾: 右側の半透明ジオメトリ */
+  .deco-circle {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .c1 { width: 1100px; height: 1100px; right: -260px; top: -360px; }
+  .c2 { width: 620px; height: 620px; right: 240px; bottom: -300px; background: rgba(255,255,255,0.05); }
+
+  /* ワードマーク（左上） */
+  .wordmark {
+    position: absolute;
+    top: 70px;
+    left: 130px;
+    display: flex;
+    align-items: center;
+    gap: 26px;
+  }
+  .wordmark .badge {
+    width: 70px; height: 70px;
+    border-radius: 18px;
+    background: #ffffff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .wordmark .badge span { color: #2b5fb3; font-weight: 900; font-size: 44px; }
+  .wordmark .name { color: rgba(255,255,255,0.92); font-weight: 700; font-size: 46px; letter-spacing: 2px; }
+
+  /* メインコピー */
+  .main {
+    position: absolute;
+    left: 130px;
+    top: 250px;
+  }
+  .headline {
+    color: #ffffff;
+    font-weight: 900;
+    font-size: 224px;
+    line-height: 1.0;
+    letter-spacing: 4px;
+    text-shadow: 0 6px 24px rgba(0,0,0,0.18);
+  }
+  .subtitle {
+    margin-top: 40px;
+    color: #d4e2f6;
+    font-weight: 500;
+    font-size: 78px;
+    letter-spacing: 3px;
+  }
+
+  /* タップ誘導ピル（右下） */
+  .cta {
+    position: absolute;
+    right: 150px;
+    bottom: 120px;
+    display: flex;
+    align-items: center;
+    gap: 36px;
+    padding: 44px 80px;
+    background: #ffffff;
+    border-radius: 100px;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.25);
+  }
+  .cta .label { color: #1b3f78; font-weight: 900; font-size: 84px; letter-spacing: 2px; }
+  .cta .arrow {
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: #2b5fb3;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cta .arrow svg { display: block; }
+</style>
+</head>
+<body>
+  <div class="slide" data-canvas-width="2500" data-canvas-height="843">
+    <div class="deco-circle c1"></div>
+    <div class="deco-circle c2"></div>
+
+    <div class="wordmark">
+      <div class="badge"><span>出</span></div>
+      <div class="name">出面管理</div>
+    </div>
+
+    <div class="main">
+      <div class="headline">出面入力をはじめる</div>
+      <div class="subtitle">タップして今日の出面を登録</div>
+    </div>
+
+    <div class="cta">
+      <div class="label">タップして開く</div>
+      <div class="arrow">
+        <svg width="52" height="52" viewBox="0 0 24 24" fill="none">
+          <path d="M9 6l6 6-6 6" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
