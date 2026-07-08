@@ -340,6 +340,14 @@ async function loadClientRates(
 //   現場の担当者（後藤・齋…）が普段から「後藤◯◯ 齋◯◯…」で締めていた形。
 //   出面の entries を職人ごとに 人工・残業 で合算する（自社=SELF が対象）。
 // ============================================================
+/** 職人ごとの「どの現場に出たか」内訳（現場別の人工・日勤/夜勤）。 */
+export interface WorkerSiteBreakdown {
+  site: string;
+  manDays: number;
+  dayManDays: number;
+  nightManDays: number;
+}
+
 export interface WorkerMonthSummary {
   /** 職人ID。集計画面から単価編集する対象。worker 未紐付けの行は null。 */
   workerId: string | null;
@@ -358,6 +366,8 @@ export interface WorkerMonthSummary {
   otUnitPrice: number | null;
   /** 給料概算（人工×単価 ＋ 残業×残業単価）。単価未設定なら 0。 */
   pay: number;
+  /** その職人が出た現場の内訳（人工の多い順）。 */
+  sites: WorkerSiteBreakdown[];
 }
 
 export async function summarizeByWorker(
@@ -375,6 +385,9 @@ export async function summarizeByWorker(
       ...(opts?.orgId ? { orgId: opts.orgId } : {}),
     },
     select: {
+      // 現場名（自由入力優先→現場マスタ名）を職人ごとの内訳に使う。
+      siteName: true,
+      site: { select: { name: true } },
       entries: {
         select: {
           manDays: true,
@@ -388,6 +401,12 @@ export async function summarizeByWorker(
     },
   });
 
+  interface SiteAcc {
+    site: string;
+    manDays: number;
+    dayManDays: number;
+    nightManDays: number;
+  }
   interface Acc {
     workerId: string | null;
     workerName: string;
@@ -398,10 +417,13 @@ export async function summarizeByWorker(
     otHours: number;
     unitPrice: number | null;
     otUnitPrice: number | null;
+    /** 現場名 → その職人の現場別内訳。 */
+    sites: Map<string, SiteAcc>;
   }
   // 職人ID単位で集計（未紐付けは "(不明)" にまとめる）。
   const map = new Map<string, Acc>();
   for (const r of reports) {
+    const siteName = r.siteName?.trim() || r.site?.name || "(現場未設定)";
     for (const e of r.entries) {
       const key = e.worker?.id ?? "__unknown__";
       const md = resolveManDays(e.shift as Shift, e.manDays);
@@ -417,13 +439,23 @@ export async function summarizeByWorker(
           otHours: 0,
           unitPrice: e.worker?.unitPrice ?? null,
           otUnitPrice: e.worker?.otUnitPrice ?? null,
+          sites: new Map<string, SiteAcc>(),
         } as Acc);
       cur.manDays += md;
       // 日勤(DAY)/半日(HALF)/夜勤(NIGHT)で内訳を分ける。
-      if (e.shift === "NIGHT") cur.nightManDays += md;
+      const isNight = e.shift === "NIGHT";
+      if (isNight) cur.nightManDays += md;
       else if (e.shift === "HALF") cur.halfManDays += md;
       else cur.dayManDays += md;
       cur.otHours += Number(e.otHours) || 0;
+      // 現場別内訳（日勤＝DAY+HALF、夜勤＝NIGHT）。
+      const s =
+        cur.sites.get(siteName) ??
+        { site: siteName, manDays: 0, dayManDays: 0, nightManDays: 0 };
+      s.manDays += md;
+      if (isNight) s.nightManDays += md;
+      else s.dayManDays += md;
+      cur.sites.set(siteName, s);
       map.set(key, cur);
     }
   }
@@ -435,7 +467,11 @@ export async function summarizeByWorker(
           ? joyoAmount(v.manDays, unit) +
             overtimeLineAmountResolved(v.otHours, unit, v.otUnitPrice)
           : 0;
-      return { ...v, pay };
+      // v.sites は Map。後置の sites(配列) がスプレッドの sites を上書きする。
+      const sites = Array.from(v.sites.values()).sort(
+        (a, b) => b.manDays - a.manDays || a.site.localeCompare(b.site, "ja"),
+      );
+      return { ...v, pay, sites };
     })
     .sort(
       (a, b) =>

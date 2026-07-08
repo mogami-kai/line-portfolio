@@ -1828,6 +1828,22 @@ details.card .field {
   border-top: 1.5px solid var(--accent);
 }
 
+/* 職人アコーディオン内「出た現場」内訳 */
+.worker-sites {
+  margin-top: 10px;
+}
+.worker-sites-head {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.worker-table th.num,
+.worker-table td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
 /* ── 空の状態（次の行動が分かる案内） ── */
 .empty-state {
   text-align: center;

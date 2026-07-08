@@ -145,6 +145,35 @@ function WorkerAccordion({
               <span className="k">給料（概算）</span>
               <span className="v">{w.pay > 0 ? yen(w.pay) : "単価未設定"}</span>
             </div>
+
+            {/* どの現場に出たか（現場別の人工・日勤/夜勤）。 */}
+            {w.sites.length > 0 && (
+              <div className="worker-sites">
+                <div className="worker-sites-head">出た現場</div>
+                <table className="worker-table">
+                  <thead>
+                    <tr>
+                      <th>現場</th>
+                      <th className="num">人工</th>
+                      <th>内訳</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {w.sites.map((s) => (
+                      <tr key={s.site}>
+                        <td className="wt-name">{s.site}</td>
+                        <td className="num">{s.manDays}</td>
+                        <td className="muted">
+                          日勤 {s.dayManDays}
+                          {s.nightManDays > 0 && ` / 夜勤 ${s.nightManDays}`}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             {w.workerId ? (
               <RateEditor
                 kind="worker"
