@@ -457,7 +457,21 @@ function EditModal({
             <div className="rem-sec">
               <div className="rem-sec-title">経費（任意）</div>
               {expenses.map((x, i) => (
-                <div className="rem-row" key={i}>
+                <div key={i}>
+                  {/* よく使う種別のワンタップ選択（LIFFと同じ・予測変換ミス防止）。 */}
+                  <div className="kind-chips">
+                    {["パーキング", "ガソリン", "高速"].map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={`kind-chip ${x.kind === k ? "kind-chip--on" : ""}`}
+                        onClick={() => updateExpense(i, { kind: k })}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                <div className="rem-row">
                   <input
                     className="input"
                     type="text"
@@ -504,6 +518,7 @@ function EditModal({
                   >
                     削除
                   </button>
+                </div>
                 </div>
               ))}
               <button
