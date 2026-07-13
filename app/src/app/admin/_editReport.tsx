@@ -25,6 +25,7 @@ import {
   deleteReportAction,
 } from "./_actions.js";
 import { SHIFTS, SHIFT_LABEL, SHIFT_TO_MANDAYS } from "./_editTypes.js";
+import { ExpenseKindPicker } from "../_components/expenseKindPicker.js";
 import type {
   ClientLite,
   WorkerLite,
@@ -458,28 +459,12 @@ function EditModal({
               <div className="rem-sec-title">経費（任意）</div>
               {expenses.map((x, i) => (
                 <div key={i}>
-                  {/* よく使う種別のワンタップ選択（LIFFと同じ・予測変換ミス防止）。 */}
-                  <div className="kind-chips">
-                    {["パーキング", "ガソリン", "高速"].map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        className={`kind-chip ${x.kind === k ? "kind-chip--on" : ""}`}
-                        onClick={() => updateExpense(i, { kind: k })}
-                      >
-                        {k}
-                      </button>
-                    ))}
-                  </div>
-                <div className="rem-row">
-                  <input
-                    className="input"
-                    type="text"
-                    aria-label="内容"
-                    placeholder="種別（駐車/燃料…）"
+                  {/* 種別: よく使う候補はワンタップ、「その他」選択時のみ自由入力（LIFFと同じ）。 */}
+                  <ExpenseKindPicker
                     value={x.kind}
-                    onChange={(ev) => updateExpense(i, { kind: ev.target.value })}
+                    onChange={(v) => updateExpense(i, { kind: v })}
                   />
+                <div className="rem-row" style={{ marginTop: 8 }}>
                   <input
                     className="input input--num"
                     type="number"
