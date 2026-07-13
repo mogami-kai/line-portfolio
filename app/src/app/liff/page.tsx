@@ -585,10 +585,19 @@ export default function LiffPage() {
         amount: Math.round(Number(x.amount)),
         billable: x.billable,
         paidBy: x.paidBy.trim(),
-        // 領収書写真（アップロード済みのパス）。未添付は送らない。
+        // 領収書写真（アップロード済みのパス）。
         receiptPath: x.receiptPath || undefined,
       }))
       .filter((x) => x.kind && isFinite(x.amount) && x.amount !== 0);
+
+    // 領収書は必須: 金額の入った経費すべてに写真が必要（証憑漏れ防止）。
+    if (payloadExpenses.some((x) => !x.receiptPath)) {
+      setErrorKind("error");
+      setErrorMsg(
+        "経費には領収書の写真が必要です。「領収書の写真を撮る」から撮影してください。",
+      );
+      return;
+    }
 
     const body: Record<string, unknown> = {
       workDate,
@@ -684,6 +693,38 @@ export default function LiffPage() {
     clientName,
     siteLabel,
   ]);
+
+  // ★通常送信も一度「確認画面」を挟む（誤送信防止）。
+  //   ここで軽いバリデーション（取引先・職人・領収書必須）を先に済ませ、
+  //   問題なければ view="confirm" へ。実送信は確認画面の「送信」→ doSubmit。
+  const onPressSend = useCallback(() => {
+    setErrorMsg(null);
+    if (!clientId) {
+      setErrorKind("error");
+      setErrorMsg("取引先を選択してください。");
+      return;
+    }
+    if (entries.filter((e) => e.selected).length === 0) {
+      setErrorKind("error");
+      setErrorMsg("職人を1名以上選んでください。");
+      return;
+    }
+    const missingReceipt = expenses.some(
+      (x) =>
+        x.kind.trim() &&
+        isFinite(Number(x.amount)) &&
+        Math.round(Number(x.amount)) !== 0 &&
+        !x.receiptPath,
+    );
+    if (missingReceipt) {
+      setErrorKind("error");
+      setErrorMsg(
+        "経費には領収書の写真が必要です。「領収書の写真を撮る・選ぶ」から撮影してください。",
+      );
+      return;
+    }
+    setView("confirm");
+  }, [clientId, entries, expenses]);
 
   // ★「前回と同じで送る」: 前回内容で state を整え、確認画面へ。
   const onRepeat = useCallback(() => {
@@ -846,13 +887,23 @@ export default function LiffPage() {
     );
   }
 
-  // ── 確認画面（「前回と同じで送る」専用の最終確認） ──
+  // ── 確認画面（通常送信・「前回と同じで送る」共通の最終確認） ──
   if (view === "confirm") {
+    // 確認対象の経費（金額の入った行のみ＝送信されるもの）。
+    const confirmExpenses = expenses.filter(
+      (x) =>
+        x.kind.trim() &&
+        isFinite(Number(x.amount)) &&
+        Math.round(Number(x.amount)) !== 0,
+    );
     return (
       <main className="container has-cta">
         <div className="page-head">
-          <h1 className="page-title">この内容で送信</h1>
+          <h1 className="page-title">この内容で送信していいですか？</h1>
         </div>
+        <p className="muted" style={{ marginTop: 0 }}>
+          内容を確認して、よければ下の「送信」を押してください。
+        </p>
 
         {errorMsg && (
           <div
@@ -897,6 +948,23 @@ export default function LiffPage() {
                     return `${w?.name ?? ""}(${SHIFT_LABEL[e.shift]})`;
                   })
                   .join("、") || "未選択"}
+              </span>
+            </div>
+            <div className="summary-row">
+              <span className="k">経費</span>
+              <span className="v">
+                {confirmExpenses.length
+                  ? confirmExpenses
+                      .map(
+                        (x) =>
+                          `${x.kind} ${Math.round(
+                            Number(x.amount),
+                          ).toLocaleString("ja-JP")}円${
+                            x.paidBy.trim() ? `（${x.paidBy.trim()}）` : ""
+                          }${x.receiptPath ? "・領収書✓" : ""}`,
+                      )
+                      .join("、")
+                  : "なし"}
               </span>
             </div>
           </div>
@@ -1241,36 +1309,43 @@ export default function LiffPage() {
                     value={x.kind}
                     onChange={(v) => updateExpense(i, { kind: v })}
                   />
-                  <div className="inline-row" style={{ marginTop: 8 }}>
+                  {/* 金額（ラベル付き・大きめの数字で目立たせる） */}
+                  <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+                    <label className="label">
+                      金額（円）<span className="req-chip">必須</span>
+                    </label>
                     <input
-                      className="input input--num"
-                      style={{ flex: "1 1 120px" }}
+                      className="input input--num input--amount"
                       type="number"
                       inputMode="numeric"
-                      placeholder="金額"
+                      placeholder="例: 800"
                       value={x.amount}
                       onChange={(ev) =>
                         updateExpense(i, { amount: ev.target.value })
                       }
                     />
                   </div>
-                  <div className="inline-row" style={{ marginTop: 8 }}>
+                  {/* 立替えた人（ラベル付き） */}
+                  <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+                    <label className="label">立替えた人（任意）</label>
                     <input
                       className="input"
-                      style={{ flex: "1 1 100%" }}
                       type="text"
-                      placeholder="立替えた人（任意）"
+                      placeholder="例: 齋"
                       value={x.paidBy}
                       onChange={(ev) =>
                         updateExpense(i, { paidBy: ev.target.value })
                       }
                     />
                   </div>
-                  {/* 領収書写真（任意・1経費1枚）。撮影/選択→圧縮→アップロード。 */}
-                  <div className="inline-row" style={{ marginTop: 8 }}>
+                  {/* 領収書写真（必須・1経費1枚）。撮影/選択→圧縮→アップロード。 */}
+                  <div className="field" style={{ marginTop: 10, marginBottom: 0 }}>
+                    <label className="label">
+                      領収書の写真<span className="req-chip">必須</span>
+                    </label>
                     {x.receiptPath ? (
-                      <>
-                        <span className="receipt-done">領収書を添付済み</span>
+                      <div className="inline-row">
+                        <span className="receipt-done">✓ 添付済み</span>
                         <button
                           type="button"
                           className="rem-row-del"
@@ -1280,16 +1355,16 @@ export default function LiffPage() {
                         >
                           はずす
                         </button>
-                      </>
+                      </div>
                     ) : (
                       <label
-                        className={`receipt-btn ${
+                        className={`receipt-btn receipt-btn--block ${
                           x.receiptBusy ? "receipt-btn--busy" : ""
                         }`}
                       >
                         {x.receiptBusy
                           ? "アップロード中…"
-                          : "領収書の写真を付ける（任意）"}
+                          : "領収書の写真を撮る・選ぶ"}
                         <input
                           type="file"
                           accept="image/*"
@@ -1348,22 +1423,16 @@ export default function LiffPage() {
         )}
       </div>
 
-      {/* スティッキー送信（親指ゾーン） */}
+      {/* スティッキー送信（親指ゾーン）。押すと確認画面へ（誤送信防止）。 */}
       <div className="cta-bar">
         <div className="cta-inner">
           <button
             type="button"
             className="btn btn--primary btn--lg btn--block"
-            onClick={doSubmit}
+            onClick={onPressSend}
             disabled={submitting || noWorkers}
           >
-            {submitting ? (
-              <>
-                <span className="spinner" aria-hidden /> 送信中…
-              </>
-            ) : (
-              "送信"
-            )}
+            送信
           </button>
         </div>
       </div>
