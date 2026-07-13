@@ -244,6 +244,9 @@ model Expense {
   amount   Int
   billable Boolean  @default(true) // true=請求 / false=自社負担
   paidBy   String?  // 立替えた人の名前（立替集計用。未指定可）
+  // 領収書写真の Storage パス（Supabase Storage 非公開バケット receipts 内、
+  // "{orgId}/{yyyy-MM}/{uuid}.jpg"）。閲覧は /api/receipts/view の署名URL経由のみ。
+  receiptPath String?
   reportId String?
   report   Report?  @relation(fields: [reportId], references: [id])
 

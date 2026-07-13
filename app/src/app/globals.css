@@ -1700,6 +1700,47 @@ details.card .field {
   border-color: var(--accent);
 }
 
+/* 領収書写真（LIFF: 添付ボタン / 管理: 閲覧リンク） */
+.receipt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-dark);
+  background: #fff;
+  border: 1.5px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.receipt-btn--busy {
+  color: var(--ink-3);
+  cursor: default;
+}
+.receipt-done {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-dark);
+}
+.receipt-err {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.receipt-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--accent-dark);
+  text-decoration: underline;
+}
+
 /* 再投稿失敗の理由（ボタン直下にインライン表示） */
 .unposted-err {
   width: 100%;

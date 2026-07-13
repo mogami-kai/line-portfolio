@@ -759,6 +759,7 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
         amount: x.amount,
         billable: x.billable,
         paidBy: x.paidBy ?? "",
+        receiptPath: x.receiptPath ?? null,
       })),
     },
     clients,
@@ -789,6 +790,8 @@ const reportEditSchema = z.object({
       amount: z.number().int().nonnegative(),
       billable: z.boolean(),
       paidBy: z.string().trim().max(50).optional(),
+      // 領収書写真（既存値の維持用。編集画面からの新規添付は v1 では無し）。
+      receiptPath: z.string().max(300).nullable().optional(),
     }),
   ),
 });
@@ -874,6 +877,7 @@ export async function updateReportAction(input: ReportEditInput): Promise<void> 
               amount: x.amount,
               billable: x.billable,
               paidBy: x.paidBy || null,
+              receiptPath: x.receiptPath ?? null, // 編集で領収書を消さない
             })),
           }),
         ]

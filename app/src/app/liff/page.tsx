@@ -101,6 +101,12 @@ interface ExpenseState {
   amount: string;
   billable: boolean;
   paidBy: string;
+  /** 領収書写真の Storage パス（アップロード成功後にセット）。空=未添付。 */
+  receiptPath: string;
+  /** 領収書アップロード中フラグ。 */
+  receiptBusy: boolean;
+  /** 領収書アップロードの失敗メッセージ（インライン表示）。 */
+  receiptErr: string;
 }
 
 // localStorage に保存する「前回送信」スナップショット。
@@ -456,7 +462,15 @@ export default function LiffPage() {
   const addExpense = useCallback(() => {
     setExpenses((prev) => [
       ...prev,
-      { kind: "", amount: "", billable: true, paidBy: "" },
+      {
+        kind: "",
+        amount: "",
+        billable: true,
+        paidBy: "",
+        receiptPath: "",
+        receiptBusy: false,
+        receiptErr: "",
+      },
     ]);
   }, []);
   const updateExpense = useCallback(
@@ -470,6 +484,70 @@ export default function LiffPage() {
   const removeExpense = useCallback((idx: number) => {
     setExpenses((prev) => prev.filter((_, i) => i !== idx));
   }, []);
+
+  // ── 領収書写真: 端末内で縮小圧縮（長辺1600px・JPEG80%）してからアップロード ──
+  //   canvas 再エンコードで EXIF（GPS等）も落ちる。圧縮に失敗した端末は原本のまま
+  //   送る（サーバー側の 5MB 上限とマジックバイト検証が安全網）。
+  const compressReceipt = useCallback(async (file: File): Promise<Blob> => {
+    const bitmap = await createImageBitmap(file);
+    const MAX = 1600;
+    const scale = Math.min(1, MAX / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas unavailable");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+        "image/jpeg",
+        0.8,
+      ),
+    );
+  }, []);
+
+  const pickReceipt = useCallback(
+    async (idx: number, file: File | null) => {
+      if (!file || !token) return;
+      updateExpense(idx, { receiptBusy: true, receiptErr: "" });
+      try {
+        let blob: Blob;
+        try {
+          blob = await compressReceipt(file);
+        } catch {
+          blob = file; // 圧縮不可の端末は原本（サーバー側で検証）
+        }
+        const res = await fetch("/api/receipts", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": blob.type || "image/jpeg",
+          },
+          body: blob,
+        });
+        const data = (await res.json()) as {
+          ok: boolean;
+          path?: string;
+          message?: string;
+        };
+        if (!res.ok || !data.ok || !data.path) {
+          throw new Error(data.message || "アップロードに失敗しました。");
+        }
+        updateExpense(idx, { receiptPath: data.path, receiptBusy: false });
+      } catch (e) {
+        updateExpense(idx, {
+          receiptBusy: false,
+          receiptErr:
+            String((e as Error).message || "") ||
+            "領収書のアップロードに失敗しました。電波の良い場所でお試しください。",
+        });
+      }
+    },
+    [token, updateExpense, compressReceipt],
+  );
 
   // ── 送信処理（フォーム / 確認 共通） ──
   const doSubmit = useCallback(async () => {
@@ -507,6 +585,8 @@ export default function LiffPage() {
         amount: Math.round(Number(x.amount)),
         billable: x.billable,
         paidBy: x.paidBy.trim(),
+        // 領収書写真（アップロード済みのパス）。未添付は送らない。
+        receiptPath: x.receiptPath || undefined,
       }))
       .filter((x) => x.kind && isFinite(x.amount) && x.amount !== 0);
 
@@ -1186,6 +1266,49 @@ export default function LiffPage() {
                       }
                     />
                   </div>
+                  {/* 領収書写真（任意・1経費1枚）。撮影/選択→圧縮→アップロード。 */}
+                  <div className="inline-row" style={{ marginTop: 8 }}>
+                    {x.receiptPath ? (
+                      <>
+                        <span className="receipt-done">領収書を添付済み</span>
+                        <button
+                          type="button"
+                          className="rem-row-del"
+                          onClick={() =>
+                            updateExpense(i, { receiptPath: "", receiptErr: "" })
+                          }
+                        >
+                          はずす
+                        </button>
+                      </>
+                    ) : (
+                      <label
+                        className={`receipt-btn ${
+                          x.receiptBusy ? "receipt-btn--busy" : ""
+                        }`}
+                      >
+                        {x.receiptBusy
+                          ? "アップロード中…"
+                          : "領収書の写真を付ける（任意）"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          hidden
+                          disabled={x.receiptBusy}
+                          onChange={(ev) => {
+                            const f = ev.target.files?.[0] ?? null;
+                            ev.target.value = ""; // 同じファイルの再選択を許可
+                            void pickReceipt(i, f);
+                          }}
+                        />
+                      </label>
+                    )}
+                  </div>
+                  {x.receiptErr && (
+                    <div className="receipt-err" role="alert">
+                      {x.receiptErr}
+                    </div>
+                  )}
                   <div
                     className="inline-row"
                     style={{ marginTop: 8, justifyContent: "space-between" }}

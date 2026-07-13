@@ -39,6 +39,8 @@ export interface EditableExpense {
   amount: number;
   billable: boolean;
   paidBy: string;
+  /** 領収書写真の Storage パス（無ければ null）。編集では閲覧・維持のみ（v1）。 */
+  receiptPath: string | null;
 }
 
 /** getReportForEditAction の戻り値＝編集フォームの初期値。 */
