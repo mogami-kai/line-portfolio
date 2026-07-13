@@ -1700,6 +1700,27 @@ details.card .field {
   border-color: var(--accent);
 }
 
+/* 必須バッジ（ラベル横の小さな赤チップ） */
+.req-chip {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  border-radius: 999px;
+  vertical-align: 1px;
+}
+
+/* 金額入力の強調（大きめ・太字で打ち間違いに気づきやすく） */
+.input--amount {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 領収書写真（LIFF: 添付ボタン / 管理: 閲覧リンク） */
 .receipt-btn {
   display: inline-flex;
@@ -1718,6 +1739,10 @@ details.card .field {
 .receipt-btn--busy {
   color: var(--ink-3);
   cursor: default;
+}
+.receipt-btn--block {
+  width: 100%;
+  min-height: 48px;
 }
 .receipt-done {
   font-size: 13px;
