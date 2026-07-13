@@ -19,6 +19,8 @@ export interface FeedItem {
   names: string;
   md: number;
   ot: number;
+  /** 経費の短い内訳（例: "パーキング800円・その他700円"）。無ければ空文字。 */
+  exp: string;
   partner: boolean;
   review: boolean;
 }
@@ -49,9 +51,15 @@ export function RecentFeed({
             </div>
             <div className="feed-site">{r.site}</div>
             {r.names && <div className="feed-names">{r.names}</div>}
-            <div className="feed-figs">
-              <b>{r.md}</b>人工
-              {r.ot > 0 && <span className="feed-ot"> ・残{r.ot}h</span>}
+            {/* 下段: 左=経費の内訳（無ければ「経費なし」）/ 右=人工（＋残業） */}
+            <div className="feed-foot">
+              <div className={r.exp ? "feed-exp" : "feed-exp feed-exp--none"}>
+                {r.exp || "経費なし"}
+              </div>
+              <div className="feed-md">
+                <b>{r.md}</b>人工
+                {r.ot > 0 && <span className="feed-ot">・残{r.ot}h</span>}
+              </div>
             </div>
           </div>
         ))}

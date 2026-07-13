@@ -1119,8 +1119,16 @@ a {
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   background: #fff;
-  padding: 10px;
+  padding: 12px;
   min-width: 0;
+  /* 縦 flex にして下段（経費/人工）をカード最下部に揃える（隣同士で高さが
+     違っても数字の行が横に揃い、一覧の視認性が上がる）。 */
+  display: flex;
+  flex-direction: column;
+}
+.feed-cell .feed-foot {
+  margin-top: auto;
+  padding-top: 8px;
 }
 .feed-date {
   font-size: 12px;
@@ -1141,33 +1149,54 @@ a {
 }
 .feed-site {
   margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 12px;
   color: var(--ink-2);
+  /* 現場名は省略せず折り返して全部見せる。 */
+  word-break: break-word;
 }
 .feed-names {
   margin-top: 2px;
-  overflow: hidden;
   font-size: 11px;
   color: var(--ink-3);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  /* 職人名も省略せず全員表示（折り返し）。 */
+  word-break: break-word;
 }
-.feed-figs {
-  font-size: 13px;
-  margin-top: 6px;
+/* 下段（左=経費の内訳 / 右=人工）。上部と細罫線で区切り、数字を右に揃えて
+   一覧で「経費」と「人工」が縦に揃って読めるようにする。 */
+.feed-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.feed-exp {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  /* 経費は省略せず全件表示（折り返し）。 */
+  word-break: break-word;
+}
+.feed-exp--none {
+  color: var(--ink-3);
+}
+.feed-md {
+  flex: 0 0 auto;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
-.feed-figs b {
-  font-size: 15px;
+.feed-md b {
+  font-size: 16px;
   font-weight: 800;
+  color: var(--accent-dark);
 }
 .feed-ot {
   color: var(--ink-2);
-  font-size: 12px;
+  font-size: 11px;
 }
 .feed-mini {
   font-size: 11px;
