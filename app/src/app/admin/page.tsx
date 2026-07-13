@@ -152,6 +152,8 @@ export default async function AdminPage({
         entries: {
           select: { manDays: true, otHours: true, worker: { select: { name: true } } },
         },
+        // フィードに経費の内訳（種別・金額）を出す。
+        expenses: { select: { kind: true, amount: true } },
       },
     }),
     // 自社(SELF)の出面で LINE グループ投稿に失敗したもの（postedToGroup=false）。
@@ -186,6 +188,9 @@ export default async function AdminPage({
 
   // 直近の出面フィード（コンパクト3列＋「表示」で当月全件）用のプレーン配列。
   // Server Component で集計まで済ませ、Client Component には素の値だけ渡す。
+  // 経費の表示は候補（パーキング/ガソリン/高速）以外を「その他」に丸めて短く出す
+  // （フィードは一覧性優先。正確な種別は編集モーダルで確認できる）。
+  const PRESET_KINDS = ["パーキング", "ガソリン", "高速"];
   const feedItems: FeedItem[] = recent.map((r) => ({
     id: r.id,
     date: mdW(r.workDate),
@@ -197,6 +202,14 @@ export default async function AdminPage({
       .join("　"),
     md: r.entries.reduce((a, e) => a + Number(e.manDays || 0), 0),
     ot: r.entries.reduce((a, e) => a + Number(e.otHours || 0), 0),
+    exp: r.expenses
+      .map(
+        (x) =>
+          `${PRESET_KINDS.includes(x.kind) ? x.kind : "その他"}${Number(
+            x.amount || 0,
+          ).toLocaleString("ja-JP")}円`,
+      )
+      .join("・"),
     partner: r.org.kind === "PARTNER",
     review: r.status === "NEEDS_REVIEW",
   }));
