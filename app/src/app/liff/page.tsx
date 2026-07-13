@@ -1155,7 +1155,20 @@ export default function LiffPage() {
             <div className="stack-sm">
               {expenses.map((x, i) => (
                 <div key={i} className="worker-card" style={{ margin: 0 }}>
-                  <div className="inline-row">
+                  {/* よく使う種別のワンタップ選択（予測変換ミス防止）。自由入力も残す。 */}
+                  <div className="kind-chips">
+                    {["パーキング", "ガソリン", "高速"].map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={`kind-chip ${x.kind === k ? "kind-chip--on" : ""}`}
+                        onClick={() => updateExpense(i, { kind: k })}
+                      >
+                        {k}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="inline-row" style={{ marginTop: 8 }}>
                     <input
                       className="input"
                       style={{ flex: "1 1 120px" }}

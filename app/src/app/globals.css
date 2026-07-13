@@ -1647,6 +1647,30 @@ details.card .field {
   border: 1.5px solid var(--danger-line);
   background: var(--danger-bg);
 }
+/* 経費種別のワンタップ選択チップ（LIFF/編集モーダル共通）。
+   予測変換の打ち間違い（例: パーキング→クラウン）防止。自由入力と併用。 */
+.kind-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.kind-chip {
+  min-height: 44px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: #fff;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.kind-chip--on {
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
 /* 再投稿失敗の理由（ボタン直下にインライン表示） */
 .unposted-err {
   width: 100%;
