@@ -34,6 +34,7 @@ import {
   validateReportRows,
   type RowInput,
 } from "@/lib/validate.js";
+import { isValidReceiptPath } from "@/lib/storage.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -54,6 +55,9 @@ const expenseSchema = z.object({
   billable: z.boolean().default(true),
   // 立替えた人の名前（立替集計用・任意）。
   paidBy: z.string().trim().max(50).optional(),
+  // 領収書写真（/api/receipts が返した Storage パス・任意）。
+  // 所有権（自組織のパスか）は保存前に isValidReceiptPath で検証する。
+  receiptPath: z.string().trim().max(300).optional(),
 });
 
 const bodySchema = z.object({
@@ -288,6 +292,12 @@ export async function POST(req: Request) {
                 amount: x.amount,
                 billable: x.billable,
                 paidBy: x.paidBy || null,
+                // 領収書パスは自組織の正規形（{orgId}/{yyyy-MM}/{uuid}.ext）のみ
+                // 保存（他組織パス・トラバーサルの注入を遮断）。
+                receiptPath:
+                  x.receiptPath && isValidReceiptPath(x.receiptPath, org.id)
+                    ? x.receiptPath
+                    : null,
               })),
             }
           : undefined,

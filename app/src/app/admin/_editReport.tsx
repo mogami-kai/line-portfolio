@@ -181,7 +181,7 @@ function EditModal({
   function addExpense() {
     setExpenses((prev) => [
       ...prev,
-      { kind: "", amount: 0, billable: true, paidBy: "" },
+      { kind: "", amount: 0, billable: true, paidBy: "", receiptPath: null },
     ]);
   }
   function updateExpense(i: number, patch: Partial<EditableExpense>) {
@@ -504,6 +504,17 @@ function EditModal({
                     削除
                   </button>
                 </div>
+                {/* 領収書写真（あれば別タブで表示・期限付き署名URL）。 */}
+                {x.receiptPath && (
+                  <a
+                    className="receipt-link"
+                    href={`/api/receipts/view?path=${encodeURIComponent(x.receiptPath)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    領収書を見る
+                  </a>
+                )}
                 </div>
               ))}
               <button

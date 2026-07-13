@@ -152,8 +152,8 @@ export default async function AdminPage({
         entries: {
           select: { manDays: true, otHours: true, worker: { select: { name: true } } },
         },
-        // フィードに経費の内訳（種別・金額）を出す。
-        expenses: { select: { kind: true, amount: true } },
+        // フィードに経費の内訳（種別・金額・領収書の有無）を出す。
+        expenses: { select: { kind: true, amount: true, receiptPath: true } },
       },
     }),
     // 自社(SELF)の出面で LINE グループ投稿に失敗したもの（postedToGroup=false）。
@@ -202,14 +202,16 @@ export default async function AdminPage({
       .join("　"),
     md: r.entries.reduce((a, e) => a + Number(e.manDays || 0), 0),
     ot: r.entries.reduce((a, e) => a + Number(e.otHours || 0), 0),
-    exp: r.expenses
-      .map(
-        (x) =>
-          `${PRESET_KINDS.includes(x.kind) ? x.kind : "その他"}${Number(
-            x.amount || 0,
-          ).toLocaleString("ja-JP")}円`,
-      )
-      .join("・"),
+    exp:
+      r.expenses
+        .map(
+          (x) =>
+            `${PRESET_KINDS.includes(x.kind) ? x.kind : "その他"}${Number(
+              x.amount || 0,
+            ).toLocaleString("ja-JP")}円`,
+        )
+        .join("・") +
+      (r.expenses.some((x) => x.receiptPath) ? "（領収書あり）" : ""),
     partner: r.org.kind === "PARTNER",
     review: r.status === "NEEDS_REVIEW",
   }));
