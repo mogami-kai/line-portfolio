@@ -3,24 +3,22 @@
 //
 //   1) Authorization: Bearer <LIFF access token> → User+Org（未承認は403）
 //   2) ボディ＝画像そのもの（クライアントで圧縮済み JPEG/PNG）
-//   3) マジックバイト検証＋サイズ上限 → Supabase Storage（非公開 receipts）へ保存
-//   4) { ok, path } を返す（path は /api/reports の expenses[].receiptPath に載せる）
+//   3) マジックバイト検証＋サイズ上限 → DB（ReceiptImage）へ直接保存
+//   4) { ok, path } を返す（path = ReceiptImage.id。/api/reports の
+//      expenses[].receiptPath に載せる）
 //
-//   保存先パス: {orgId}/{yyyy-MM}/{uuid}.jpg → 組織スコープの閲覧制御に使う。
-//   出面に紐づかず残った孤児ファイルは害がない（非公開・少容量）ため v1 では放置。
+//   外部ストレージ・環境変数は不要（設定ゼロで動く）。出面に紐づかず残った
+//   孤児レコードは害がない（非公開・数百KB）ため v1 では放置。
 // ============================================================
 
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db.js";
 import {
   bearerToken,
   requireApproved,
   resolveUserFromAccessToken,
 } from "@/lib/auth.js";
-import {
-  receiptsConfigured,
-  sniffImageType,
-  uploadReceipt,
-} from "@/lib/storage.js";
+import { sniffImageType } from "@/lib/storage.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,15 +32,6 @@ function json(status: number, data: unknown) {
 }
 
 export async function POST(req: Request) {
-  if (!receiptsConfigured()) {
-    return json(503, {
-      ok: false,
-      error: "not_configured",
-      message:
-        "領収書の保存先が未設定です（SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY）。",
-    });
-  }
-
   const token = bearerToken(req.headers.get("authorization"));
   if (!token) return json(401, { ok: false, error: "missing access token" });
   const resolved = await resolveUserFromAccessToken(token);
@@ -82,14 +71,22 @@ export async function POST(req: Request) {
   }
 
   try {
-    const path = await uploadReceipt(buf, type, org.id);
-    return json(200, { ok: true, path });
+    const created = await prisma.receiptImage.create({
+      data: {
+        orgId: org.id,
+        mime: type === "png" ? "image/png" : "image/jpeg",
+        data: Buffer.from(buf),
+      },
+      select: { id: true },
+    });
+    return json(200, { ok: true, path: created.id });
   } catch (e) {
-    console.error("[receipts] upload failed", e);
+    console.error("[receipts] save failed", e);
     return json(502, {
       ok: false,
       error: "upload_failed",
-      message: "領収書の保存に失敗しました。時間をおいてお試しください。",
+      message:
+        "領収書の保存に失敗しました。時間をおいてお試しください（管理者向け: ReceiptImage テーブル未作成の可能性）。",
     });
   }
 }

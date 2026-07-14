@@ -1,20 +1,19 @@
 // ============================================================
-// GET /api/receipts/view?path=… — 領収書写真の閲覧（管理者のみ）
+// GET /api/receipts/view?path=… — 領収書写真の表示（管理者のみ）
 //
-//   ガード: getAdminContext()。スコープ管理者（SELF_ADMIN/ORG_ADMIN）は
-//   パス先頭の orgId が自組織のものだけ閲覧可（パス設計 {orgId}/… を利用）。
-//   期限付き署名URL（10分）を発行して 302 リダイレクト（公開URLは作らない）。
+//   path = ReceiptImage.id。DB から画像を読み、そのまま画像として返す
+//   （<img src="/api/receipts/view?path=…"> で編集モーダル内にレンダリングできる。
+//     認証は管理セッションクッキー＝同一オリジンの <img> でそのまま通る）。
+//   スコープ管理者（SELF_ADMIN/ORG_ADMIN）は自組織（ReceiptImage.orgId 一致）のみ。
 // ============================================================
 
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db.js";
 import { adminScopeOrgId, getAdminContext } from "@/lib/auth.js";
-import { signReceiptUrl } from "@/lib/storage.js";
+import { isValidReceiptId } from "@/lib/storage.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-// {orgId}/{yyyy-MM}/{uuid}.{jpg|png} のみ許可（トラバーサル/別パス参照の遮断）。
-const PATH_RE = /^[a-z0-9]+\/\d{4}-\d{2}\/[0-9a-f-]{36}\.(jpg|png)$/;
 
 export async function GET(req: Request) {
   const admin = await getAdminContext();
@@ -23,25 +22,32 @@ export async function GET(req: Request) {
   }
 
   const url = new URL(req.url);
-  const path = url.searchParams.get("path") ?? "";
-  if (!PATH_RE.test(path)) {
+  const id = url.searchParams.get("path") ?? "";
+  if (!isValidReceiptId(id)) {
     return NextResponse.json({ ok: false, error: "bad_path" }, { status: 400 });
   }
 
-  // スコープ管理者は自組織のフォルダのみ。
+  const img = await prisma.receiptImage.findUnique({
+    where: { id },
+    select: { orgId: true, mime: true, data: true },
+  });
+  if (!img) {
+    return NextResponse.json({ ok: false, error: "not_found" }, { status: 404 });
+  }
+
+  // スコープ管理者は自組織の画像のみ。
   const scopeOrgId = adminScopeOrgId(admin);
-  if (scopeOrgId && !path.startsWith(`${scopeOrgId}/`)) {
+  if (scopeOrgId && img.orgId !== scopeOrgId) {
     return NextResponse.json({ ok: false, error: "forbidden" }, { status: 403 });
   }
 
-  try {
-    const signed = await signReceiptUrl(path);
-    return NextResponse.redirect(signed, 302);
-  } catch (e) {
-    console.error("[receipts] sign failed", e);
-    return NextResponse.json(
-      { ok: false, error: "sign_failed" },
-      { status: 502 },
-    );
-  }
+  return new NextResponse(new Uint8Array(img.data), {
+    status: 200,
+    headers: {
+      "Content-Type": img.mime,
+      // 認証付きの私的画像。ブラウザ内キャッシュのみ許可（共有キャッシュ禁止）。
+      "Cache-Control": "private, max-age=600",
+      "Content-Disposition": "inline",
+    },
+  });
 }

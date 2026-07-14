@@ -504,15 +504,24 @@ function EditModal({
                     削除
                   </button>
                 </div>
-                {/* 領収書写真（あれば別タブで表示・期限付き署名URL）。 */}
+                {/* 領収書写真: モーダル内にそのままレンダリング（タップで原寸を別タブ表示）。
+                    認証は管理セッションクッキー＝同一オリジンの <img> でそのまま通る。 */}
                 {x.receiptPath && (
                   <a
-                    className="receipt-link"
+                    className="receipt-view"
                     href={`/api/receipts/view?path=${encodeURIComponent(x.receiptPath)}`}
                     target="_blank"
                     rel="noreferrer"
+                    title="タップで原寸表示"
                   >
-                    領収書を見る
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      className="receipt-thumb"
+                      src={`/api/receipts/view?path=${encodeURIComponent(x.receiptPath)}`}
+                      alt="領収書"
+                      loading="lazy"
+                    />
+                    <span className="receipt-view-hint">領収書（タップで拡大）</span>
                   </a>
                 )}
                 </div>

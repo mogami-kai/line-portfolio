@@ -101,8 +101,10 @@ interface ExpenseState {
   amount: string;
   billable: boolean;
   paidBy: string;
-  /** 領収書写真の Storage パス（アップロード成功後にセット）。空=未添付。 */
+  /** 領収書写真のID（アップロード成功後にセット）。空=未添付。 */
   receiptPath: string;
+  /** 端末内プレビュー用の Object URL（送信には使わない・表示のみ）。 */
+  receiptPreview: string;
   /** 領収書アップロード中フラグ。 */
   receiptBusy: boolean;
   /** 領収書アップロードの失敗メッセージ（インライン表示）。 */
@@ -468,6 +470,7 @@ export default function LiffPage() {
         billable: true,
         paidBy: "",
         receiptPath: "",
+        receiptPreview: "",
         receiptBusy: false,
         receiptErr: "",
       },
@@ -536,7 +539,11 @@ export default function LiffPage() {
         if (!res.ok || !data.ok || !data.path) {
           throw new Error(data.message || "アップロードに失敗しました。");
         }
-        updateExpense(idx, { receiptPath: data.path, receiptBusy: false });
+        updateExpense(idx, {
+          receiptPath: data.path,
+          receiptPreview: URL.createObjectURL(blob),
+          receiptBusy: false,
+        });
       } catch (e) {
         updateExpense(idx, {
           receiptBusy: false,
@@ -1344,17 +1351,32 @@ export default function LiffPage() {
                       領収書の写真<span className="req-chip">必須</span>
                     </label>
                     {x.receiptPath ? (
-                      <div className="inline-row">
-                        <span className="receipt-done">✓ 添付済み</span>
-                        <button
-                          type="button"
-                          className="rem-row-del"
-                          onClick={() =>
-                            updateExpense(i, { receiptPath: "", receiptErr: "" })
-                          }
-                        >
-                          はずす
-                        </button>
+                      <div className="receipt-attached">
+                        {x.receiptPreview && (
+                          // 端末内プレビュー（Object URL）。タップ確認用の表示のみ。
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            className="receipt-thumb"
+                            src={x.receiptPreview}
+                            alt="領収書プレビュー"
+                          />
+                        )}
+                        <div className="inline-row">
+                          <span className="receipt-done">✓ 添付済み</span>
+                          <button
+                            type="button"
+                            className="rem-row-del"
+                            onClick={() =>
+                              updateExpense(i, {
+                                receiptPath: "",
+                                receiptPreview: "",
+                                receiptErr: "",
+                              })
+                            }
+                          >
+                            はずす
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <label
