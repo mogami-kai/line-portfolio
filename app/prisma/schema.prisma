@@ -244,13 +244,27 @@ model Expense {
   amount   Int
   billable Boolean  @default(true) // true=請求 / false=自社負担
   paidBy   String?  // 立替えた人の名前（立替集計用。未指定可）
-  // 領収書写真の Storage パス（Supabase Storage 非公開バケット receipts 内、
-  // "{orgId}/{yyyy-MM}/{uuid}.jpg"）。閲覧は /api/receipts/view の署名URL経由のみ。
+  // 領収書写真の参照（ReceiptImage.id）。閲覧は /api/receipts/view 経由のみ。
   receiptPath String?
   reportId String?
   report   Report?  @relation(fields: [reportId], references: [id])
 
   @@index([clientId, workDate])
+}
+
+// ── 領収書写真（DB 直接保存）──
+//   外部ストレージ不要（環境変数/バケット設定なしで動く）。クライアントで
+//   長辺1600px/JPEG80%に圧縮してから保存するため1枚 数百KB程度。
+//   件数が増えて容量が問題になったら Storage 移行を検討（receiptPath は id 参照
+//   のままなので移行は透過的にできる）。
+model ReceiptImage {
+  id        String   @id @default(cuid())
+  orgId     String   // 所有組織（スコープ管理者の閲覧制御に使う）
+  mime      String   // image/jpeg | image/png
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@index([orgId])
 }
 
 // ── 自社（発行元）情報 ──

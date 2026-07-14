@@ -1,11 +1,11 @@
 // ============================================================
-// storage.ts の純粋ロジックのテスト（ネットワーク非依存）
-//   - sniffImageType    : マジックバイト判定（Content-Type 偽装対策の核）
-//   - isValidReceiptPath: 領収書パスの正規形検証（注入対策の核）
+// storage.ts の純粋ロジックのテスト（ネットワーク/DB非依存）
+//   - sniffImageType  : マジックバイト判定（Content-Type 偽装対策の核）
+//   - isValidReceiptId: 領収書ID（ReceiptImage.id）の形式検証（注入対策の核）
 // ============================================================
 
 import { describe, it, expect } from "vitest";
-import { sniffImageType, isValidReceiptPath } from "./storage.js";
+import { sniffImageType, isValidReceiptId } from "./storage.js";
 
 describe("sniffImageType", () => {
   it("JPEG (FF D8 FF) を判定", () => {
@@ -25,22 +25,18 @@ describe("sniffImageType", () => {
   });
 });
 
-describe("isValidReceiptPath", () => {
-  const org = "cmabc123xyz";
-  const uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
-
-  it("正規形 {orgId}/{yyyy-MM}/{uuid}.jpg|png を受理", () => {
-    expect(isValidReceiptPath(`${org}/2026-07/${uuid}.jpg`, org)).toBe(true);
-    expect(isValidReceiptPath(`${org}/2026-07/${uuid}.png`, org)).toBe(true);
+describe("isValidReceiptId", () => {
+  it("cuid 形式（英数20〜32文字）を受理", () => {
+    expect(isValidReceiptId("cmd1a2b3c4d5e6f7g8h9i0j1k")).toBe(true);
+    expect(isValidReceiptId("abcdefghij1234567890")).toBe(true);
   });
-  it("他組織のパスは拒否", () => {
-    expect(isValidReceiptPath(`otherorg/2026-07/${uuid}.jpg`, org)).toBe(false);
-  });
-  it("トラバーサル・変形は拒否", () => {
-    expect(isValidReceiptPath(`../${org}/2026-07/${uuid}.jpg`, org)).toBe(false);
-    expect(isValidReceiptPath(`${org}/2026-07/../../x.jpg`, org)).toBe(false);
-    expect(isValidReceiptPath(`${org}/2026-07/${uuid}.gif`, org)).toBe(false);
-    expect(isValidReceiptPath(`${org}/202607/${uuid}.jpg`, org)).toBe(false);
-    expect(isValidReceiptPath("", org)).toBe(false);
+  it("パス風・記号入り・短すぎ/長すぎは拒否", () => {
+    expect(isValidReceiptId("org/2026-07/x.jpg")).toBe(false);
+    expect(isValidReceiptId("../etc/passwd")).toBe(false);
+    expect(isValidReceiptId("abc'; DROP TABLE --")).toBe(false);
+    expect(isValidReceiptId("short")).toBe(false);
+    expect(isValidReceiptId("a".repeat(40))).toBe(false);
+    expect(isValidReceiptId("")).toBe(false);
+    expect(isValidReceiptId("ABCDEFGHIJ1234567890")).toBe(false); // 大文字は不可
   });
 });

@@ -1765,6 +1765,31 @@ details.card .field {
   color: var(--accent-dark);
   text-decoration: underline;
 }
+/* 領収書のインライン表示（LIFFプレビュー / 管理モーダル共通） */
+.receipt-thumb {
+  display: block;
+  max-width: 220px;
+  max-height: 220px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: #fff;
+}
+.receipt-attached {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.receipt-view {
+  display: inline-block;
+  margin-top: 6px;
+  text-decoration: none;
+}
+.receipt-view-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
 
 /* 再投稿失敗の理由（ボタン直下にインライン表示） */
 .unposted-err {

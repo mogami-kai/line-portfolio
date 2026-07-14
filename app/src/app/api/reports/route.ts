@@ -34,7 +34,7 @@ import {
   validateReportRows,
   type RowInput,
 } from "@/lib/validate.js";
-import { isValidReceiptPath } from "@/lib/storage.js";
+import { isValidReceiptId } from "@/lib/storage.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,9 +55,9 @@ const expenseSchema = z.object({
   billable: z.boolean().default(true),
   // 立替えた人の名前（立替集計用・任意）。
   paidBy: z.string().trim().max(50).optional(),
-  // 領収書写真（/api/receipts が返した Storage パス・任意）。
-  // 所有権（自組織のパスか）は保存前に isValidReceiptPath で検証する。
-  receiptPath: z.string().trim().max(300).optional(),
+  // 領収書写真（/api/receipts が返した ReceiptImage.id・任意）。
+  // 形式は isValidReceiptId、所有権（自組織の画像か）は保存前に DB で検証する。
+  receiptPath: z.string().trim().max(64).optional(),
 });
 
 const bodySchema = z.object({
@@ -253,6 +253,22 @@ export async function POST(req: Request) {
   // source は org.kind から自動判定（本人は選ばない）。
   // create を関数化して戻り型を推論させ、冪等キー競合（P2002）のみ握る。
   const dayStart = new Date(`${body.workDate}T00:00:00.000Z`);
+
+  // 領収書IDの所有権検証: 形式が正しく、かつ自組織(orgId)の ReceiptImage に
+  // 実在するものだけを許可（1クエリでまとめて確認）。
+  const receiptIdCandidates = (body.expenses ?? [])
+    .map((x) => x.receiptPath)
+    .filter((v): v is string => Boolean(v) && isValidReceiptId(v as string));
+  const ownedReceiptIds = new Set<string>(
+    receiptIdCandidates.length
+      ? (
+          await prisma.receiptImage.findMany({
+            where: { id: { in: receiptIdCandidates }, orgId: org.id },
+            select: { id: true },
+          })
+        ).map((r) => r.id)
+      : [],
+  );
   const createReport = () =>
     prisma.report.create({
       data: {
@@ -292,10 +308,9 @@ export async function POST(req: Request) {
                 amount: x.amount,
                 billable: x.billable,
                 paidBy: x.paidBy || null,
-                // 領収書パスは自組織の正規形（{orgId}/{yyyy-MM}/{uuid}.ext）のみ
-                // 保存（他組織パス・トラバーサルの注入を遮断）。
+                // 自組織所有が確認できた領収書IDのみ保存（他組織IDの注入を遮断）。
                 receiptPath:
-                  x.receiptPath && isValidReceiptPath(x.receiptPath, org.id)
+                  x.receiptPath && ownedReceiptIds.has(x.receiptPath)
                     ? x.receiptPath
                     : null,
               })),
