@@ -1784,6 +1784,15 @@ details.card .field {
   margin-top: 6px;
   text-decoration: none;
 }
+.receipt-none {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+}
 .receipt-view-hint {
   display: block;
   margin-top: 4px;

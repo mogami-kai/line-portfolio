@@ -506,7 +506,7 @@ function EditModal({
                 </div>
                 {/* 領収書写真: モーダル内にそのままレンダリング（タップで原寸を別タブ表示）。
                     認証は管理セッションクッキー＝同一オリジンの <img> でそのまま通る。 */}
-                {x.receiptPath && (
+                {x.receiptPath ? (
                   <a
                     className="receipt-view"
                     href={`/api/receipts/view?path=${encodeURIComponent(x.receiptPath)}`}
@@ -523,6 +523,9 @@ function EditModal({
                     />
                     <span className="receipt-view-hint">領収書（タップで拡大）</span>
                   </a>
+                ) : (
+                  // 写真の無い経費（過去分含む）は「領収書なし」を明示。
+                  <span className="receipt-none">領収書なし</span>
                 )}
                 </div>
               ))}

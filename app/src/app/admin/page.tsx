@@ -211,7 +211,11 @@ export default async function AdminPage({
             ).toLocaleString("ja-JP")}円`,
         )
         .join("・") +
-      (r.expenses.some((x) => x.receiptPath) ? "（領収書あり）" : ""),
+      (r.expenses.length === 0
+        ? ""
+        : r.expenses.some((x) => x.receiptPath)
+          ? "（領収書あり）"
+          : "（領収書なし）"),
     partner: r.org.kind === "PARTNER",
     review: r.status === "NEEDS_REVIEW",
   }));
