@@ -25,6 +25,7 @@ import {
   pushToGroup,
   type ReportLogInput,
 } from "@/lib/line.js";
+import { reportLabel, writeAuditLog } from "@/lib/audit.js";
 import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
 /** 管理者（ADMIN / スコープ管理者）を要求し、実行中のコンテキストを返す。違反時は throw。 */
@@ -529,13 +530,26 @@ export async function confirmReportAction(fd: FormData): Promise<void> {
   if (!id) throw new Error("id がありません");
   const rep = await prisma.report.findUnique({
     where: { id },
-    select: { orgId: true },
+    select: {
+      orgId: true,
+      workDate: true,
+      siteName: true,
+      client: { select: { name: true } },
+    },
   });
   if (!rep) throw new Error("出面が見つかりません");
   await assertOrgInScope(admin, rep.orgId);
   await prisma.report.update({
     where: { id },
     data: { status: "CONFIRMED" },
+  });
+  // 操作履歴: 誰が承認したか。
+  await writeAuditLog({
+    actorId: admin.user.id,
+    actorName: admin.user.displayName,
+    action: "REPORT_CONFIRM",
+    reportId: id,
+    summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を承認`,
   });
   revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
@@ -547,7 +561,12 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
   if (!id) throw new Error("id がありません");
   const rep = await prisma.report.findUnique({
     where: { id },
-    select: { orgId: true },
+    select: {
+      orgId: true,
+      workDate: true,
+      siteName: true,
+      client: { select: { name: true } },
+    },
   });
   if (!rep) throw new Error("出面が見つかりません");
   await assertOrgInScope(admin, rep.orgId);
@@ -557,6 +576,14 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
     prisma.expense.deleteMany({ where: { reportId: id } }),
     prisma.report.delete({ where: { id } }),
   ]);
+  // 操作履歴: 誰が削除したか（対象の要約は削除前に取得済み）。
+  await writeAuditLog({
+    actorId: admin.user.id,
+    actorName: admin.user.displayName,
+    action: "REPORT_DELETE",
+    reportId: id,
+    summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を削除`,
+  });
   revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
 }
@@ -662,6 +689,14 @@ export async function resendReportToGroupAction(
       where: { id },
       data: { postedToGroup: true },
     });
+    // 操作履歴: 誰が再投稿したか。
+    await writeAuditLog({
+      actorId: admin.user.id,
+      actorName: admin.user.displayName,
+      action: "REPORT_RESEND",
+      reportId: id,
+      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} をLINEへ再投稿`,
+    });
     revalidatePath("/admin");
     return { ok: true };
   } catch (e) {
@@ -682,7 +717,12 @@ export async function dismissUnpostedReportAction(
     if (!id) return { ok: false, error: "id がありません" };
     const rep = await prisma.report.findUnique({
       where: { id },
-      select: { orgId: true },
+      select: {
+        orgId: true,
+        workDate: true,
+        siteName: true,
+        client: { select: { name: true } },
+      },
     });
     if (!rep) return { ok: false, error: "出面が見つかりません" };
     await assertOrgInScope(admin, rep.orgId);
@@ -690,6 +730,14 @@ export async function dismissUnpostedReportAction(
     await prisma.report.update({
       where: { id },
       data: { postedToGroup: true },
+    });
+    // 操作履歴: 誰が「再投稿しない」にしたか。
+    await writeAuditLog({
+      actorId: admin.user.id,
+      actorName: admin.user.displayName,
+      action: "REPORT_DISMISS",
+      reportId: id,
+      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を再投稿しない（投稿済み扱い）に変更`,
     });
     revalidatePath("/admin");
     return { ok: true };
@@ -713,7 +761,7 @@ export async function dismissUnpostedReportAction(
 export async function getReportForEditAction(id: string): Promise<ReportEditorData> {
   const admin = await requireAdminAction();
   if (!id) throw new Error("id がありません");
-  const [r, clients, workers] = await Promise.all([
+  const [r, clients, workers, lastEdit] = await Promise.all([
     prisma.report.findUnique({
       where: { id },
       include: {
@@ -728,8 +776,19 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
       orderBy: { name: "asc" },
       select: { id: true, name: true, orgId: true },
     }),
+    // 最終編集（管理者のデータ加工）の履歴。無ければ「編集なし」。
+    prisma.auditLog.findFirst({
+      where: { reportId: id, action: "REPORT_UPDATE" },
+      orderBy: { at: "desc" },
+      select: { actorName: true, at: true },
+    }),
   ]);
   if (!r) throw new Error("出面が見つかりません");
+  // 入力者（フォームを送った LINE アカウントの実ユーザー）。
+  const creator = await prisma.user.findUnique({
+    where: { id: r.createdById },
+    select: { displayName: true },
+  });
   // スコープ管理者は自組織の出面のみ閲覧・編集可（他組織の出面は開けない）。
   await assertOrgInScope(admin, r.orgId);
   // スコープ管理者には他組織の職人を返さない（職人プールも自組織のみ）。
@@ -764,6 +823,12 @@ export async function getReportForEditAction(id: string): Promise<ReportEditorDa
     },
     clients,
     workers: scopedWorkers,
+    meta: {
+      createdByName: creator?.displayName ?? "(不明)",
+      createdAt: r.createdAt.toISOString(),
+      lastEditedByName: lastEdit?.actorName ?? null,
+      lastEditedAt: lastEdit ? lastEdit.at.toISOString() : null,
+    },
   };
 }
 
@@ -884,6 +949,14 @@ export async function updateReportAction(input: ReportEditInput): Promise<void> 
       : []),
   ]);
 
+  // 操作履歴: 誰が編集したか（最終データ加工者の特定用）。
+  await writeAuditLog({
+    actorId: admin.user.id,
+    actorName: admin.user.displayName,
+    action: "REPORT_UPDATE",
+    reportId: id,
+    summary: `${reportLabel(dayStart, client.name, siteName.trim() || null)} を編集`,
+  });
   revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
 }

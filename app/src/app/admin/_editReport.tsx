@@ -25,6 +25,7 @@ import {
   deleteReportAction,
 } from "./_actions.js";
 import { SHIFTS, SHIFT_LABEL, SHIFT_TO_MANDAYS } from "./_editTypes.js";
+import type { ReportEditorData } from "./_editTypes.js";
 import { ExpenseKindPicker } from "../_components/expenseKindPicker.js";
 import type {
   ClientLite,
@@ -95,6 +96,7 @@ function EditModal({
   const [data, setData] = useState<EditableReport | null>(null);
   const [clients, setClients] = useState<ClientLite[]>([]);
   const [workers, setWorkers] = useState<WorkerLite[]>([]);
+  const [meta, setMeta] = useState<ReportEditorData["meta"] | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
 
   // フォーム状態（取得後に初期化）。
@@ -120,6 +122,7 @@ function EditModal({
         setData(rep);
         setClients(d.clients);
         setWorkers(d.workers);
+        setMeta(d.meta);
         setWorkDate(rep.workDate);
         setClientId(rep.clientId);
         setSiteName(rep.siteName);
@@ -289,6 +292,41 @@ function EditModal({
         ) : (
           <>
             <div className="rem-body">
+            {/* 誰が入力し、誰が最後に加工したか（LINEアカウント紐づけ）。 */}
+            {meta && (
+              <div className="rem-meta">
+                <span>
+                  入力: <b>{meta.createdByName}</b>
+                  <span className="rem-meta-time">
+                    {new Date(meta.createdAt).toLocaleString("ja-JP", {
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </span>
+                <span>
+                  最終編集:{" "}
+                  {meta.lastEditedByName ? (
+                    <>
+                      <b>{meta.lastEditedByName}</b>
+                      <span className="rem-meta-time">
+                        {meta.lastEditedAt &&
+                          new Date(meta.lastEditedAt).toLocaleString("ja-JP", {
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                      </span>
+                    </>
+                  ) : (
+                    "なし"
+                  )}
+                </span>
+              </div>
+            )}
             {/* ── ① 基本 ── */}
             <div className="rem-sec">
               <div className="rem-sec-title">基本</div>

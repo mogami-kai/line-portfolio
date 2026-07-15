@@ -267,6 +267,22 @@ model ReceiptImage {
   @@index([orgId])
 }
 
+// ── 操作履歴（監査ログ）──
+//   フォーム入力（出面作成）と管理者のデータ加工（編集/削除/承認など）を記録。
+//   actorId は User.id（LINE アカウント紐づけ）。actorName はスナップショット。
+model AuditLog {
+  id        String   @id @default(cuid())
+  at        DateTime @default(now())
+  actorId   String?
+  actorName String
+  action    String // REPORT_CREATE / REPORT_UPDATE / REPORT_DELETE / REPORT_CONFIRM / REPORT_RESEND / REPORT_DISMISS
+  reportId  String? // 対象出面（削除後も履歴は残す）
+  summary   String // 平易な1行要約（例: "7/9 辻濱興業 みなとみらい"）
+
+  @@index([at])
+  @@index([reportId])
+}
+
 // ── 自社（発行元）情報 ──
 model InvoiceSetting {
   id          String  @id @default(cuid())

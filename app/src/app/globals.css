@@ -2008,6 +2008,58 @@ details.card .field {
   white-space: nowrap;
 }
 
+/* ── 操作履歴（/admin/logs） ── */
+.log-list {
+  display: flex;
+  flex-direction: column;
+}
+.log-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.log-row:last-child {
+  border-bottom: none;
+}
+.log-time {
+  flex: 0 0 auto;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.log-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.log-badge--create {
+  color: var(--ink-2);
+  background: #fff;
+}
+.log-badge--delete {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border-color: var(--danger-line);
+}
+.log-actor {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+.log-summary {
+  min-width: 0;
+  color: var(--ink-2);
+  word-break: break-word;
+}
+
 /* ── 空の状態（次の行動が分かる案内） ── */
 .empty-state {
   text-align: center;
@@ -2330,6 +2382,29 @@ details.card .field {
 }
 .rem-close:hover {
   border-color: var(--line-strong);
+}
+
+/* 編集モーダルのメタ行（入力者/最終編集者） */
+.rem-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 10px;
+}
+.rem-meta b {
+  font-weight: 800;
+  color: var(--ink);
+}
+.rem-meta-time {
+  margin-left: 6px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
 /* セクション（基本情報 / 職人 / 経費 など） */
