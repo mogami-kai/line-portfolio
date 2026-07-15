@@ -67,6 +67,13 @@ export interface ReportEditorData {
   report: EditableReport;
   clients: ClientLite[];
   workers: WorkerLite[];
+  /** 入力者・最終編集者（LINEアカウント紐づけの表示名）。 */
+  meta: {
+    createdByName: string;
+    createdAt: string; // ISO
+    lastEditedByName: string | null;
+    lastEditedAt: string | null; // ISO
+  };
 }
 
 /** updateReportAction への入力（フォーム送信値）。 */

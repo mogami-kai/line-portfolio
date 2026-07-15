@@ -35,6 +35,7 @@ import {
   type RowInput,
 } from "@/lib/validate.js";
 import { isValidReceiptId } from "@/lib/storage.js";
+import { reportLabel, writeAuditLog } from "@/lib/audit.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -353,6 +354,15 @@ export async function POST(req: Request) {
     }
     throw e;
   }
+
+  // 操作履歴: フォーム入力（誰が送ったか）。失敗しても本処理は続行。
+  await writeAuditLog({
+    actorId: user.id,
+    actorName: user.displayName,
+    action: "REPORT_CREATE",
+    reportId: created.id,
+    summary: `${reportLabel(created.workDate, created.client.name, created.siteName)} を入力`,
+  });
 
   // 新規出面が増えたので、管理ダッシュボードの月次集計キャッシュを無効化。
   revalidateTag("reports");
