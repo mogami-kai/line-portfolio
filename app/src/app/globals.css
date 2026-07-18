@@ -1992,6 +1992,67 @@ details.card .field {
   border-top: 1.5px solid var(--accent);
 }
 
+/* 立替集計の内訳展開（用途タップ → 日付・現場・金額・出面編集） */
+.exp-acc summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
+.exp-acc summary::-webkit-details-marker {
+  display: none;
+}
+.exp-acc-caret {
+  color: var(--ink-3);
+  font-size: 11px;
+  margin-left: 4px;
+  transition: transform 0.15s;
+}
+.exp-acc[open] .exp-acc-caret {
+  transform: rotate(180deg);
+}
+.exp-detail {
+  margin: 6px 0 4px;
+  border-left: 2px solid var(--line-strong);
+  padding-left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.exp-detail-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  font-size: 12px;
+}
+.exp-detail-date {
+  flex: 0 0 auto;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.exp-detail-label {
+  min-width: 0;
+  color: var(--ink-2);
+  word-break: break-word;
+}
+.exp-detail-receipt {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--accent-dark);
+}
+.exp-detail-amt {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.exp-detail-row .btn {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 /* 職人アコーディオン内「出た現場」内訳 */
 .worker-sites {
   margin-top: 10px;

@@ -29,6 +29,7 @@ import {
   type WorkerMonthSummary,
 } from "@/lib/aggregate.js";
 import { RateEditor } from "./_rateEditor.js";
+import { EditReportButton } from "../_editReport.js";
 
 export const dynamic = "force-dynamic";
 
@@ -199,7 +200,11 @@ function WorkerAccordion({
   );
 }
 
-/** 立替集計（立替えた人ごとに用途・金額を一覧）。 */
+/**
+ * 立替集計（立替えた人ごとに用途・金額を一覧）。
+ * 用途をタップすると明細（日付・現場・金額・領収書）を展開し、
+ * 「編集」からその出面の詳細（編集モーダル）を開ける。
+ */
 function ExpenseAggregation({
   payers,
   total,
@@ -215,7 +220,7 @@ function ExpenseAggregation({
       <thead>
         <tr>
           <th>立替えた人</th>
-          <th>用途</th>
+          <th>用途（タップで内訳）</th>
           <th>金額</th>
         </tr>
       </thead>
@@ -228,7 +233,37 @@ function ExpenseAggregation({
                   {p.paidBy}
                 </td>
               )}
-              <td>{it.kind}</td>
+              <td>
+                <details className="exp-acc">
+                  <summary>
+                    {it.kind}
+                    <span className="exp-acc-caret" aria-hidden>
+                      {" "}
+                      ▾
+                    </span>
+                  </summary>
+                  <div className="exp-detail">
+                    {it.rows.map((row, ri) => (
+                      <div className="exp-detail-row" key={ri}>
+                        <span className="exp-detail-date">{row.date}</span>
+                        <span className="exp-detail-label">
+                          {row.label || "（出面ひも付けなし）"}
+                          {row.receipt && (
+                            <span className="exp-detail-receipt">領収書✓</span>
+                          )}
+                        </span>
+                        <span className="exp-detail-amt">{yen(row.amount)}</span>
+                        {row.reportId && (
+                          <EditReportButton
+                            reportId={row.reportId}
+                            variant="review"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </td>
               <td className="num">{yen(it.amount)}</td>
             </tr>
           )),
