@@ -484,11 +484,24 @@ export async function summarizeByWorker(
 //   請求書・人工集計とは独立。立替えた人ごとに用途(種別)と金額をまとめる。
 //   立替えた人(paidBy)が未指定の経費は「未指定」にまとめる。
 // ============================================================
+/** 立替1件の明細（集計行タップで出す内訳・出面詳細への導線）。 */
+export interface ExpenseDetailRow {
+  /** "M/D" 表示用。 */
+  date: string;
+  /** 現場名（無ければ取引先名）。出面ひも付けが無い過去データは空文字。 */
+  label: string;
+  amount: number;
+  /** ひも付く出面（編集モーダルを開く）。無ければ null。 */
+  reportId: string | null;
+  /** 領収書写真あり。 */
+  receipt: boolean;
+}
+
 export interface ExpensePayerSummary {
   /** 立替えた人の名前（未指定は "未指定"）。 */
   paidBy: string;
-  /** 用途(種別)ごとの金額。 */
-  items: { kind: string; amount: number }[];
+  /** 用途(種別)ごとの金額＋明細（日付・現場・出面）。 */
+  items: { kind: string; amount: number; rows: ExpenseDetailRow[] }[];
   /** その人の合計。 */
   total: number;
 }
@@ -526,16 +539,49 @@ export async function summarizeExpenses(
             ],
           }),
     },
-    select: { paidBy: true, kind: true, amount: true },
+    select: {
+      paidBy: true,
+      kind: true,
+      amount: true,
+      workDate: true,
+      reportId: true,
+      receiptPath: true,
+      // 明細表示用: ひも付く出面の現場/取引先名。
+      report: {
+        select: {
+          siteName: true,
+          site: { select: { name: true } },
+          client: { select: { name: true } },
+        },
+      },
+    },
+    orderBy: { workDate: "asc" },
   });
 
-  // 立替えた人 → 用途(種別) → 金額。
-  const byPayer = new Map<string, Map<string, number>>();
+  // 立替えた人 → 用途(種別) → 金額＋明細。
+  interface KindAcc {
+    amount: number;
+    rows: ExpenseDetailRow[];
+  }
+  const byPayer = new Map<string, Map<string, KindAcc>>();
   for (const e of expenses) {
     const payer = e.paidBy?.trim() || UNASSIGNED_PAYER;
     const kind = e.kind?.trim() || "その他";
-    const kinds = byPayer.get(payer) ?? new Map<string, number>();
-    kinds.set(kind, (kinds.get(kind) ?? 0) + (Number(e.amount) || 0));
+    const kinds = byPayer.get(payer) ?? new Map<string, KindAcc>();
+    const acc = kinds.get(kind) ?? { amount: 0, rows: [] };
+    acc.amount += Number(e.amount) || 0;
+    acc.rows.push({
+      date: `${e.workDate.getUTCMonth() + 1}/${e.workDate.getUTCDate()}`,
+      label:
+        e.report?.siteName?.trim() ||
+        e.report?.site?.name ||
+        e.report?.client?.name ||
+        "",
+      amount: Number(e.amount) || 0,
+      reportId: e.reportId,
+      receipt: Boolean(e.receiptPath),
+    });
+    kinds.set(kind, acc);
     byPayer.set(payer, kinds);
   }
 
@@ -543,7 +589,7 @@ export async function summarizeExpenses(
   const payers: ExpensePayerSummary[] = [];
   for (const [payer, kinds] of byPayer) {
     const items = Array.from(kinds.entries())
-      .map(([kind, amount]) => ({ kind, amount }))
+      .map(([kind, acc]) => ({ kind, amount: acc.amount, rows: acc.rows }))
       .sort((a, b) => b.amount - a.amount || a.kind.localeCompare(b.kind, "ja"));
     const total = items.reduce((a, i) => a + i.amount, 0);
     grandTotal += total;
