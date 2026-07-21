@@ -1,0 +1,30 @@
+name: 入金確認リマインド
+
+# 無料スケジューラ。毎時 /api/cron/due-reminders を叩く。
+#   送信するか（設定時刻・二重送信）はアプリ側で判定するので、ここは毎時叩くだけ。
+#   GitHub のスケジュールは数分〜遅延することがあるが、「設定時刻を過ぎて未送信なら送る」
+#   方式なので、多少の遅延や実行スキップがあっても当日中に1回届く。
+on:
+  schedule:
+    - cron: "0 * * * *" # 毎時0分（UTC）
+  workflow_dispatch: {} # 手動テスト用
+
+# 直列化（同時多重呼び出しを避ける）
+concurrency:
+  group: due-reminders
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: call reminder endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL / CRON_SECRET secrets not set"; exit 1
+          fi
+          curl -fsS -X GET "$APP_URL/api/cron/due-reminders" \
+            -H "Authorization: Bearer $CRON_SECRET"

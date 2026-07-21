@@ -57,6 +57,31 @@ export async function pushToGroup(text: string): Promise<void> {
 }
 
 // ============================================================
+// push: 単一ユーザーへ DM（管理者への入金リマインド等）
+//   to = LINE userId（U…）。相手が公式アカウントを友だち追加済みであること。
+// ============================================================
+export async function pushToUser(userId: string, text: string): Promise<void> {
+  const res = await fetch(`${LINE_API}/v2/bot/message/push`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${channelAccessToken()}`,
+    },
+    body: JSON.stringify({
+      to: userId,
+      messages: [{ type: "text", text }],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    // 403 = 友だち未追加/ブロック等。userId 全文はログに出さない。
+    throw new Error(
+      `LINE push(user) failed: ${res.status} len=${userId.length} body=${body}`,
+    );
+  }
+}
+
+// ============================================================
 // LIFF アクセストークン → プロフィール
 //   GET /v2/profile （Bearer = LIFF access token）
 // ============================================================

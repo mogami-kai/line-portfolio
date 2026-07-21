@@ -30,7 +30,7 @@ export default async function MastersPage() {
   // スコープ管理者（自社/協力会社管理者）は設定ページを見られない（ホームへ）。
   if (adminScope(admin) === "ORG") redirect("/admin");
 
-  const [clientRows, workerRows, orgRows, setting] = await Promise.all([
+  const [clientRows, workerRows, orgRows, setting, adminRows] = await Promise.all([
     prisma.client.findMany({ orderBy: { name: "asc" } }),
     prisma.worker.findMany({
       orderBy: { name: "asc" },
@@ -38,6 +38,16 @@ export default async function MastersPage() {
     }),
     prisma.organization.findMany({ orderBy: { createdAt: "asc" } }),
     prisma.invoiceSetting.findFirst(),
+    // 入金リマインドの通知先候補＝管理者（ADMIN or 最高管理者・承認済み・有効）。
+    prisma.user.findMany({
+      where: {
+        status: "ACTIVE",
+        approved: true,
+        OR: [{ role: "ADMIN" }, { superAdmin: true }],
+      },
+      orderBy: { displayName: "asc" },
+      select: { id: true, displayName: true },
+    }),
   ]);
 
   const clients: ClientRow[] = clientRows.map((c) => ({
@@ -80,8 +90,13 @@ export default async function MastersPage() {
         bankInfo: setting.bankInfo,
         taxRate: setting.taxRate,
         contactName: setting.contactName,
+        dueReminderEnabled: setting.dueReminderEnabled,
+        dueReminderHour: setting.dueReminderHour,
+        dueReminderUserId: setting.dueReminderUserId,
       }
     : null;
+
+  const admins = adminRows.map((a) => ({ id: a.id, displayName: a.displayName }));
 
   return (
     <main className="container admin-narrow">
@@ -94,6 +109,7 @@ export default async function MastersPage() {
         workers={workers}
         orgs={orgs}
         setting={settingRow}
+        admins={admins}
       />
     </main>
   );

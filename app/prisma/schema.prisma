@@ -297,6 +297,12 @@ model InvoiceSetting {
   bankInfo    String? // 振込先
   taxRate     Float   @default(0.10)
   contactName String?
+  // ── 入金確認リマインド（LINE DM）──
+  //   支払期限(dueDate)＝今日の請求書を、設定時刻に指定管理者へ bot から通知する。
+  dueReminderEnabled    Boolean   @default(false) // ON/OFF
+  dueReminderHour       Int       @default(9)     // 送信時刻（0-23・JST）
+  dueReminderUserId     String?   // 通知先の管理者(User.id)。null=最高管理者へ
+  dueReminderLastSentOn DateTime? @db.Date         // 二重送信防止（最後に送った日・JST）
 }
 
 // ── 請求書（取引先×月、発行時スナップショット）──

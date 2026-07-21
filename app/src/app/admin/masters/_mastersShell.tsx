@@ -22,6 +22,7 @@ import type {
   WorkerRow,
   OrgRow,
   SettingRow,
+  AdminOption,
 } from "./_mastersTypes.js";
 import { ClientsTab } from "./_tabClients.js";
 import { WorkersTab } from "./_tabWorkers.js";
@@ -39,11 +40,13 @@ export function MastersShell({
   workers,
   orgs,
   setting,
+  admins,
 }: {
   clients: ClientRow[];
   workers: WorkerRow[];
   orgs: OrgRow[];
   setting: SettingRow | null;
+  admins: AdminOption[];
 }): JSX.Element {
   const [tab, setTab] = useState<MasterTab>("workers");
 
@@ -105,7 +108,7 @@ export function MastersShell({
 
       {tab === "clients" && <ClientsTab clients={clients} />}
       {tab === "workers" && <WorkersTab workers={workers} orgs={orgs} />}
-      {tab === "settings" && <SettingsTab setting={setting} />}
+      {tab === "settings" && <SettingsTab setting={setting} admins={admins} />}
     </div>
   );
 }

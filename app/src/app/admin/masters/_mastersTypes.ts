@@ -56,4 +56,14 @@ export interface SettingRow {
   bankInfo: string | null;
   taxRate: number; // 0.10 のような比率（% ではない）
   contactName: string | null;
+  // 入金確認リマインド（LINE）
+  dueReminderEnabled: boolean;
+  dueReminderHour: number; // 0-23（JST）
+  dueReminderUserId: string | null; // 通知先の管理者(User.id)。null=最高管理者
+}
+
+/** 通知先に選べる管理者（設定タブのプルダウン用）。 */
+export interface AdminOption {
+  id: string;
+  displayName: string;
 }

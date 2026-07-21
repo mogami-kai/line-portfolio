@@ -21,7 +21,7 @@
 import type { JSX } from "react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { SettingRow } from "./_mastersTypes.js";
+import type { SettingRow, AdminOption } from "./_mastersTypes.js";
 import { saveInvoiceSettingAction } from "../_actions.js";
 
 /** 比率（0.10）→ 表示用の % 値（10）。未設定時は既定 10%。 */
@@ -32,8 +32,10 @@ function rateToPct(taxRate: number | undefined): number {
 
 export function SettingsTab({
   setting,
+  admins,
 }: {
   setting: SettingRow | null;
+  admins: AdminOption[];
 }): JSX.Element {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -49,6 +51,14 @@ export function SettingsTab({
   const [bankInfo, setBankInfo] = useState(setting?.bankInfo ?? "");
   const [taxPct, setTaxPct] = useState<string>(String(rateToPct(setting?.taxRate)));
   const [contactName, setContactName] = useState(setting?.contactName ?? "");
+  // 入金確認リマインド（プレビュー追従は不要だが操作状態として保持）。
+  const [reminderOn, setReminderOn] = useState(setting?.dueReminderEnabled ?? false);
+  const [reminderHour, setReminderHour] = useState<string>(
+    String(setting?.dueReminderHour ?? 9),
+  );
+  const [reminderUserId, setReminderUserId] = useState(
+    setting?.dueReminderUserId ?? "",
+  );
 
   function submit(fd: FormData): void {
     setErr(null);
@@ -239,6 +249,71 @@ export function SettingsTab({
               onChange={(e) => setContactName(e.target.value)}
               placeholder="例: 山田 太郎"
             />
+          </div>
+        </section>
+
+        {/* ── 入金確認リマインド（LINE） ── */}
+        <section className="mst-block">
+          <h3 className="mst-block-title">入金確認リマインド（LINE）</h3>
+
+          <div className="field">
+            <label className="inline-row" style={{ gap: 8 }}>
+              <input
+                type="checkbox"
+                name="dueReminderEnabled"
+                checked={reminderOn}
+                onChange={(e) => setReminderOn(e.target.checked)}
+              />
+              <span>支払期限の当日にLINEで通知する</span>
+            </label>
+            <p className="hint">
+              その日が支払期限（入金予定日）の請求書を、指定した管理者へbotからDMします。取引先名と金額が届きます。
+            </p>
+          </div>
+
+          <div className="field">
+            <label className="label" htmlFor="set-reminderHour">
+              通知時刻
+            </label>
+            <select
+              id="set-reminderHour"
+              className="select"
+              name="dueReminderHour"
+              value={reminderHour}
+              onChange={(e) => setReminderHour(e.target.value)}
+              disabled={!reminderOn}
+            >
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={String(h)}>
+                  {String(h).padStart(2, "0")}:00
+                </option>
+              ))}
+            </select>
+            <p className="hint">毎日この時刻ごろに送ります（JST）。</p>
+          </div>
+
+          <div className="field">
+            <label className="label" htmlFor="set-reminderUser">
+              通知先の管理者
+            </label>
+            <select
+              id="set-reminderUser"
+              className="select"
+              name="dueReminderUserId"
+              value={reminderUserId}
+              onChange={(e) => setReminderUserId(e.target.value)}
+              disabled={!reminderOn}
+            >
+              <option value="">最高管理者（既定）</option>
+              {admins.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.displayName}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              通知先の管理者が、この公式アカウントを「友だち追加」している必要があります（未追加だと届きません）。
+            </p>
           </div>
         </section>
 

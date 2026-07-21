@@ -443,6 +443,10 @@ const settingSchema = z.object({
   bankInfo: z.string().optional(),
   taxRate: z.number().min(0).max(1),
   contactName: z.string().optional(),
+  // 入金確認リマインド（LINE）
+  dueReminderEnabled: z.boolean().default(false),
+  dueReminderHour: z.number().int().min(0).max(23).default(9),
+  dueReminderUserId: z.string().optional(), // 空=null（最高管理者へ）
 });
 
 export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
@@ -450,6 +454,7 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
   // 税率は % 入力（例: 10）を 0.10 に変換。
   const pct = Number(str(fd, "taxRatePct"));
   const taxRate = Number.isFinite(pct) ? pct / 100 : NaN;
+  const hourNum = Number(str(fd, "dueReminderHour"));
   const parsed = settingSchema.safeParse({
     issuerName: str(fd, "issuerName"),
     address: str(fd, "address") || undefined,
@@ -459,6 +464,11 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
     bankInfo: str(fd, "bankInfo") || undefined,
     taxRate,
     contactName: str(fd, "contactName") || undefined,
+    dueReminderEnabled:
+      fd.get("dueReminderEnabled") === "on" ||
+      fd.get("dueReminderEnabled") === "true",
+    dueReminderHour: Number.isFinite(hourNum) ? hourNum : 9,
+    dueReminderUserId: str(fd, "dueReminderUserId") || undefined,
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
 
@@ -471,6 +481,9 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
     bankInfo: parsed.data.bankInfo ?? null,
     taxRate: parsed.data.taxRate,
     contactName: parsed.data.contactName ?? null,
+    dueReminderEnabled: parsed.data.dueReminderEnabled,
+    dueReminderHour: parsed.data.dueReminderHour,
+    dueReminderUserId: parsed.data.dueReminderUserId ?? null,
   };
   const existing = await prisma.invoiceSetting.findFirst();
   if (existing) {

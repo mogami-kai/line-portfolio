@@ -13,6 +13,12 @@ export function jstTodayDate(now: Date = new Date()): Date {
   );
 }
 
+/** JST の「今の時」（0-23）。入金リマインドの送信時刻判定に使う。 */
+export function jstHour(now: Date = new Date()): number {
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return jst.getUTCHours();
+}
+
 /**
  * 支払期限＝対象月の「翌月」の paymentDay（取引先設定）。
  *   ・支払月は翌月で固定（12月なら翌年1月）。
