@@ -359,6 +359,27 @@ describe("toXlsx（template_013 空テンプレ注入）", () => {
     expect(b49.toISOString().slice(0, 10)).toBe("2026-06-30");
   });
 
+  it("dueDate 指定時は 支払期限(B49)=dueDate・請求日(O1)=issueDate で別々に入る", async () => {
+    const wb = await toXlsx({
+      invoiceNo: "2026-003",
+      issueDate: "2026/07/05", // 請求日＝出力当日
+      dueDate: "2026/08/20", // 支払期限＝翌月20日
+      client: "ダミー商事",
+      lines: [
+        { sortNo: 1, itemName: "みなとみらい", qty: 1, unitLabel: "人工", unitPrice: 20000, amount: 20000, taxRate: 0.1 },
+      ],
+      taxRate: 0.1,
+    });
+    const buf = await wb.xlsx.writeBuffer();
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.load(buf as ArrayBuffer);
+    const ws = wb2.worksheets[0]!;
+    const o1 = ws.getCell("O1").value as Date;
+    expect(o1.toISOString().slice(0, 10)).toBe("2026-07-05");
+    const b49 = ws.getCell("B49").value as Date;
+    expect(b49.toISOString().slice(0, 10)).toBe("2026-08-20");
+  });
+
   it("立替（対象外・税率0）は小計に含めず合計に加算する", async () => {
     const wb = await toXlsx({
       invoiceNo: "2026-002",

@@ -40,6 +40,7 @@ export async function GET(
     const wb = await toXlsx({
       invoiceNo: data.invoiceNo,
       issueDate: data.issueDate,
+      dueDate: data.dueDate,
       yearMonth: data.yearMonth,
       client: data.client,
       honorific: data.honorific,
@@ -68,6 +69,7 @@ export async function GET(
     {
       invoiceNo: data.invoiceNo,
       issueDate: data.issueDate,
+      dueDate: data.dueDate,
       client: data.client,
     },
     data.lines,

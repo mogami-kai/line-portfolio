@@ -584,13 +584,21 @@ const taxLabel = (rate: number): string =>
   rate > 0 ? `${Math.round(rate * 100)}%` : "対象外";
 
 export function toCSV(
-  header: { invoiceNo: string; issueDate: string; client: string },
+  header: {
+    invoiceNo: string;
+    issueDate: string;
+    dueDate?: string;
+    client: string;
+  },
   lines: InvoiceLine[],
 ): string {
   const rows: string[] = [];
   // 請求書メタ（取込側で無視できるよう # プレフィックス）
   rows.push(["# 請求書番号", header.invoiceNo].map(csvCell).join(","));
   rows.push(["# 請求日", header.issueDate].map(csvCell).join(","));
+  if (header.dueDate) {
+    rows.push(["# 支払期限", header.dueDate].map(csvCell).join(","));
+  }
   rows.push(["# 宛先", header.client].map(csvCell).join(","));
   // 明細ヘッダ
   rows.push(["No", "品目・内容", "数量", "単位", "単価", "金額", "税率"].join(","));
@@ -623,6 +631,8 @@ export function toCSV(
 export async function toXlsx(data: {
   invoiceNo: string;
   issueDate: string;
+  /** 支払期限。未指定なら請求日と同じ（旧挙動）。 */
+  dueDate?: string;
   yearMonth?: string;
   client: string;
   honorific?: string;
@@ -684,7 +694,8 @@ export async function toXlsx(data: {
   }
 
   // ── 合計・支払期限 ──
-  put("B49", excelSerial(data.issueDate)); // 支払期限（末締め・書式で「支払期限:」を付与）
+  //   支払期限＝翌月の取引先設定日（dueDate）。未指定（旧データ）は請求日にフォールバック。
+  put("B49", excelSerial(data.dueDate ?? data.issueDate)); // 書式で「支払期限:」を付与
   put("L49", taxPct); // 税率(%)
   put("I50", subtotal); // 小計（税抜）
   put("K50", tax); // 消費税

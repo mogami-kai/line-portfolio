@@ -23,6 +23,7 @@ export interface ClientRow {
   nightUnitPrice: number | null; // 夜勤の人工単価（円・任意。未設定なら日勤単価を流用）
   otUnitPrice: number | null; // 残業の時間単価（円/時・任意。未設定なら自動）
   billingMode: "AGGREGATE" | "PER_SITE"; // 請求方式（集約 / 現場ごと）
+  paymentDay: number | null; // 支払期限の日（翌月の何日か）。null=末日
   active: boolean;
 }
 

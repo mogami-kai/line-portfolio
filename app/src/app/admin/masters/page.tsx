@@ -49,6 +49,7 @@ export default async function MastersPage() {
     nightUnitPrice: c.nightUnitPrice,
     otUnitPrice: c.otUnitPrice,
     billingMode: c.billingMode as "AGGREGATE" | "PER_SITE",
+    paymentDay: c.paymentDay,
     active: c.active,
   }));
 

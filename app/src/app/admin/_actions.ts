@@ -104,7 +104,15 @@ const clientSchema = z.object({
   nightUnitPrice: nullablePrice, // 夜勤単価（未設定なら日勤単価を流用）
   otUnitPrice: nullablePrice, // 残業単価（未設定なら自動）
   billingMode: z.enum(["AGGREGATE", "PER_SITE"]).default("AGGREGATE"),
+  // 支払期限の日（翌月の何日か）。空＝末日（null）。1-31 のみ許容。
+  paymentDay: z.number().int().min(1).max(31).nullable().default(null),
 });
+
+/** FormData の支払日。空文字は null（＝末日）。 */
+function paymentDayOrNull(fd: FormData, key: string): number | null {
+  const s = str(fd, key);
+  return s ? Number(s) : null;
+}
 
 /** FormData の数値（円）取得。空文字は null。 */
 function priceOrNull(fd: FormData, key: string): number | null {
@@ -124,6 +132,7 @@ export async function createClientAction(fd: FormData): Promise<void> {
     billingMode: (str(fd, "billingMode") || "AGGREGATE") as
       | "AGGREGATE"
       | "PER_SITE",
+    paymentDay: paymentDayOrNull(fd, "paymentDay"),
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
   await prisma.client.create({
@@ -135,6 +144,7 @@ export async function createClientAction(fd: FormData): Promise<void> {
       nightUnitPrice: parsed.data.nightUnitPrice,
       otUnitPrice: parsed.data.otUnitPrice,
       billingMode: parsed.data.billingMode,
+      paymentDay: parsed.data.paymentDay,
     },
   });
   revalidatePath(MASTERS_PATH);
@@ -156,6 +166,7 @@ export async function updateClientAction(fd: FormData): Promise<void> {
       billingMode: (str(fd, "billingMode") || "AGGREGATE") as
         | "AGGREGATE"
         | "PER_SITE",
+      paymentDay: paymentDayOrNull(fd, "paymentDay"),
       active: fd.get("active") === "on" || fd.get("active") === "true",
     });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
@@ -170,6 +181,7 @@ export async function updateClientAction(fd: FormData): Promise<void> {
       nightUnitPrice: parsed.data.nightUnitPrice,
       otUnitPrice: parsed.data.otUnitPrice,
       billingMode: parsed.data.billingMode,
+      paymentDay: parsed.data.paymentDay,
       active: parsed.data.active,
     },
   });

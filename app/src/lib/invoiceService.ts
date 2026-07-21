@@ -17,6 +17,7 @@ import {
   type SiteWork,
 } from "./invoice.js";
 import { monthRange } from "./aggregate.js";
+import { jstTodayDate, computeDueDate } from "./invoiceDates.js";
 
 /**
  * 取引先×月の Report → InvoiceLine[]。
@@ -294,7 +295,7 @@ async function nextInvoiceNo(yearMonth: string, offset = 0): Promise<string> {
 /**
  * 取引先×月の請求書を生成（スナップショット保存）。
  * 既存（clientId+yearMonth ユニーク）があれば明細を作り直して上書き。
- * issueDate = 月末（末締め＝支払期限）。
+ * issueDate = 作成した当日（＝請求日／制作日）。dueDate = 翌月の Client.paymentDay（＝支払期限）。
  */
 export async function generateInvoice(
   clientId: string,
@@ -320,9 +321,14 @@ export async function generateInvoice(
     taxRate: l.taxRate,
   }));
 
-  const { to } = monthRange(yearMonth);
-  // 月末日 = 翌月1日(UTC) の前日。
-  const issueDate = new Date(to.getTime() - 24 * 60 * 60 * 1000);
+  // 請求日（＝制作日）＝作成した当日（JST）。出力し直しでも安定させるためスナップショット。
+  const issueDate = jstTodayDate();
+  // 支払期限＝翌月の Client.paymentDay（末日 or 指定日）。取引先設定から確定。
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { paymentDay: true },
+  });
+  const dueDate = computeDueDate(yearMonth, client?.paymentDay ?? null);
 
   const existing = await prisma.invoice.findUnique({
     where: { clientId_yearMonth: { clientId, yearMonth } },
@@ -338,7 +344,7 @@ export async function generateInvoice(
     await prisma.invoiceLine.deleteMany({ where: { invoiceId: existing.id } });
     await prisma.invoice.update({
       where: { id: existing.id },
-      data: { issueDate, lines: { create: lineCreate } },
+      data: { issueDate, dueDate, lines: { create: lineCreate } },
     });
     return { id: existing.id, invoiceNo: existing.invoiceNo };
   }
@@ -354,6 +360,7 @@ export async function generateInvoice(
           yearMonth,
           invoiceNo,
           issueDate,
+          dueDate,
           status: "DRAFT",
           lines: { create: lineCreate },
         },
@@ -399,13 +406,19 @@ export async function loadInvoiceForExport(invoiceId: string) {
     taxRate: l.taxRate,
   }));
 
-  const issueDateStr = `${invoice.issueDate.getUTCFullYear()}/${String(
-    invoice.issueDate.getUTCMonth() + 1,
-  ).padStart(2, "0")}/${String(invoice.issueDate.getUTCDate()).padStart(2, "0")}`;
+  const fmtDate = (d: Date) =>
+    `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(
+      2,
+      "0",
+    )}/${String(d.getUTCDate()).padStart(2, "0")}`;
+  const issueDateStr = fmtDate(invoice.issueDate); // 請求日（＝制作日）
+  // 支払期限。旧データ（dueDate=null）は従来どおり issueDate（＝月末）へフォールバック。
+  const dueDateStr = invoice.dueDate ? fmtDate(invoice.dueDate) : issueDateStr;
 
   return {
     invoiceNo: invoice.invoiceNo,
     issueDate: issueDateStr,
+    dueDate: dueDateStr,
     yearMonth: invoice.yearMonth,
     client: invoice.client.name,
     honorific: invoice.client.honorific ?? "御中",

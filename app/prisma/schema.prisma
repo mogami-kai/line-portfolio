@@ -111,6 +111,9 @@ model Client {
   nightUnitPrice Int? // 夜勤の人工単価（円/人工）。null=未設定なら日勤単価(unitPrice)を流用
   otUnitPrice Int?   // 残業の時間単価（円/時）。null=未設定なら自動（人工単価÷8×1.25）
   billingMode BillingMode @default(AGGREGATE) // 請求方式（集約 / 現場ごと）
+  // 支払期限の「日」。支払月は対象月の翌月で固定、日だけ取引先ごとに指定する。
+  //   null = 末日（既定）／1-31 = その日（翌月にその日が無ければ末日へ丸める）。
+  paymentDay Int?   // 例: 20 → 翌月20日払い ／ null → 翌月末払い
   active    Boolean  @default(true)
 
   sites    Site[]
@@ -309,7 +312,10 @@ model Invoice {
   client    Client        @relation(fields: [clientId], references: [id])
   yearMonth String // "2026-06"
   invoiceNo String        @unique // "2026-001"
-  issueDate DateTime      @db.Date // 末締め＝支払期限
+  issueDate DateTime      @db.Date // 請求日＝作成(出力)した当日（＝制作日）
+  // 支払期限＝翌月の Client.paymentDay。生成時に確定してスナップショット。
+  //   null = 旧データ（この列以前の請求書）→ 出力時は issueDate にフォールバック。
+  dueDate   DateTime?     @db.Date
   status    InvoiceStatus @default(DRAFT)
   createdAt DateTime      @default(now())
 

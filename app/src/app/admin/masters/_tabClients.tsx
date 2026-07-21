@@ -32,6 +32,21 @@ function priceLabel(unitPrice: number | null): string {
   return unitPrice != null ? `¥${unitPrice.toLocaleString()}` : "未設定";
 }
 
+/** 支払期限の表示（翌月の何日か。null=末日）。 */
+function paymentLabel(paymentDay: number | null): string {
+  return paymentDay == null ? "翌月末" : `翌月${paymentDay}日`;
+}
+
+/** 支払期限プルダウンの選択肢（翌月の日）。空＝末日。 */
+const PAYMENT_DAY_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "翌月末（末日）" },
+  { value: "5", label: "翌月5日" },
+  { value: "10", label: "翌月10日" },
+  { value: "15", label: "翌月15日" },
+  { value: "20", label: "翌月20日" },
+  { value: "25", label: "翌月25日" },
+];
+
 export function ClientsTab({ clients }: { clients: ClientRow[] }): JSX.Element {
   // 絞り込みキーワード（取引先名の部分一致・大文字小文字を無視）。
   const [q, setQ] = useState("");
@@ -104,6 +119,7 @@ export function ClientsTab({ clients }: { clients: ClientRow[] }): JSX.Element {
                   <th>取引先名</th>
                   <th>敬称</th>
                   <th className="mst-c-num">常用単価</th>
+                  <th>支払期限</th>
                   <th>状態</th>
                 </tr>
               </thead>
@@ -117,6 +133,7 @@ export function ClientsTab({ clients }: { clients: ClientRow[] }): JSX.Element {
                     <td>{c.name}</td>
                     <td>{c.honorific}</td>
                     <td className="mst-c-num">{priceLabel(c.unitPrice)}</td>
+                    <td>{paymentLabel(c.paymentDay)}</td>
                     <td>
                       <span
                         className={`badge ${c.active ? "badge--self" : "badge--partner"}`}
@@ -142,7 +159,7 @@ export function ClientsTab({ clients }: { clients: ClientRow[] }): JSX.Element {
                 <span className="mst-card-main">
                   {c.name}
                   <span className="mst-card-sub">
-                    {`${c.honorific} / 常用単価 ${priceLabel(c.unitPrice)} / ${c.active ? "有効" : "無効"}`}
+                    {`${c.honorific} / 常用単価 ${priceLabel(c.unitPrice)} / 支払 ${paymentLabel(c.paymentDay)} / ${c.active ? "有効" : "無効"}`}
                   </span>
                 </span>
               </button>
@@ -350,6 +367,27 @@ function ClientDrawer({
             <option value="PER_SITE">現場ごと（現場名ごとに1行で請求）</option>
           </select>
           <p className="hint">請求書の明細の出し方。現場ごとは現場名・夜勤を分けて並べます。</p>
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="client-paymentDay">
+            支払期限
+          </label>
+          <select
+            id="client-paymentDay"
+            className="select"
+            name="paymentDay"
+            defaultValue={row?.paymentDay != null ? String(row.paymentDay) : ""}
+          >
+            {PAYMENT_DAY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <p className="hint">
+            支払月は対象月の翌月で固定。日だけ取引先ごとに指定します（請求書の「支払期限」欄に反映）。
+          </p>
         </div>
 
         {isEdit && (
