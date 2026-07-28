@@ -96,8 +96,13 @@ export async function GET(req: Request) {
   }
   if (!sessionUser) {
     // 権限なし（管理者に制限されたユーザー）。セッションは発行しない。
+    // 初期 ADMIN 設定（ADMIN_LINE_USER_IDS）に入れられるよう、本人の lineUserId を
+    // ログイン画面に返す（本人が今まさに LINE 認証を通した自分の ID のみ）。
     const res = NextResponse.redirect(
-      redirectToAdmin(req, "?error=forbidden"),
+      redirectToAdmin(
+        req,
+        `?error=forbidden&uid=${encodeURIComponent(lineUserId)}`,
+      ),
       302,
     );
     res.headers.append(

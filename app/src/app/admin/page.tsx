@@ -47,14 +47,38 @@ const LOGIN_ERROR_MESSAGES: Record<string, string> = {
   session: "セッションの発行に失敗しました。時間をおいて、もう一度お試しください。",
 };
 
+/**
+ * 自分の LINE userId を表示するブロック。
+ * 初期 ADMIN 付与（環境変数 ADMIN_LINE_USER_IDS）に貼り付けるために出す。
+ */
+function OwnLineUserId({ lineUserId }: { lineUserId: string }) {
+  return (
+    <div className="notice" style={{ marginTop: 12 }}>
+      <p style={{ margin: 0 }}>
+        あなたの LINE userId（初期設定用）:
+      </p>
+      <code
+        style={{ display: "block", marginTop: 6, wordBreak: "break-all" }}
+      >
+        {lineUserId}
+      </code>
+      <p className="muted" style={{ marginTop: 6, marginBottom: 0 }}>
+        この ID を環境変数 <code>ADMIN_LINE_USER_IDS</code> に設定して再デプロイ
+        すると、次回ログインで管理者になります。
+      </p>
+    </div>
+  );
+}
+
 /** ログイン済みだが管理者権限のないユーザー向け画面。 */
-function NotInvitedScreen() {
+function NotInvitedScreen({ lineUserId }: { lineUserId: string }) {
   return (
     <main className="container">
       <div className="hero">
         <h1>管理者に招待してもらってください</h1>
         <p>このアカウントには管理者権限がありません。</p>
       </div>
+      <OwnLineUserId lineUserId={lineUserId} />
       <p className="muted center" style={{ marginTop: 24 }}>
         管理者にご連絡ください。
       </p>
@@ -63,7 +87,7 @@ function NotInvitedScreen() {
 }
 
 /** 未ログイン時のログイン画面（LINE Login へ誘導）。 */
-function LoginScreen({ error }: { error?: string }) {
+function LoginScreen({ error, uid }: { error?: string; uid?: string }) {
   const msg = error ? LOGIN_ERROR_MESSAGES[error] : undefined;
   return (
     <main className="container">
@@ -83,6 +107,7 @@ function LoginScreen({ error }: { error?: string }) {
           {msg}
         </div>
       )}
+      {error === "forbidden" && uid && <OwnLineUserId lineUserId={uid} />}
       <a
         href="/api/auth/line/login"
         className="big-link big-link--primary"
@@ -103,14 +128,15 @@ function LoginScreen({ error }: { error?: string }) {
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ym?: string; error?: string }>;
+  searchParams: Promise<{ ym?: string; error?: string; uid?: string }>;
 }) {
   const sp = await searchParams;
   const admin = await getAdminContext();
   if (!admin) {
     const sessionUser = await getSessionUserIfExists();
-    if (sessionUser) return <NotInvitedScreen />;
-    return <LoginScreen error={sp.error} />;
+    if (sessionUser)
+      return <NotInvitedScreen lineUserId={sessionUser.user.lineUserId} />;
+    return <LoginScreen error={sp.error} uid={sp.uid} />;
   }
 
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
