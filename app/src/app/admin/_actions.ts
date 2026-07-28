@@ -22,6 +22,7 @@ import {
 } from "@/lib/auth.js";
 import {
   formatReportLog,
+  groupId,
   pushToGroup,
   type ReportLogInput,
 } from "@/lib/line.js";
@@ -680,7 +681,7 @@ export async function resendReportToGroupAction(
 
     // 送信先未設定のまま「成功扱い」で流れるのを防ぐ（pushToGroup は未設定だと
     // 何もせず戻るため、ここで先に弾いて理由を伝える）。
-    if (!process.env.LINE_GROUP_ID) {
+    if (!groupId()) {
       return {
         ok: false,
         error:

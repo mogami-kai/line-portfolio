@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { formatReportLog, type ReportLogInput } from "./line.js";
+import { describe, it, expect, afterEach } from "vitest";
+import { formatReportLog, groupId, type ReportLogInput } from "./line.js";
 
 type Shift = "DAY" | "HALF" | "NIGHT";
 // テスト用の職人エントリ生成（半日は0.5人工）。
@@ -89,5 +89,25 @@ describe("formatReportLog（出面グループ投稿フォーマット）", () =
     expect(formatReportLog(r)).toBe(
       "6月29日(月)\n辻濱興業　常用\n綱島\n斎　山口",
     );
+  });
+});
+
+describe("groupId（環境変数の trim）", () => {
+  const original = process.env.LINE_GROUP_ID;
+  afterEach(() => {
+    if (original === undefined) delete process.env.LINE_GROUP_ID;
+    else process.env.LINE_GROUP_ID = original;
+  });
+
+  it("前後の空白・改行を落として返す（Vercel への貼り付けミスを吸収）", () => {
+    process.env.LINE_GROUP_ID = " Cb78dd7e0c3e4731322c957b6150206bd\n";
+    expect(groupId()).toBe("Cb78dd7e0c3e4731322c957b6150206bd");
+  });
+
+  it("未設定・空白のみは空文字（＝未設定として扱える）", () => {
+    delete process.env.LINE_GROUP_ID;
+    expect(groupId()).toBe("");
+    process.env.LINE_GROUP_ID = "   ";
+    expect(groupId()).toBe("");
   });
 });

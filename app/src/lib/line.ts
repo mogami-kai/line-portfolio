@@ -12,11 +12,25 @@ import type { ContractType, Shift } from "@prisma/client";
 
 const LINE_API = "https://api.line.me";
 
+/**
+ * 環境変数を trim して読む。
+ * Vercel の管理画面へ貼り付ける際、末尾に空白や改行が混入することが実際にある。
+ * 素の値をそのまま使うと push の宛先やヘッダが壊れて 400 になるため、必ず trim する。
+ */
+function env(name: string): string {
+  return (process.env[name] ?? "").trim();
+}
+
 /** Messaging API のチャネルアクセストークン（push 用）。 */
 function channelAccessToken(): string {
-  const t = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  const t = env("LINE_CHANNEL_ACCESS_TOKEN");
   if (!t) throw new Error("LINE_CHANNEL_ACCESS_TOKEN is not set");
   return t;
+}
+
+/** 出面ログの投稿先グループ ID（未設定なら空文字）。 */
+export function groupId(): string {
+  return env("LINE_GROUP_ID");
 }
 
 // ============================================================
@@ -24,7 +38,7 @@ function channelAccessToken(): string {
 //   to = LINE_GROUP_ID（出面グループ）
 // ============================================================
 export async function pushToGroup(text: string): Promise<void> {
-  const to = process.env.LINE_GROUP_ID;
+  const to = groupId();
   if (!to) {
     // グループ未設定でも入力フロー自体は失敗させない（ログのみ）。
     console.warn("[line] LINE_GROUP_ID is not set; skip pushToGroup");
@@ -158,8 +172,7 @@ export async function resolveLineUserFromToken(
     ]);
     // LIFF はこの LINE Login チャネルに属する。期待チャネルは LINE_LOGIN_CHANNEL_ID
     // を優先（無ければ旧名 LINE_CHANNEL_ID にフォールバック）。設定時のみ一致を強制。
-    const expectedChannel =
-      process.env.LINE_LOGIN_CHANNEL_ID || process.env.LINE_CHANNEL_ID;
+    const expectedChannel = env("LINE_LOGIN_CHANNEL_ID") || env("LINE_CHANNEL_ID");
     if (expectedChannel && verified.clientId !== expectedChannel) {
       console.warn(
         `[line] token channel mismatch: got ${verified.clientId}, expected ${expectedChannel}`,
@@ -187,15 +200,14 @@ export async function resolveLineUserFromToken(
 
 /** LINE Login チャネル ID（無ければ LINE_CHANNEL_ID にフォールバック）。 */
 export function loginChannelId(): string {
-  const id = process.env.LINE_LOGIN_CHANNEL_ID || process.env.LINE_CHANNEL_ID;
+  const id = env("LINE_LOGIN_CHANNEL_ID") || env("LINE_CHANNEL_ID");
   if (!id) throw new Error("LINE_LOGIN_CHANNEL_ID (or LINE_CHANNEL_ID) is not set");
   return id;
 }
 
 /** LINE Login チャネル SECRET（無ければ LINE_CHANNEL_SECRET にフォールバック）。 */
 export function loginChannelSecret(): string {
-  const s =
-    process.env.LINE_LOGIN_CHANNEL_SECRET || process.env.LINE_CHANNEL_SECRET;
+  const s = env("LINE_LOGIN_CHANNEL_SECRET") || env("LINE_CHANNEL_SECRET");
   if (!s)
     throw new Error("LINE_LOGIN_CHANNEL_SECRET (or LINE_CHANNEL_SECRET) is not set");
   return s;
@@ -203,7 +215,7 @@ export function loginChannelSecret(): string {
 
 /** 管理ログインのコールバック URL（env で固定）。 */
 export function adminRedirectUrl(): string {
-  const u = process.env.ADMIN_LOGIN_REDIRECT_URL;
+  const u = env("ADMIN_LOGIN_REDIRECT_URL");
   if (!u) throw new Error("ADMIN_LOGIN_REDIRECT_URL is not set");
   return u;
 }
