@@ -10,11 +10,16 @@ import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { buildLoginUrl } from "@/lib/line.js";
 import { OAUTH_STATE_COOKIE } from "@/lib/session.js";
+import { INVITE_COOKIE, isValidInviteTokenFormat } from "@/lib/invite.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  // 招待リンク経由（/invite/<token> の「LINE で参加」）。token を短命クッキーに
+  // 退避し、コールバックで消費する（LINE 認可の往復では持ち回れないため）。
+  const inviteToken = new URL(req.url).searchParams.get("invite") ?? "";
+
   let url: string;
   const state = crypto.randomBytes(16).toString("hex");
   const nonce = crypto.randomBytes(16).toString("hex");
@@ -40,6 +45,13 @@ export async function GET() {
   res.headers.append(
     "Set-Cookie",
     `${OAUTH_STATE_COOKIE}=${state}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secure}`,
+  );
+  res.headers.append(
+    "Set-Cookie",
+    isValidInviteTokenFormat(inviteToken)
+      ? `${INVITE_COOKIE}=${inviteToken}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600${secure}`
+      : // 招待なしのログインでは、古い招待クッキーが残らないよう毎回消す。
+        `${INVITE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`,
   );
   return res;
 }

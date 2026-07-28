@@ -60,8 +60,13 @@ LINE Developers Console（developers.line.biz）で:
 - `/admin` は **LINE Login → 署名付きクッキー（`demen_session`）** で保護。`src/middleware.ts` が
   `/admin/*`・`/api/invoices/*`・`/api/admin/*` をガードし、未ログインは `/admin`（ログイン画面）/ 401 に倒す。
 - ログインを通すには、その LINE ユーザーが **承認済み・role=ADMIN の `User`** であること。
-  初期 ADMIN は `ADMIN_LINE_USER_IDS` に lineUserId を入れ、その本人が一度 **LIFF を開く**と
-  自動で role=ADMIN・approved=true で登録される（→ 以後 `/admin` からログイン可能）。
+  初期 ADMIN は `ADMIN_LINE_USER_IDS` に lineUserId を入れ、その本人が一度 **LIFF を開く**か
+  **`/admin` から LINE ログインする**と、自動で role=ADMIN・approved=true へ昇格する
+  （既存ユーザーが OWNER/PARTNER でも昇格。👑最高管理者が不在ならその1人目に付与）。
+  なお `status=DISABLED`（無効化済み）のユーザーは環境変数では復活しない。
+- **自分の lineUserId が分からない場合**: `/admin` で LINE ログインすると、権限が無い時に
+  ログイン画面へ自分の lineUserId が表示される。それを `ADMIN_LINE_USER_IDS` に貼って
+  再デプロイ → もう一度ログインすれば管理者になる。
 - セッションは **ステートレス**（DB を引かずクッキーの署名のみで検証）。失効は `SESSION_SECRET`
   ローテーション or TTL（既定7日）で行う。**`SESSION_SECRET` は必ず本番固有のランダム値**にすること。
 

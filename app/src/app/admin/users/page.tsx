@@ -12,12 +12,26 @@
 //   ガード: 全社管理者のみ（スコープ管理者はホームへ）。
 // ============================================================
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext, adminScope } from "@/lib/auth.js";
-import { setUserStatusAction, deleteUserAction } from "../_actions.js";
+import {
+  setUserStatusAction,
+  deleteUserAction,
+  revokeInviteAction,
+  deleteInviteAction,
+} from "../_actions.js";
+import {
+  buildInviteUrl,
+  inviteState,
+  INVITE_ROLE_LABEL,
+  type InvitableRole,
+} from "@/lib/invite.js";
 import { ConfirmDeleteButton } from "../_confirmDelete.js";
 import { RoleCreateButton } from "./_roleCreateButton.js";
+import { InviteCreate } from "./_inviteCreate.js";
+import { InviteCopy } from "./_inviteCopy.js";
 import { UserRoleForm } from "./_userRoleForm.js";
 
 export const dynamic = "force-dynamic";
@@ -48,13 +62,24 @@ export default async function UsersPage({
   const tab: Tab =
     sp.tab === "self" ? "self" : sp.tab === "partner" ? "partner" : "admin";
 
-  const [users, allOrgs] = await Promise.all([
+  const [users, allOrgs, invites] = await Promise.all([
     prisma.user.findMany({
       orderBy: [{ createdAt: "desc" }],
       include: { org: { select: { id: true, name: true, kind: true } } },
     }),
     prisma.organization.findMany({ orderBy: [{ kind: "asc" }, { createdAt: "asc" }] }),
+    prisma.invite.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      include: { org: { select: { name: true } } },
+    }),
   ]);
+
+  // 招待 URL の組み立て。実際に開いているホストを使う（本番/プレビュー両対応）。
+  const h = await headers();
+  const origin = `${h.get("x-forwarded-proto") ?? "https"}://${
+    h.get("x-forwarded-host") ?? h.get("host") ?? ""
+  }`;
 
   // 管理者タブには ADMIN ＋ スコープ管理者（自社/協力会社管理者）をまとめる。
   const isManagerUser = (u: (typeof users)[number]) =>
@@ -106,6 +131,106 @@ export default async function UsersPage({
       <div style={{ marginBottom: 12 }}>
         <RoleCreateButton />
       </div>
+
+      {/* 招待リンク（URL を LINE で送る → 踏んだ本人にロールが付く） */}
+      <section style={{ marginBottom: 16 }}>
+        <h2 className="section-title">招待リンク</h2>
+        <p className="muted" style={{ marginTop: 0, marginBottom: 8 }}>
+          URL を LINE で送るだけで、踏んだ本人に権限が付きます（ログイン＝本人確認）。
+        </p>
+
+        <InviteCreate
+          orgs={allOrgs.map((o) => ({
+            id: o.id,
+            name: o.name,
+            kind: o.kind as "SELF" | "PARTNER",
+          }))}
+        />
+
+        {invites.length > 0 && (
+          <div className="list" style={{ background: "transparent", border: "none", marginTop: 10 }}>
+            {invites.map((inv) => {
+              const st = inviteState(inv);
+              const url = buildInviteUrl(origin, inv.token);
+              const roleLabel =
+                INVITE_ROLE_LABEL[inv.role as InvitableRole] ?? inv.role;
+              return (
+                <details className="card" key={inv.id}>
+                  <summary className="list-title" style={{ cursor: "pointer" }}>
+                    {inv.label || roleLabel}
+                    <span
+                      className={`badge ${st === "OK" ? "badge--review" : ""}`}
+                      style={{ marginLeft: 6 }}
+                    >
+                      {st === "OK"
+                        ? `有効 残り${inv.maxUses - inv.usedCount}`
+                        : st === "EXPIRED"
+                          ? "期限切れ"
+                          : st === "REVOKED"
+                            ? "無効化"
+                            : "使用済み"}
+                    </span>
+                    <span className="muted" style={{ marginLeft: 8 }}>
+                      {roleLabel}
+                    </span>
+                  </summary>
+
+                  <div className="list-meta" style={{ marginTop: 8 }}>
+                    所属: {inv.org?.name ?? "自社"} / 期限:{" "}
+                    {fmtDateTime(inv.expiresAt)} / 発行: {inv.createdByName}
+                  </div>
+                  {inv.lastUsedAt && (
+                    <div className="list-meta">
+                      直近の使用: {fmtDateTime(inv.lastUsedAt)}（
+                      {inv.lastUsedName ?? "不明"}）
+                    </div>
+                  )}
+
+                  {st === "OK" && (
+                    <>
+                      <code
+                        style={{
+                          display: "block",
+                          marginTop: 8,
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {url}
+                      </code>
+                      <InviteCopy url={url} />
+                    </>
+                  )}
+
+                  <div
+                    style={{
+                      marginTop: 10,
+                      display: "flex",
+                      gap: 10,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {st === "OK" && (
+                      <form action={revokeInviteAction}>
+                        <input type="hidden" name="id" value={inv.id} />
+                        <button type="submit" className="btn btn--danger-text btn--sm">
+                          無効化する
+                        </button>
+                      </form>
+                    )}
+                    <ConfirmDeleteButton
+                      action={deleteInviteAction}
+                      id={inv.id}
+                      label="削除"
+                      confirmText="この招待リンクを削除します。よろしいですか？"
+                    />
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {/* タブ */}
       <div className="chip-wrap" style={{ marginBottom: 12 }}>

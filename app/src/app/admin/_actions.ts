@@ -26,6 +26,12 @@ import {
   type ReportLogInput,
 } from "@/lib/line.js";
 import { reportLabel, writeAuditLog } from "@/lib/audit.js";
+import {
+  INVITABLE_ROLES,
+  buildInviteUrl,
+  generateInviteToken,
+} from "@/lib/invite.js";
+import { headers } from "next/headers";
 import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
 
 /** 管理者（ADMIN / スコープ管理者）を要求し、実行中のコンテキストを返す。違反時は throw。 */
@@ -1359,6 +1365,105 @@ export async function deleteUserAction(fd: FormData): Promise<DeleteResult> {
     }
     throw e;
   }
+  revalidatePath(USERS_PATH);
+  return { ok: true };
+}
+
+// ============================================================
+// 招待リンク（Invite）
+//   /admin/users で発行 → LINE で URL を送る → 踏んだ本人にロールが付く。
+//   発行・無効化は全社管理者のみ。付与できるのは INVITABLE_ROLES（👑は不可）。
+// ============================================================
+
+const inviteCreateSchema = z.object({
+  role: z.enum(INVITABLE_ROLES),
+  orgId: z.string().trim().optional(),
+  label: z.string().trim().max(60).optional(),
+  days: z.coerce.number().int().min(1).max(90),
+  maxUses: z.coerce.number().int().min(1).max(50),
+});
+
+/** 招待リンクを発行し、送信用の URL を返す。 */
+export async function createInviteAction(
+  fd: FormData,
+): Promise<{ url: string; token: string }> {
+  const admin = await requireFullAdminAction();
+
+  const parsed = inviteCreateSchema.safeParse({
+    role: str(fd, "role"),
+    orgId: str(fd, "orgId"),
+    label: str(fd, "label"),
+    days: str(fd, "days") || "7",
+    maxUses: str(fd, "maxUses") || "1",
+  });
+  if (!parsed.success) {
+    throw new Error("入力内容を確認してください（ロール・期限・回数）。");
+  }
+  const { role, label, days, maxUses } = parsed.data;
+
+  // 所属組織。未指定なら自社(SELF)。協力会社ロールは PARTNER 組織を要求する。
+  let orgId: string | null = parsed.data.orgId || null;
+  if (orgId) {
+    const org = await prisma.organization.findUnique({ where: { id: orgId } });
+    if (!org) throw new Error("組織が見つかりません。");
+    if ((role === "PARTNER" || role === "ORG_ADMIN") && org.kind !== "PARTNER") {
+      throw new Error("協力会社のロールには協力会社（組織）を選んでください。");
+    }
+    if ((role === "OWNER" || role === "SELF_ADMIN") && org.kind !== "SELF") {
+      throw new Error("自社のロールには自社を選んでください。");
+    }
+  } else {
+    if (role === "PARTNER" || role === "ORG_ADMIN") {
+      throw new Error("協力会社のロールには協力会社（組織）を選んでください。");
+    }
+  }
+
+  const token = generateInviteToken();
+  await prisma.invite.create({
+    data: {
+      token,
+      role,
+      orgId,
+      label: label || null,
+      expiresAt: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
+      maxUses,
+      createdById: admin.user.id,
+      createdByName: admin.user.displayName,
+    },
+  });
+
+  // 送信用 URL は実際のリクエスト元ホストから組み立てる（本番/プレビュー両対応）。
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  const proto = h.get("x-forwarded-proto") ?? "https";
+  const origin =
+    process.env.ADMIN_LOGIN_REDIRECT_URL?.replace(
+      /\/api\/auth\/line\/callback\/?$/,
+      "",
+    ) || `${proto}://${host}`;
+
+  revalidatePath(USERS_PATH);
+  return { url: buildInviteUrl(origin, token), token };
+}
+
+/** 招待リンクを無効化する（発行済み URL を即座に使えなくする）。 */
+export async function revokeInviteAction(fd: FormData): Promise<void> {
+  await requireFullAdminAction();
+  const id = str(fd, "id");
+  if (!id) throw new Error("id がありません");
+  await prisma.invite.update({
+    where: { id },
+    data: { revokedAt: new Date() },
+  });
+  revalidatePath(USERS_PATH);
+}
+
+/** 招待リンクを削除する（履歴ごと消す）。 */
+export async function deleteInviteAction(fd: FormData): Promise<DeleteResult> {
+  await requireFullAdminAction();
+  const id = str(fd, "id");
+  if (!id) return { ok: false, error: "id がありません" };
+  await prisma.invite.delete({ where: { id } });
   revalidatePath(USERS_PATH);
   return { ok: true };
 }

@@ -18,7 +18,8 @@
   クッキーは Web Crypto で検証（Edge 互換）。各ページ/ハンドラは `getAdminContext()` で
   **DB 上の承認済み ADMIN** を毎回再確認する（多層防御）。
 - ログイン可能なのは **承認済み・role=ADMIN の `User`** のみ。初期 ADMIN は `ADMIN_LINE_USER_IDS`
-  に lineUserId を入れ、その本人が一度 LIFF を開くと自動登録される。
+  に lineUserId を入れ、その本人が LIFF を開くか `/admin` からログインすると自動で ADMIN へ昇格する
+  （自分の lineUserId は、権限が無い状態で `/admin` にログインするとログイン画面に表示される）。
 - 管理ページ: `/admin`（集計・要確認）/ `/admin/invoices`（請求書）/ `/admin/masters`（マスタ）/ `/admin/users`（ユーザー承認）。
 
 ## セットアップ（P1）

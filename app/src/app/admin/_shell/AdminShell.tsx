@@ -63,12 +63,6 @@ const IconUsers = () => (
     <path d="M16 6.2A3 3 0 0 1 16 12M17 14c2.5.4 4 2.3 4 5" />
   </svg>
 );
-const IconLogout = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" {...stroke} aria-hidden>
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
-  </svg>
-);
-
 const NAV: NavItem[] = [
   { href: "/admin", label: "ホーム", icon: IconHome, match: (p) => p === "/admin" },
   {
@@ -190,9 +184,6 @@ export function AdminShell({
           <div className="sb-user" title={userName}>
             {userName}
           </div>
-          <a href="/api/auth/logout" className="sb-logout">
-            ログアウト
-          </a>
         </div>
       </aside>
 
@@ -257,14 +248,6 @@ export function AdminShell({
             </a>
           );
         })}
-
-        {/* ログアウト */}
-        <a href="/api/auth/logout" className="app-icon-bar-item app-icon-bar-item--logout">
-          <span className="app-icon-bar-label">ログアウト</span>
-          <span className="app-icon-bar-ico">
-            <IconLogout />
-          </span>
-        </a>
       </div>
 
       {/* 作業領域 */}

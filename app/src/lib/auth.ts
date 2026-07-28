@@ -21,6 +21,63 @@ export interface ResolvedUser {
   org: Organization;
 }
 
+// ============================================================
+// 初期 ADMIN 付与（ブートストラップ）
+//
+//   `ADMIN_LINE_USER_IDS`（カンマ区切りの lineUserId）に載っている本人は、
+//   LIFF を開いた時／管理ログインした時に自動で role=ADMIN・approved=true へ
+//   昇格する（README / DEPLOY.md に書かれている挙動の実装）。
+//   これが無いと、初回ユーザーは OWNER で作られるため誰も管理画面に入れない
+//   ＝「管理権限がありません」で詰む。
+//
+//   安全側の制約:
+//     - 環境変数に明示された lineUserId のみ（＝URL を知った第三者は昇格しない）
+//     - status=DISABLED の無効化ユーザーは復活させない
+//     - 👑最高管理者(superAdmin) は「まだ 1 人もいない時」だけ立てる
+// ============================================================
+
+/** `ADMIN_LINE_USER_IDS` を配列で返す（空要素は捨てる）。 */
+export function adminBootstrapLineUserIds(): string[] {
+  return (process.env.ADMIN_LINE_USER_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** その lineUserId が初期 ADMIN 指定に含まれるか。 */
+export function isBootstrapAdminLineUserId(lineUserId: string): boolean {
+  if (!lineUserId) return false;
+  return adminBootstrapLineUserIds().includes(lineUserId);
+}
+
+/**
+ * 初期 ADMIN 指定のユーザーを ADMIN・承認済みへ昇格させる（該当しなければ何もしない）。
+ * 既に ADMIN かつ承認済みなら DB を触らない（毎リクエスト呼ばれても実質ノーコスト）。
+ */
+export async function applyAdminBootstrap(
+  u: ResolvedUser,
+): Promise<ResolvedUser> {
+  if (!isBootstrapAdminLineUserId(u.user.lineUserId)) return u;
+  // 管理者が意図的に無効化したユーザーを env で復活させない。
+  if (u.user.status === "DISABLED") return u;
+  if (u.user.role === "ADMIN" && u.user.approved) return u;
+
+  // 👑最高管理者が不在なら、この初期 ADMIN を最高管理者にする。
+  const hasSuperAdmin =
+    (await prisma.user.count({ where: { superAdmin: true } })) > 0;
+
+  const updated = await prisma.user.update({
+    where: { id: u.user.id },
+    data: {
+      role: "ADMIN",
+      approved: true,
+      ...(hasSuperAdmin ? {} : { superAdmin: true }),
+    },
+    include: { org: true },
+  });
+  return { user: updated, org: updated.org };
+}
+
 /**
  * 既定の SELF 組織を取得（無ければ作成）。
  * 初回 ADMIN ユーザーの所属先として使う。SELF が複数ある場合は最初の1件。
@@ -65,17 +122,24 @@ export async function resolveUser(
     include: { org: true },
   });
   if (found) {
-    return { user: found, org: found.org };
+    // 初期 ADMIN 指定（ADMIN_LINE_USER_IDS）なら管理者へ昇格させる。
+    return applyAdminBootstrap({ user: found, org: found.org });
   }
 
   // 初回ユーザー作成。自社メンバー(OWNER)として登録。管理画面は管理者が昇格させる。
+  // ただし初期 ADMIN 指定の本人は、最初から ADMIN（承認済み）で作る。
+  const isBootstrapAdmin = isBootstrapAdminLineUserId(lineUserId);
   const org = await ensureSelfOrg();
+  const hasSuperAdmin = isBootstrapAdmin
+    ? (await prisma.user.count({ where: { superAdmin: true } })) > 0
+    : true;
   const created = await prisma.user.create({
     data: {
       lineUserId,
       displayName: displayName?.trim() || "未設定ユーザー",
-      role: "OWNER",
+      role: isBootstrapAdmin ? "ADMIN" : "OWNER",
       approved: true,
+      superAdmin: isBootstrapAdmin && !hasSuperAdmin,
       orgId: org.id,
     },
     include: { org: true },

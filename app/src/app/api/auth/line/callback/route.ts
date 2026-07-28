@@ -17,6 +17,7 @@
 import { NextResponse } from "next/server";
 import { getProfile, exchangeCode } from "@/lib/line.js";
 import { findApprovedAdminByLineUserId, resolveUser } from "@/lib/auth.js";
+import { INVITE_COOKIE, redeemInvite } from "@/lib/invite.js";
 import {
   signSession,
   sessionCookieHeader,
@@ -27,10 +28,29 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** 使い終わった一時クッキー（state / 招待 token）を消す Set-Cookie。 */
+const CLEAR_STATE = `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+const CLEAR_INVITE = `${INVITE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+
 function redirectToAdmin(req: Request, query = ""): URL {
   const u = new URL(req.url);
   return new URL(`/admin${query}`, `${u.protocol}//${u.host}`);
 }
+
+function redirectTo(req: Request, path: string): URL {
+  const u = new URL(req.url);
+  return new URL(path, `${u.protocol}//${u.host}`);
+}
+
+/** 招待の失敗理由 → /admin のエラーキー。 */
+const INVITE_ERROR_KEY: Record<string, string> = {
+  NOT_FOUND: "invite_notfound",
+  REVOKED: "invite_revoked",
+  EXPIRED: "invite_expired",
+  USED_UP: "invite_used",
+  DISABLED_USER: "invite_disabled",
+  ERROR: "invite_error",
+};
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -51,10 +71,8 @@ export async function GET(req: Request) {
   if (!code || !state || !cookieState || state !== cookieState) {
     const res = NextResponse.redirect(redirectToAdmin(req, "?error=state"), 302);
     // 使い終わった state は破棄。
-    res.headers.append(
-      "Set-Cookie",
-      `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
-    );
+    res.headers.append("Set-Cookie", CLEAR_STATE);
+    res.headers.append("Set-Cookie", CLEAR_INVITE);
     return res;
   }
 
@@ -78,6 +96,28 @@ export async function GET(req: Request) {
     return NextResponse.redirect(redirectToAdmin(req, "?error=profile"), 302);
   }
 
+  // ── 3-1) 招待リンク経由なら、ここでロール／所属組織を付与する ──
+  //   本人確定（LINE 認可）の直後に消費する。失敗（期限切れ・使用済み等）は
+  //   ログイン画面へ理由付きで戻す。
+  const inviteToken = parseCookie(req.headers.get("cookie"), INVITE_COOKIE);
+  if (inviteToken) {
+    const redeemed = await redeemInvite(inviteToken, lineUserId, displayName);
+    if (!redeemed.ok) {
+      const key = INVITE_ERROR_KEY[redeemed.reason ?? "ERROR"] ?? "invite_error";
+      const res = NextResponse.redirect(redirectToAdmin(req, `?error=${key}`), 302);
+      res.headers.append("Set-Cookie", CLEAR_STATE);
+      res.headers.append("Set-Cookie", CLEAR_INVITE);
+      return res;
+    }
+    if (!redeemed.canEnterAdmin) {
+      // 入力のみのロール（自社メンバー／協力会社）。管理セッションは発行しない。
+      const res = NextResponse.redirect(redirectTo(req, "/invite/done"), 302);
+      res.headers.append("Set-Cookie", CLEAR_STATE);
+      res.headers.append("Set-Cookie", CLEAR_INVITE);
+      return res;
+    }
+  }
+
   // ── 4) ログインユーザーの解決（オープンアクセス）──
   //   既存の承認済み ADMIN はそのまま通す。未登録なら自動作成（自社ADMIN・承認済み）して
   //   ログインさせる。ただし管理者に「協力会社(PARTNER)」等へ降格された既存ユーザーは
@@ -96,14 +136,17 @@ export async function GET(req: Request) {
   }
   if (!sessionUser) {
     // 権限なし（管理者に制限されたユーザー）。セッションは発行しない。
+    // 初期 ADMIN 設定（ADMIN_LINE_USER_IDS）に入れられるよう、本人の lineUserId を
+    // ログイン画面に返す（本人が今まさに LINE 認証を通した自分の ID のみ）。
     const res = NextResponse.redirect(
-      redirectToAdmin(req, "?error=forbidden"),
+      redirectToAdmin(
+        req,
+        `?error=forbidden&uid=${encodeURIComponent(lineUserId)}`,
+      ),
       302,
     );
-    res.headers.append(
-      "Set-Cookie",
-      `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
-    );
+    res.headers.append("Set-Cookie", CLEAR_STATE);
+    res.headers.append("Set-Cookie", CLEAR_INVITE);
     return res;
   }
 
@@ -122,9 +165,7 @@ export async function GET(req: Request) {
 
   const res = NextResponse.redirect(redirectToAdmin(req), 302);
   res.headers.append("Set-Cookie", cookie);
-  res.headers.append(
-    "Set-Cookie",
-    `${OAUTH_STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`,
-  );
+  res.headers.append("Set-Cookie", CLEAR_STATE);
+  res.headers.append("Set-Cookie", CLEAR_INVITE);
   return res;
 }
