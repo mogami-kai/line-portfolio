@@ -1,5 +1,5 @@
 // ============================================================
-// /admin/users — ユーザー管理（ロール付与・ロール作成）
+// /admin/users — ユーザー管理（招待リンク・ロール付与）
 //
 //   タブ: 管理者 / 自社 / 協力会社（?tab=admin|self|partner）。
 //   ロール体系:
@@ -8,7 +8,7 @@
 //     - 自社管理者(SELF_ADMIN): 自社の集計のみ閲覧。
 //     - 協力会社管理者(ORG_ADMIN): 割り当てた協力会社のみ閲覧。
 //     - 自社(OWNER)/協力会社(PARTNER): 入力のみ。
-//   「ロール作成」= 協力会社（PARTNER 組織）を量産する入口。
+//   協力会社（PARTNER 組織）の追加は「マスタ」ページに集約（ここでは重複させない）。
 //   ガード: 全社管理者のみ（スコープ管理者はホームへ）。
 // ============================================================
 
@@ -29,7 +29,6 @@ import {
   type InvitableRole,
 } from "@/lib/invite.js";
 import { ConfirmDeleteButton } from "../_confirmDelete.js";
-import { RoleCreateButton } from "./_roleCreateButton.js";
 import { InviteCreate } from "./_inviteCreate.js";
 import { InviteCopy } from "./_inviteCopy.js";
 import { UserRoleForm } from "./_userRoleForm.js";
@@ -125,11 +124,6 @@ export default async function UsersPage({
     <main className="container admin-narrow">
       <div className="page-head">
         <h1 className="page-title">ユーザー管理</h1>
-      </div>
-
-      {/* ロール作成（協力会社を量産） */}
-      <div style={{ marginBottom: 12 }}>
-        <RoleCreateButton />
       </div>
 
       {/* 招待リンク（URL を LINE で送る → 踏んだ本人にロールが付く） */}
