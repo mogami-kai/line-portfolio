@@ -37,8 +37,32 @@ model Organization {
   users   User[]
   workers Worker[]
   reports Report[]
+  invites Invite[]
 
   @@index([kind])
+}
+
+/// 招待リンク。管理者が発行した URL を LINE で送り、踏んだ本人に role/org を自動付与する。
+/// 使い切り（maxUses）・期限（expiresAt）・無効化（revokedAt）で制御する。
+model Invite {
+  id            String        @id @default(cuid())
+  token         String        @unique // URL に載る乱数（推測不能・base64url）
+  role          Role // 付与するロール
+  orgId         String? // 付与する所属組織（未指定なら自社 SELF）
+  org           Organization? @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  label         String? // メモ（例: "○○工業 田中さん"）
+  expiresAt     DateTime // 期限（過ぎたら使えない）
+  maxUses       Int           @default(1) // 使用可能回数
+  usedCount     Int           @default(0)
+  revokedAt     DateTime? // 手動で無効化した時刻
+  createdById   String? // 発行した管理者（User.id）
+  createdByName String // 発行者の表示名スナップショット
+  createdAt     DateTime      @default(now())
+  lastUsedAt    DateTime?
+  lastUsedName  String? // 直近で使った人の表示名
+
+  @@index([expiresAt])
+  @@index([orgId])
 }
 
 // ── 利用者（LINEアカウント）──
