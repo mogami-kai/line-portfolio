@@ -438,6 +438,21 @@ export default async function AdminPage({
                 ›
               </span>
             </a>
+
+            {/* 集計が合わないときの突き合わせ */}
+            <a
+              href={`/admin/check?ym=${ym}`}
+              className="invoice-cta"
+              style={{ marginTop: 10 }}
+            >
+              <span>
+                <span className="invoice-cta-title">データチェック</span>
+                <span className="invoice-cta-sub">二重登録の疑いを検出・削除</span>
+              </span>
+              <span className="invoice-cta-arrow" aria-hidden>
+                ›
+              </span>
+            </a>
           </section>
         </aside>
       </div>
