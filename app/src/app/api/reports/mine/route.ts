@@ -75,10 +75,13 @@ export async function GET(req: Request) {
 
   const reports = rows.map((r) => {
     let manDays = 0;
+    let nightManDays = 0;
     let otHours = 0;
     const workerTokens: string[] = [];
     for (const e of r.entries) {
-      manDays += resolveManDays(e.shift as Shift, e.manDays);
+      const md = resolveManDays(e.shift as Shift, e.manDays);
+      manDays += md;
+      if (e.shift === "NIGHT") nightManDays += md;
       otHours += Number(e.otHours) || 0;
       const notes: string[] = [];
       if (e.shift !== "DAY") notes.push(SHIFT_LABEL[e.shift as Shift]);
@@ -95,6 +98,7 @@ export async function GET(req: Request) {
       postedToGroup: r.postedToGroup,
       deleteRequested: r.deleteRequestedAt !== null,
       manDays,
+      nightManDays,
       otHours,
       workers: workerTokens.join("　"),
       expensesLabel: r.expenses
