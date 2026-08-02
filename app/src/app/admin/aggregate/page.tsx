@@ -18,24 +18,57 @@ import { redirect } from "next/navigation";
 import { getAdminContext, adminScopeOrgId } from "@/lib/auth.js";
 import {
   currentYearMonth,
+  daysInMonth,
+  formatDispatchCell,
   getMonthSummary,
   loadMonthRows,
   monthRange,
   summarizeByClient,
   summarizeByWorker,
+  summarizeDispatchMatrix,
   summarizeExpenses,
   type ClientMonthSummary,
+  type DispatchMatrixWorker,
   type ExpensePayerSummary,
   type WorkerMonthSummary,
 } from "@/lib/aggregate.js";
+import { jstTodayDate } from "@/lib/invoiceDates.js";
 import { RateEditor } from "./_rateEditor.js";
 import { EditReportButton } from "../_editReport.js";
+import { DispatchMatrixTable, type DispatchMatrixRow } from "./_dispatchMatrix.js";
 
 export const dynamic = "force-dynamic";
 
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
 const ymStr = (d: Date) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+/** DispatchMatrixWorker[] → 表示用の行（セル文字列は formatDispatchCell で確定）。 */
+function toDispatchRows(workers: DispatchMatrixWorker[]): DispatchMatrixRow[] {
+  return workers.map((w, i) => ({
+    key: w.workerId ?? `unknown-${i}`,
+    workerName: w.workerName,
+    cells: w.days.map((d) => formatDispatchCell(d)),
+    totals: w.totals,
+  }));
+}
+
+/** "2026-07" の各日の曜日（0=日〜6=土）。workDate と同じ「UTC午前0時＝業務日付」で計算する。 */
+function computeWeekdays(yearMonth: string, days: number): number[] {
+  const [y, m] = yearMonth.split("-").map((v) => parseInt(v, 10));
+  return Array.from({ length: days }, (_, i) =>
+    new Date(Date.UTC(y, m - 1, i + 1)).getUTCDay(),
+  );
+}
+
+/** 選択月が当月（JST基準）なら今日の日番号、それ以外は null。 */
+function computeTodayDay(yearMonth: string): number | null {
+  const today = jstTodayDate();
+  const ym = `${today.getUTCFullYear()}-${String(
+    today.getUTCMonth() + 1,
+  ).padStart(2, "0")}`;
+  return ym === yearMonth ? today.getUTCDate() : null;
+}
 
 function ClientAccordion({
   rows,
@@ -289,13 +322,19 @@ async function MonthSummary({
   ym: string;
   scopeOrgId: string | null;
 }) {
+  // 月間出勤マトリクスの日付軸（月末日・曜日・当日）はスコープに依らず共通。
+  const days = daysInMonth(ym);
+  const weekdays = computeWeekdays(ym, days);
+  const todayDay = computeTodayDay(ym);
+
   // スコープ管理者（自組織のみ）: 自組織1つ分の集計を計算して表示する。
   if (scopeOrgId) {
     const rows = await loadMonthRows(ym, { orgId: scopeOrgId });
-    const [clients, byWorker, expenses] = await Promise.all([
+    const [clients, byWorker, expenses, dispatch] = await Promise.all([
       summarizeByClient(ym, rows),
       summarizeByWorker(ym, { orgId: scopeOrgId }),
       summarizeExpenses(ym, { orgId: scopeOrgId }),
+      summarizeDispatchMatrix(ym, { orgId: scopeOrgId }),
     ]);
     const totals = clients.reduce(
       (a, r) => ({
@@ -309,6 +348,16 @@ async function MonthSummary({
     );
     return (
       <>
+        <div className="section-head">
+          <h3 className="section-subtitle">月間出勤マトリクス</h3>
+        </div>
+        <DispatchMatrixTable
+          rows={toDispatchRows(dispatch)}
+          daysInMonth={days}
+          weekdays={weekdays}
+          todayDay={todayDay}
+        />
+
         <div className="section-head">
           <h3 className="section-subtitle">職人別（給料の見方）</h3>
         </div>
@@ -334,10 +383,25 @@ async function MonthSummary({
   }
 
   // フル管理者: 自社 ＋ 協力会社（全社）。
-  const { self, partner, byWorker, selfTotals, expensePayers, expenseTotal } =
-    await getMonthSummary(ym);
+  const [{ self, partner, byWorker, selfTotals, expensePayers, expenseTotal }, dispatch] =
+    await Promise.all([
+      getMonthSummary(ym),
+      // 職人別（給料の見方）と同じ範囲＝自社(SELF)のみ。合計を一致させるため。
+      summarizeDispatchMatrix(ym, { source: "SELF" }),
+    ]);
   return (
     <>
+      {/* 月間出勤マトリクス（職人別と同じ範囲＝自社） */}
+      <div className="section-head">
+        <h3 className="section-subtitle">月間出勤マトリクス</h3>
+      </div>
+      <DispatchMatrixTable
+        rows={toDispatchRows(dispatch)}
+        daysInMonth={days}
+        weekdays={weekdays}
+        todayDay={todayDay}
+      />
+
       {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
       <div className="section-head">
         <h3 className="section-subtitle">職人別（給料の見方）</h3>

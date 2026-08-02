@@ -3166,3 +3166,128 @@ details.card .field {
   align-items: center;
   gap: 8px;
 }
+
+/* ============================================================
+   月間出勤マトリクス（/admin/aggregate 上部）
+   ・氏名列＝左固定 / ヘッダー＝上固定（.dm-scroll 内でのみ有効な frozen-pane）。
+   ・Safari は border-collapse:collapse だと sticky が効かない機種があるため、
+     border-collapse は使わず border-bottom/right で罫線を再現する。
+   ・スマホは横スクロール（overflow-x: auto）。カルーセルライブラリは使わない。
+   ============================================================ */
+.dm-hint {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+}
+@media (min-width: 1024px) {
+  .dm-hint {
+    display: none;
+  }
+}
+
+.dm-scroll {
+  overflow: auto;
+  max-height: 62vh;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+}
+
+.dm-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.dm-table th,
+.dm-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 氏名列（左固定）。折返し可＝長い名前でも列幅を壊さず2行に収める。 */
+.dm-th-name,
+.dm-td-name {
+  position: sticky;
+  left: 0;
+  min-width: 96px;
+  max-width: 160px;
+  white-space: normal;
+  word-break: break-word;
+  text-align: left;
+  font-weight: 700;
+  background: var(--card);
+  border-right: 1.5px solid var(--line-strong);
+}
+
+/* ヘッダー行（上固定）。 */
+.dm-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f7f9fb;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+}
+/* 左上の角セル（氏名見出し）は上下左どちらの固定にも属する＝最前面。
+   ".dm-table thead th"（class+要素2つ）より詳細度を上げて確実に勝たせる。 */
+.dm-table thead th.dm-th-name {
+  z-index: 3;
+  background: #f7f9fb;
+}
+.dm-td-name {
+  z-index: 1;
+}
+
+.dm-th-day,
+.dm-td-day {
+  min-width: 40px;
+}
+.dm-td-day.dm-empty {
+  color: var(--ink-3);
+}
+
+/* 土曜・日曜は弱い背景差で区別（不透明色。sticky ヘッダー下の透け防止）。
+   ヘッダー行は ".dm-table thead th"（詳細度が高い）にも勝てるよう
+   thead th.dm-sat のように要素を重ねて明示する。 */
+.dm-sat,
+.dm-table thead th.dm-sat {
+  background: #eef2f6;
+}
+.dm-sun,
+.dm-table thead th.dm-sun {
+  background: #faecec;
+}
+
+/* 選択月が当月のときだけ、今日の列を弱く強調。
+   .dm-sat/.dm-sun より後に定義し、同じ詳細度でも今日を優先表示させる。 */
+.dm-today,
+.dm-table thead th.dm-today {
+  background: #e4edfb;
+}
+
+/* 集計列（人工・日勤・夜勤・半日・残業）。日付列との境界を太めの線で分ける。 */
+.dm-th-total,
+.dm-td-total {
+  min-width: 52px;
+  font-weight: 700;
+}
+.dm-total-divider {
+  border-left: 2px solid var(--line-strong);
+}
+.dm-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.dm-table th:last-child,
+.dm-table td:last-child {
+  border-right: none;
+}
