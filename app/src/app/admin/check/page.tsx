@@ -201,13 +201,6 @@ export default async function CheckPage({
   const dupGroups = Array.from(byDup.values()).filter((g) => g.length >= 2);
   const dupGroupKeys = new Set(dupGroups.map((g) => dupKey(g[0])));
 
-  // 「重複が全部二重登録だった場合」の余剰人工の目安（各グループで最大の1件を残す想定）。
-  const excessManDays = dupGroups.reduce((a, g) => {
-    const total = g.reduce((s, r) => s + r.manDays, 0);
-    const keep = Math.max(...g.map((r) => r.manDays));
-    return a + (total - keep);
-  }, 0);
-
   // ── B) 同一職人が同日に複数の出面に登場（表記揺れで A に出ない二重の網）──
   //   その職人×日の出面が全部「同じ A グループ」に属する場合は A で見えるので省く。
   const workerNameById = new Map<string, string>();
@@ -264,34 +257,15 @@ export default async function CheckPage({
         </a>
       </div>
 
-      {/* 前提の周知（集計ずれの2大原因） */}
-      <div className="notice" style={{ marginBottom: 16 }}>
-        <p style={{ margin: 0 }}>
-          <b>LINE の送信取り消し・削除では、アプリの出面は消えません。</b>
-          出面を消すときは、この画面か編集画面の「削除」を使ってください。
-        </p>
-        <p style={{ margin: "6px 0 0" }}>
-          また、LINE の通数上限などで<b>グループ投稿に失敗しても出面は保存済み</b>です
-          （ホームの「未投稿」から再投稿できます）。後からもう一度入力すると二重登録に
-          なるので、下の一覧で重複を確認して不要な方を削除してください。
-        </p>
-      </div>
-
-      {/* サマリ */}
+      {/* サマリ（1行）＋最低限の注意 */}
       <section className="block">
-        <div className="section-head">
-          <h2 className="section-title">この月の状態</h2>
-        </div>
         <p style={{ margin: 0 }}>
-          出面 <b>{reports.length}</b> 件 ／ 二重登録の疑い{" "}
-          <b>{dupGroups.length}</b> 組（
-          全て二重だった場合の余剰は約 <b>{excessManDays}</b> 人工）／
-          同一職人の同日重複 <b>{workerDayDups.length}</b> 件
+          出面 <b>{reports.length}</b>件 ／ 二重疑い <b>{dupGroups.length}</b>組 ／
+          同日重複 <b>{workerDayDups.length}</b>件{"　"}
+          <a href={`/admin/aggregate?ym=${ym}`}>集計を見る</a>
         </p>
         <p className="muted" style={{ margin: "6px 0 0" }}>
-          削除後は「集計」（
-          <a href={`/admin/aggregate?ym=${ym}`}>{ym} の集計を見る</a>
-          ）で数字が合っているか確認してください。
+          LINEの送信取り消しでは出面は消えません。削除はこの画面から。
         </p>
       </section>
 
@@ -312,9 +286,7 @@ export default async function CheckPage({
             <div key={dupKey(g[0])} style={{ marginBottom: 16 }}>
               <div className="review-meta" style={{ marginBottom: 6 }}>
                 {mdW(g[0].workDate)} {g[0].clientName}{" "}
-                {g[0].siteLabel || "(現場未設定)"} — {g.length}件（合計{" "}
-                {g.reduce((a, r) => a + r.manDays, 0)}人工）。
-                入力日時を見比べて、残す1件以外を削除してください。
+                {g[0].siteLabel || "(現場未設定)"} — {g.length}件
               </div>
               <div className="review-list">
                 {g.map((r) => (
@@ -340,10 +312,6 @@ export default async function CheckPage({
           <div className="empty-ok">該当はありません。</div>
         ) : (
           <>
-            <p className="muted" style={{ marginTop: 0 }}>
-              応援などで正しい場合もあります。現場名の書き方だけ違う二重登録が
-              紛れていないか確認してください。
-            </p>
             {workerDayDups.map((v) => (
               <div key={`${v.date.toISOString()}|${v.workerId}`} style={{ marginBottom: 16 }}>
                 <div className="review-meta" style={{ marginBottom: 6 }}>

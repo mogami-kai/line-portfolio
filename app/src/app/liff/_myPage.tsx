@@ -20,6 +20,7 @@ interface MineReport {
   postedToGroup: boolean;
   deleteRequested: boolean;
   manDays: number;
+  nightManDays: number;
   otHours: number;
   workers: string;
   expensesLabel: string;
@@ -49,6 +50,7 @@ interface MonthGroup {
   label: string; // "7月"
   count: number;
   manDays: number;
+  nightManDays: number;
   otHours: number;
   reports: MineReport[];
 }
@@ -133,6 +135,7 @@ export function MyPage({ token }: { token: string }) {
           label: `${Number(ym.slice(5, 7))}月`,
           count: 0,
           manDays: 0,
+          nightManDays: 0,
           otHours: 0,
           reports: [],
         };
@@ -140,6 +143,7 @@ export function MyPage({ token }: { token: string }) {
       }
       g.count += 1;
       g.manDays += r.manDays;
+      g.nightManDays += r.nightManDays;
       g.otHours += r.otHours;
       g.reports.push(r);
     }
@@ -189,12 +193,12 @@ export function MyPage({ token }: { token: string }) {
         </div>
         <div className="mp-stats">
           <div className="mp-stat">
-            <b>{current?.count ?? 0}</b>
-            <span>件</span>
-          </div>
-          <div className="mp-stat">
             <b>{fmtNum(current?.manDays ?? 0)}</b>
             <span>人工</span>
+          </div>
+          <div className="mp-stat">
+            <b>{fmtNum(current?.nightManDays ?? 0)}</b>
+            <span>夜勤</span>
           </div>
           <div className="mp-stat">
             <b>{fmtNum(current?.otHours ?? 0)}</b>
@@ -216,7 +220,8 @@ export function MyPage({ token }: { token: string }) {
             <div className="mp-month-head">
               <span>{g.label}</span>
               <span className="mp-month-sub">
-                {g.count}件・{fmtNum(g.manDays)}人工
+                {fmtNum(g.manDays)}人工
+                {g.nightManDays > 0 ? `・夜勤${fmtNum(g.nightManDays)}` : ""}
                 {g.otHours > 0 ? `・残${fmtNum(g.otHours)}h` : ""}
               </span>
             </div>
@@ -268,8 +273,7 @@ export function MyPage({ token }: { token: string }) {
       )}
 
       <p className="hint" style={{ marginTop: 12 }}>
-        間違えた出面は「削除申請」を送ってください。管理者が承認すると削除が確定し、
-        LINEグループにも取消のメッセージが流れます（LINEの送信取り消しでは消えません）。
+        間違えたら「削除申請」→ 管理者の承認で削除されます。
       </p>
     </>
   );
