@@ -27,6 +27,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExpenseKindPicker } from "../_components/expenseKindPicker.js";
+import { MyPage } from "./_myPage.js";
 
 // 冪等キー生成（二重送信防止）。crypto.randomUUID 優先、無ければ簡易生成。
 function newRequestId(): string {
@@ -179,6 +180,7 @@ function loadLiffSdk(): Promise<void> {
 }
 
 type View = "form" | "confirm" | "success";
+type Tab = "input" | "mypage";
 
 interface SubmitOk {
   reportId: string;
@@ -214,6 +216,8 @@ export default function LiffPage() {
   const [workerQuery, setWorkerQuery] = useState<string>("");
 
   const [view, setView] = useState<View>("form");
+  // 下タブ（入力 / マイページ）。マイページから自分の出面を確認・削除申請できる。
+  const [tab, setTab] = useState<Tab>("input");
   const [submitting, setSubmitting] = useState(false);
   const [okResult, setOkResult] = useState<SubmitOk | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -831,12 +835,60 @@ export default function LiffPage() {
     );
   }
 
+  // ── 下タブ（入力 / マイページ）。読み込み完了後の全ビュー共通で下部固定表示 ──
+  const tabBar = (
+    <nav className="tab-bar" aria-label="メニュー">
+      <button
+        type="button"
+        className={`tab-item ${tab === "input" ? "tab-item--on" : ""}`}
+        onClick={() => setTab("input")}
+        aria-current={tab === "input" ? "page" : undefined}
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+        入力
+      </button>
+      <button
+        type="button"
+        className={`tab-item ${tab === "mypage" ? "tab-item--on" : ""}`}
+        onClick={() => setTab("mypage")}
+        aria-current={tab === "mypage" ? "page" : undefined}
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="12" cy="8" r="3.5" />
+          <path d="M5 20c0-3.5 3-5.5 7-5.5s7 2 7 5.5" />
+        </svg>
+        マイページ
+      </button>
+    </nav>
+  );
+
+  // ── マイページ（自分の出面一覧・削除申請） ──
+  if (tab === "mypage") {
+    return (
+      <main className="container has-tabbar">
+        <div className="page-head">
+          <h1 className="page-title">マイページ</h1>
+          {masters.me && (
+            <span className="muted">
+              {masters.me.orgName} / {masters.me.displayName}
+            </span>
+          )}
+        </div>
+        <MyPage token={token ?? ""} />
+        {tabBar}
+      </main>
+    );
+  }
+
   // ── 成功カード ──
   if (view === "success" && okResult) {
     const s = okResult.summary;
     const needsReview = okResult.status === "NEEDS_REVIEW";
     return (
-      <main className="container">
+      <main className="container has-tabbar">
         <div className="card success">
           <div className="success-ico" aria-hidden>
             <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -890,6 +942,7 @@ export default function LiffPage() {
             </button>
           </div>
         </div>
+        {tabBar}
       </main>
     );
   }
@@ -904,7 +957,7 @@ export default function LiffPage() {
         Math.round(Number(x.amount)) !== 0,
     );
     return (
-      <main className="container has-cta">
+      <main className="container has-cta has-tabbar">
         <div className="page-head">
           <h1 className="page-title">この内容で送信していいですか？</h1>
         </div>
@@ -1003,6 +1056,7 @@ export default function LiffPage() {
             </button>
           </div>
         </div>
+        {tabBar}
       </main>
     );
   }
@@ -1011,7 +1065,7 @@ export default function LiffPage() {
   const noWorkers = masters.workers.length === 0;
 
   return (
-    <main className="container has-cta">
+    <main className="container has-cta has-tabbar">
       <div className="page-head">
         <h1 className="page-title">出面入力</h1>
         {masters.me && (
@@ -1458,6 +1512,7 @@ export default function LiffPage() {
           </button>
         </div>
       </div>
+      {tabBar}
     </main>
   );
 }

@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { formatReportLog, groupId, type ReportLogInput } from "./line.js";
+import {
+  formatReportCancelLog,
+  formatReportLog,
+  groupId,
+  type ReportLogInput,
+} from "./line.js";
 
 type Shift = "DAY" | "HALF" | "NIGHT";
 // テスト用の職人エントリ生成（半日は0.5人工）。
@@ -88,6 +93,21 @@ describe("formatReportLog（出面グループ投稿フォーマット）", () =
     // 自社(SELF)の送信時、この文面が bot から LINE_GROUP_ID のグループへ投稿される。
     expect(formatReportLog(r)).toBe(
       "6月29日(月)\n辻濱興業　常用\n綱島\n斎　山口",
+    );
+  });
+});
+
+describe("formatReportCancelLog（出面取消の訂正投稿）", () => {
+  it("取消ヘッダの下に元の投稿フォーマットを続ける", () => {
+    const r: ReportLogInput = {
+      workDate: new Date("2026-07-17T00:00:00.000Z"),
+      contractType: "JOYO",
+      client: { name: "辻濱興業" },
+      site: { name: "みなとみらい" },
+      entries: [W("石渡"), W("金子")],
+    };
+    expect(formatReportCancelLog(r)).toBe(
+      "【出面取消】以下の出面は削除されました。\n7月17日(金)\n辻濱興業　常用\nみなとみらい\n石渡　金子",
     );
   });
 });

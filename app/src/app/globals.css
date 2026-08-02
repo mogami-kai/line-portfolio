@@ -3046,3 +3046,123 @@ details.card .field {
     box-shadow: none;
   }
 }
+
+/* ============================================================
+   LIFF 下タブ（入力 / マイページ）＋ マイページ
+   ・タブは下部固定（safe-area 対応）。cta-bar があるビューでは
+     cta-bar をタブの上に持ち上げる（.has-tabbar .cta-bar）。
+   ============================================================ */
+.tab-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.tab-item {
+  flex: 1;
+  min-height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.tab-item--on {
+  color: var(--accent);
+}
+
+/* タブがある画面は本文下部にタブぶんの余白を確保 */
+.has-tabbar {
+  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+}
+/* cta-bar（送信）とタブが同居する画面: cta-bar をタブの上へ */
+.has-tabbar.has-cta {
+  padding-bottom: calc(160px + env(safe-area-inset-bottom, 0px));
+}
+.has-tabbar .cta-bar {
+  bottom: calc(56px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: 10px;
+}
+
+/* ── マイページ ── */
+.mp-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.mp-stat {
+  text-align: center;
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+  padding: 10px 4px;
+}
+.mp-stat b {
+  display: block;
+  font-size: 20px;
+  line-height: 1.2;
+}
+.mp-stat span {
+  font-size: 11px;
+  color: var(--ink-2);
+}
+.mp-month-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 18px 2px 8px;
+  font-weight: 700;
+}
+.mp-month-sub {
+  color: var(--ink-2);
+  font-weight: 600;
+  font-size: 13px;
+}
+.mp-row {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--card);
+}
+.mp-row + .mp-row {
+  margin-top: 8px;
+}
+.mp-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.mp-date {
+  font-weight: 700;
+}
+.mp-md {
+  font-weight: 700;
+  white-space: nowrap;
+}
+.mp-meta {
+  color: var(--ink-2);
+  font-size: 13px;
+  margin-top: 2px;
+}
+.mp-names {
+  font-size: 13px;
+  margin-top: 2px;
+}
+.mp-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}

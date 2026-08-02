@@ -16,7 +16,10 @@ export type AuditAction =
   | "REPORT_DELETE"
   | "REPORT_CONFIRM"
   | "REPORT_RESEND"
-  | "REPORT_DISMISS";
+  | "REPORT_DISMISS"
+  | "REPORT_DELETE_REQUEST"
+  | "REPORT_DELETE_WITHDRAW"
+  | "REPORT_DELETE_REJECT";
 
 export const ACTION_LABEL: Record<AuditAction, string> = {
   REPORT_CREATE: "フォーム入力",
@@ -25,6 +28,9 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   REPORT_CONFIRM: "承認",
   REPORT_RESEND: "LINE再投稿",
   REPORT_DISMISS: "再投稿しない",
+  REPORT_DELETE_REQUEST: "削除申請",
+  REPORT_DELETE_WITHDRAW: "削除申請の取り下げ",
+  REPORT_DELETE_REJECT: "削除申請の却下",
 };
 
 /** 出面の1行要約（例: "7/9 辻濱興業 みなとみらい"）。 */

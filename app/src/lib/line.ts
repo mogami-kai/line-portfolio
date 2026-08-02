@@ -336,3 +336,13 @@ export function formatReportLog(report: ReportLogInput): string {
 
   return lines.join("\n");
 }
+
+/**
+ * 出面取消の訂正投稿。
+ * LINE の仕様上、bot が送った過去メッセージは API から送信取り消しできない。
+ * そのため「アプリを正」とし、出面が削除されたらこの訂正テキストをグループへ
+ * 流して、LINE 上の見た目と DB の中身のずれを残さない。
+ */
+export function formatReportCancelLog(report: ReportLogInput): string {
+  return `【出面取消】以下の出面は削除されました。\n${formatReportLog(report)}`;
+}

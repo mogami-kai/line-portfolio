@@ -21,11 +21,13 @@ import {
   type ResolvedUser,
 } from "@/lib/auth.js";
 import {
+  formatReportCancelLog,
   formatReportLog,
   groupId,
   pushToGroup,
   type ReportLogInput,
 } from "@/lib/line.js";
+import type { ContractType, Shift } from "@prisma/client";
 import { reportLabel, writeAuditLog } from "@/lib/audit.js";
 import {
   INVITABLE_ROLES,
@@ -587,7 +589,94 @@ export async function confirmReportAction(fd: FormData): Promise<void> {
   revalidatePath("/admin");
 }
 
+/**
+ * グループ投稿用の ReportLogInput を組み立てる（投稿・再投稿・取消投稿で共通）。
+ * 現場表記は自由入力（siteName）優先。請負(UKEOI)は請負金額を現場行に併記する。
+ */
+function toReportLogInput(rep: {
+  workDate: Date;
+  contractType: ContractType;
+  contractAmount: number | null;
+  siteName: string | null;
+  client: { name: string };
+  entries: Array<{
+    shift: Shift;
+    manDays: number;
+    otHours: number;
+    worker: { name: string };
+  }>;
+  expenses: Array<{ kind: string; amount: number }>;
+}): ReportLogInput {
+  const baseSiteName = rep.siteName ?? "";
+  const ukeoiNote =
+    rep.contractType === "UKEOI" && rep.contractAmount != null
+      ? `（請負 ¥${rep.contractAmount.toLocaleString("ja-JP")}）`
+      : "";
+  const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
+  return {
+    workDate: rep.workDate,
+    contractType: rep.contractType,
+    client: rep.client,
+    site: displaySiteName ? { name: displaySiteName } : null,
+    entries: rep.entries.map((e) => ({
+      shift: e.shift,
+      manDays: e.manDays,
+      otHours: e.otHours,
+      worker: e.worker,
+    })),
+    expenses: rep.expenses.map((x) => ({ kind: x.kind, amount: x.amount })),
+  };
+}
+
 export async function deleteReportAction(fd: FormData): Promise<void> {
+  const admin = await requireAdminAction();
+  const id = str(fd, "id");
+  if (!id) throw new Error("id がありません");
+  // 取消の訂正投稿にも使うため、削除前に全文を取得しておく。
+  const rep = await prisma.report.findUnique({
+    where: { id },
+    include: {
+      client: { select: { name: true } },
+      org: { select: { kind: true } },
+      entries: { include: { worker: { select: { name: true } } } },
+      expenses: { select: { kind: true, amount: true } },
+    },
+  });
+  if (!rep) throw new Error("出面が見つかりません");
+  await assertOrgInScope(admin, rep.orgId);
+  // entries は onDelete: Cascade。expenses は任意リレーション（SetNull 既定）の
+  // ため、孤児を残さないよう明示削除してから本体を消す（トランザクション）。
+  await prisma.$transaction([
+    prisma.expense.deleteMany({ where: { reportId: id } }),
+    prisma.report.delete({ where: { id } }),
+  ]);
+  // ★アプリを正: グループ投稿済みの自社出面を消したら、bot から取消の訂正投稿を流す
+  //   （LINE の仕様上、投稿済みメッセージ自体は消せないため）。PARTNER は非投稿の
+  //   仕様なので流さない。投稿失敗でも削除は確定済み（best-effort）。
+  if (rep.org.kind === "SELF" && rep.postedToGroup) {
+    try {
+      await pushToGroup(formatReportCancelLog(toReportLogInput(rep)));
+    } catch (e) {
+      console.error("[delete] cancel push failed", e);
+    }
+  }
+  // 操作履歴: 誰が削除したか（対象の要約は削除前に取得済み）。
+  await writeAuditLog({
+    actorId: admin.user.id,
+    actorName: admin.user.displayName,
+    action: "REPORT_DELETE",
+    reportId: id,
+    summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を削除`,
+  });
+  revalidateTag("reports"); // 月次集計キャッシュを無効化
+  revalidatePath("/admin");
+}
+
+/**
+ * 削除申請の却下: 申請フラグを外すだけ（出面は残る）。
+ * スコープ管理者は自組織のみ。履歴に残す。
+ */
+export async function rejectReportDeleteAction(fd: FormData): Promise<void> {
   const admin = await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
@@ -602,21 +691,17 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
   });
   if (!rep) throw new Error("出面が見つかりません");
   await assertOrgInScope(admin, rep.orgId);
-  // entries は onDelete: Cascade。expenses は任意リレーション（SetNull 既定）の
-  // ため、孤児を残さないよう明示削除してから本体を消す（トランザクション）。
-  await prisma.$transaction([
-    prisma.expense.deleteMany({ where: { reportId: id } }),
-    prisma.report.delete({ where: { id } }),
-  ]);
-  // 操作履歴: 誰が削除したか（対象の要約は削除前に取得済み）。
+  await prisma.report.update({
+    where: { id },
+    data: { deleteRequestedAt: null, deleteRequestedBy: null },
+  });
   await writeAuditLog({
     actorId: admin.user.id,
     actorName: admin.user.displayName,
-    action: "REPORT_DELETE",
+    action: "REPORT_DELETE_REJECT",
     reportId: id,
-    summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を削除`,
+    summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} の削除申請を却下`,
   });
-  revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
 }
 
@@ -690,25 +775,7 @@ export async function resendReportToGroupAction(
     }
 
     // reports API と同じ整形ロジック（請負金額の併記含む）。
-    const baseSiteName = rep.siteName ?? "";
-    const ukeoiNote =
-      rep.contractType === "UKEOI" && rep.contractAmount != null
-        ? `（請負 ¥${rep.contractAmount.toLocaleString("ja-JP")}）`
-        : "";
-    const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
-    const logInput: ReportLogInput = {
-      workDate: rep.workDate,
-      contractType: rep.contractType,
-      client: rep.client,
-      site: displaySiteName ? { name: displaySiteName } : null,
-      entries: rep.entries.map((e) => ({
-        shift: e.shift,
-        manDays: e.manDays,
-        otHours: e.otHours,
-        worker: e.worker,
-      })),
-      expenses: rep.expenses.map((x) => ({ kind: x.kind, amount: x.amount })),
-    };
+    const logInput = toReportLogInput(rep);
 
     // 投稿が成功した場合のみ postedToGroup=true。失敗時はフラグを変えず理由を返す。
     try {

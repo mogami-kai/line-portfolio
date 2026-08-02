@@ -239,6 +239,10 @@ model Report {
   // 二重送信防止: クライアントが生成する一意キー（任意）。
   // 同一キーの再POSTは既存レポートを返して新規作成しない（冪等性）。
   clientRequestId String?    @unique
+  // 削除申請: LIFF マイページから入力者本人が出す。管理者が承認（削除）または
+  // 却下するまで保持。申請中も集計には乗せ続ける（確定削除まで数字を動かさない）。
+  deleteRequestedAt DateTime?
+  deleteRequestedBy String?  // 申請した User.id
   createdAt     DateTime     @default(now())
 
   entries  ReportEntry[]
