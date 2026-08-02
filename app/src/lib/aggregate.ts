@@ -605,6 +605,236 @@ export async function summarizeExpenses(
 }
 
 // ============================================================
+// 月間出勤マトリクス（/admin/aggregate 上部）
+//   縦=職人・横=日付（1〜末日）。セルは「その日その職人がどの勤務区分で
+//   何件出面登録されているか」を件数ベースで表示する（日×2・日+夜 等）。
+//   右端の合計列は resolveManDays を正として集計する（件数からの推測はしない）。
+//
+//   集計条件（対象月・status=CONFIRMED・org.active・スコープ）は
+//   summarizeByWorker と完全に一致させ、右端「人工」合計が職人別集計の
+//   合計と食い違わないようにする。DB取得（summarizeDispatchMatrix）と
+//   集計ロジック（buildDispatchMatrix・DB非依存の純粋関数）を分離し、
+//   後者は単体テスト対象にする。
+// ============================================================
+
+/** "2026-07" → 31。閏年・月末は Date に判定させる（手計算しない）。 */
+export function daysInMonth(yearMonth: string): number {
+  const [y, m] = yearMonth.split("-").map((v) => parseInt(v, 10));
+  // Date.UTC(y, m, 0) = m月(1-12)の "0日目" = m月の末日。閏年判定も JS 任せ。
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+/** 1日・1勤務区分ぶんの束（同日同区分が複数件あれば集約）。 */
+export interface DispatchShiftCell {
+  shift: Shift;
+  /** その区分の出面件数（セル表示「日×2」等は件数ベース）。 */
+  count: number;
+  /** resolveManDays で解決した人工の合計（合計列の検算に使用。セル表示には使わない）。 */
+  manDays: number;
+  otHours: number;
+}
+
+/** 1職人・1日ぶんのセル。出勤なしは shifts: []。 */
+export interface DispatchDayCell {
+  day: number; // 1-31
+  shifts: DispatchShiftCell[];
+  totalManDays: number;
+  totalOtHours: number;
+}
+
+export interface DispatchMatrixTotals {
+  manDays: number;
+  dayManDays: number;
+  nightManDays: number;
+  halfManDays: number;
+  otHours: number;
+}
+
+export interface DispatchMatrixWorker {
+  workerId: string | null;
+  workerName: string;
+  /** length = daysInMonth(yearMonth)。days[i].day = i+1。 */
+  days: DispatchDayCell[];
+  totals: DispatchMatrixTotals;
+}
+
+/** buildDispatchMatrix への入力（DB から拾う最小の生データ）。 */
+export interface DispatchMatrixRawEntry {
+  /** ReportEntry.workerId は必須FKなので通常は非null。念のため null 許容。 */
+  workerId: string | null;
+  workerName: string;
+  /** Report.workDate（UTC午前0時＝業務日付）。getUTCDate() で日を読む。 */
+  workDate: Date;
+  shift: Shift;
+  /** ReportEntry.manDays の保存値（未解決）。 */
+  manDays: number;
+  otHours: number;
+}
+
+/** セルの組み合わせ表示順（例が示す「日+夜」「日+半」に合わせ日勤を先頭に）。 */
+const DISPATCH_SHIFT_ORDER: Shift[] = ["DAY", "NIGHT", "HALF"];
+
+/**
+ * 生の出面明細（複数 Report・複数職人にまたがってよい）を 職人×日 のマトリクスに束ねる。
+ * DB非依存の純粋関数。summarizeByWorker と同じ「workerId ?? "__unknown__"」キーで
+ * グルーピングし、合計の食い違いが起きないようにする。
+ */
+export function buildDispatchMatrix(
+  yearMonth: string,
+  entries: DispatchMatrixRawEntry[],
+): DispatchMatrixWorker[] {
+  const days = daysInMonth(yearMonth);
+
+  interface WorkerAcc {
+    workerId: string | null;
+    workerName: string;
+    /** day(1-based) → shift → 集約バケット。 */
+    dayShifts: Map<number, Map<Shift, DispatchShiftCell>>;
+    totals: DispatchMatrixTotals;
+  }
+  const map = new Map<string, WorkerAcc>();
+
+  for (const e of entries) {
+    // summarizeByWorker と同じキー規約（workerId 基準・null は1つに集約）。
+    const key = e.workerId ?? "__unknown__";
+    const acc: WorkerAcc =
+      map.get(key) ??
+      {
+        workerId: e.workerId,
+        workerName: e.workerName,
+        dayShifts: new Map(),
+        totals: {
+          manDays: 0,
+          dayManDays: 0,
+          nightManDays: 0,
+          halfManDays: 0,
+          otHours: 0,
+        },
+      };
+
+    const day = e.workDate.getUTCDate();
+    const md = resolveManDays(e.shift, e.manDays);
+    const ot = Number(e.otHours) || 0;
+
+    const dayMap = acc.dayShifts.get(day) ?? new Map<Shift, DispatchShiftCell>();
+    const bucket = dayMap.get(e.shift) ?? {
+      shift: e.shift,
+      count: 0,
+      manDays: 0,
+      otHours: 0,
+    };
+    bucket.count += 1;
+    bucket.manDays += md;
+    bucket.otHours += ot;
+    dayMap.set(e.shift, bucket);
+    acc.dayShifts.set(day, dayMap);
+
+    acc.totals.manDays += md;
+    if (e.shift === "NIGHT") acc.totals.nightManDays += md;
+    else if (e.shift === "HALF") acc.totals.halfManDays += md;
+    else acc.totals.dayManDays += md;
+    acc.totals.otHours += ot;
+
+    map.set(key, acc);
+  }
+
+  const workers: DispatchMatrixWorker[] = Array.from(map.values()).map(
+    (acc) => {
+      const daysArr: DispatchDayCell[] = [];
+      for (let d = 1; d <= days; d++) {
+        const dayMap = acc.dayShifts.get(d);
+        const shifts = dayMap
+          ? DISPATCH_SHIFT_ORDER.filter((s) => dayMap.has(s)).map(
+              (s) => dayMap.get(s)!,
+            )
+          : [];
+        const totalManDays = shifts.reduce((a, s) => a + s.manDays, 0);
+        const totalOtHours = shifts.reduce((a, s) => a + s.otHours, 0);
+        daysArr.push({ day: d, shifts, totalManDays, totalOtHours });
+      }
+      return {
+        workerId: acc.workerId,
+        workerName: acc.workerName,
+        days: daysArr,
+        totals: acc.totals,
+      };
+    },
+  );
+
+  // summarizeByWorker と同じ並び（人工降順→氏名）で一覧性を揃える。
+  return workers.sort(
+    (a, b) =>
+      b.totals.manDays - a.totals.manDays ||
+      a.workerName.localeCompare(b.workerName, "ja"),
+  );
+}
+
+const DISPATCH_SHIFT_KANJI: Record<Shift, string> = {
+  DAY: "日",
+  NIGHT: "夜",
+  HALF: "半",
+};
+
+/** セル表示文字列（"－" / "日" / "日×2" / "日+夜" 等）。DB非依存の純粋関数。 */
+export function formatDispatchCell(cell: DispatchDayCell): string {
+  if (cell.shifts.length === 0) return "－";
+  return cell.shifts
+    .map((s) =>
+      s.count > 1
+        ? `${DISPATCH_SHIFT_KANJI[s.shift]}×${s.count}`
+        : DISPATCH_SHIFT_KANJI[s.shift],
+    )
+    .join("+");
+}
+
+/**
+ * 月間出勤マトリクスのDB取得。職人×日×entriesぶんを1クエリでまとめて取り、
+ * 集計は buildDispatchMatrix（純粋関数）に委譲する（N+1なし）。
+ * opts は summarizeByWorker と同じ規約（source/orgId でスコープ）。
+ */
+export async function summarizeDispatchMatrix(
+  yearMonth: string,
+  opts?: { source?: OrgKind; orgId?: string },
+): Promise<DispatchMatrixWorker[]> {
+  const { from, to } = monthRange(yearMonth);
+  const reports = await prisma.report.findMany({
+    where: {
+      workDate: { gte: from, lt: to },
+      status: "CONFIRMED",
+      org: { active: true },
+      ...(opts?.source ? { source: opts.source } : {}),
+      ...(opts?.orgId ? { orgId: opts.orgId } : {}),
+    },
+    select: {
+      workDate: true,
+      entries: {
+        select: {
+          shift: true,
+          manDays: true,
+          otHours: true,
+          worker: { select: { id: true, name: true } },
+        },
+      },
+    },
+  });
+
+  const raw: DispatchMatrixRawEntry[] = [];
+  for (const r of reports) {
+    for (const e of r.entries) {
+      raw.push({
+        workerId: e.worker?.id ?? null,
+        workerName: e.worker?.name ?? "(不明)",
+        workDate: r.workDate,
+        shift: e.shift as Shift,
+        manDays: e.manDays,
+        otHours: e.otHours,
+      });
+    }
+  }
+  return buildDispatchMatrix(yearMonth, raw);
+}
+
+// ============================================================
 // 月次サマリのキャッシュ（管理ダッシュボード）
 //   自社/パートナーの取引先別サマリ＋職人別サマリ＋立替集計を 1 つにまとめ、
 //   unstable_cache でキャッシュ（tag="reports"・revalidate=60s）。出面の
