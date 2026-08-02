@@ -23,7 +23,12 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext, getSessionUserIfExists, adminScopeOrgId } from "@/lib/auth.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
-import { confirmReportAction } from "./_actions.js";
+import {
+  confirmReportAction,
+  deleteReportAction,
+  rejectReportDeleteAction,
+} from "./_actions.js";
+import { ConfirmDeleteButton } from "./_confirmDelete.js";
 import { UnpostedActions } from "./_unpostedActions.js";
 import { currentYearMonth, monthRange } from "@/lib/aggregate.js";
 
@@ -158,7 +163,7 @@ export default async function AdminPage({
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。
   // 編集の取引先/職人ドロップダウンは、カードの「編集」を押した時にモーダル側で
   // 取得する（一覧へ巨大配列を撒かない＝ホームの転送量とハイドレーションを軽く保つ）。
-  const [needsReview, recent, unposted] = await Promise.all([
+  const [needsReview, recent, unposted, deleteRequests] = await Promise.all([
     prisma.report.findMany({
       where: { status: "NEEDS_REVIEW", ...scopeWhere },
       orderBy: { createdAt: "desc" },
@@ -213,7 +218,39 @@ export default async function AdminPage({
         entries: { select: { worker: { select: { name: true } } } },
       },
     }),
+    // 削除申請（LIFF マイページから本人が出したもの）。承認＝削除 / 却下を選ぶ。
+    prisma.report.findMany({
+      where: { deleteRequestedAt: { not: null }, ...scopeWhere },
+      orderBy: { deleteRequestedAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        workDate: true,
+        siteName: true,
+        deleteRequestedBy: true,
+        client: { select: { name: true } },
+        site: { select: { name: true } },
+        org: { select: { kind: true } },
+        entries: { select: { worker: { select: { name: true } } } },
+      },
+    }),
   ]);
+
+  // 削除申請者の表示名（deleteRequestedBy は素の User.id）。
+  const requesterIds = Array.from(
+    new Set(
+      deleteRequests
+        .map((r) => r.deleteRequestedBy)
+        .filter((v): v is string => Boolean(v)),
+    ),
+  );
+  const requesters = requesterIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: requesterIds } },
+        select: { id: true, displayName: true },
+      })
+    : [];
+  const requesterNameById = new Map(requesters.map((u) => [u.id, u.displayName]));
 
   // 月ナビ。
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
@@ -278,6 +315,61 @@ export default async function AdminPage({
       <div className="admin-grid">
         {/* ───────── 左：日々のチェック（主役）───────── */}
         <div className="admin-main">
+          {/* ⓪ 削除申請（LIFFマイページから本人が申請。承認＝削除＋LINE取消投稿 / 却下） */}
+          {deleteRequests.length > 0 && (
+            <section className="block">
+              <div className="notice notice--warn" style={{ marginBottom: 12 }}>
+                出面の削除申請が {deleteRequests.length} 件あります。
+                「削除する」で確定すると集計から消え、LINE グループにも取消が投稿されます。
+              </div>
+              <div className="review-list">
+                {deleteRequests.map((r) => {
+                  const names = r.entries
+                    .map((e) => e.worker?.name)
+                    .filter(Boolean)
+                    .join("　");
+                  const requester = r.deleteRequestedBy
+                    ? requesterNameById.get(r.deleteRequestedBy) ?? "(不明)"
+                    : "(不明)";
+                  const site = r.siteName || r.site?.name || "(現場未設定)";
+                  return (
+                    <div className="review-card" key={r.id}>
+                      <div className="review-body">
+                        <div className="review-title">
+                          <span className="review-date">{mdW(r.workDate)}</span>
+                          {r.client.name}
+                          <span className="badge badge--review">削除申請</span>
+                          {r.org.kind === "PARTNER" && (
+                            <span className="badge badge--partner">協力会社</span>
+                          )}
+                        </div>
+                        <div className="review-meta">
+                          {site} ・ 申請者: {requester}
+                        </div>
+                        {names && <div className="review-names">{names}</div>}
+                      </div>
+                      <div className="review-actions">
+                        <ConfirmDeleteButton
+                          action={deleteReportAction}
+                          id={r.id}
+                          label="削除する"
+                          className="btn btn--primary btn--sm"
+                          confirmText={`${mdW(r.workDate)} ${r.client.name} ${site} の出面を削除します。集計から消え、LINEグループにも取消が投稿されます。よろしいですか？`}
+                        />
+                        <form action={rejectReportDeleteAction}>
+                          <input type="hidden" name="id" value={r.id} />
+                          <button type="submit" className="btn btn--ghost btn--sm">
+                            却下
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {/* ⓪ 未投稿アラート（自社SELFのグループ投稿失敗） */}
           {unposted.length > 0 && (
             <section className="block">
@@ -433,6 +525,21 @@ export default async function AdminPage({
               <span>
                 <span className="invoice-cta-title">請求書を作る</span>
                 <span className="invoice-cta-sub">集計どおりに月末発行</span>
+              </span>
+              <span className="invoice-cta-arrow" aria-hidden>
+                ›
+              </span>
+            </a>
+
+            {/* 集計が合わないときの突き合わせ */}
+            <a
+              href={`/admin/check?ym=${ym}`}
+              className="invoice-cta"
+              style={{ marginTop: 10 }}
+            >
+              <span>
+                <span className="invoice-cta-title">データチェック</span>
+                <span className="invoice-cta-sub">二重登録の疑いを検出・削除</span>
               </span>
               <span className="invoice-cta-arrow" aria-hidden>
                 ›

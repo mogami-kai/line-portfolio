@@ -112,6 +112,14 @@ export async function POST(req: Request) {
           );
         }
         break;
+      case "unsend":
+        // ユーザーが自分のメッセージを送信取り消しした（bot の投稿は対象にならない）。
+        // ★ LINE 上の取り消し・削除はアプリのデータ（出面）には一切影響しない。
+        //   出面の削除は管理画面（/admin/check または編集モーダル）から行う運用。
+        console.log(
+          `[webhook] message unsent by user=${src.userId ?? "-"} (出面データは削除されない)`,
+        );
+        break;
       default:
         break;
     }

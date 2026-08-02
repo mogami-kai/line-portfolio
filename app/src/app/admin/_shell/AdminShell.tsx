@@ -56,6 +56,12 @@ const IconHistory = () => (
     <path d="M12 7v5l3 3" />
   </svg>
 );
+const IconCheck = () => (
+  <svg viewBox="0 0 24 24" width="20" height="20" {...stroke} aria-hidden>
+    <rect x="4" y="4" width="16" height="16" rx="3" />
+    <path d="m8.5 12.5 2.5 2.5 4.5-5" />
+  </svg>
+);
 const IconUsers = () => (
   <svg viewBox="0 0 24 24" width="20" height="20" {...stroke} aria-hidden>
     <circle cx="9" cy="8" r="3.2" />
@@ -88,6 +94,12 @@ const NAV: NavItem[] = [
     label: "ユーザー管理",
     icon: IconUsers,
     match: (p) => p.startsWith("/admin/users"),
+  },
+  {
+    href: "/admin/check",
+    label: "データチェック",
+    icon: IconCheck,
+    match: (p) => p.startsWith("/admin/check"),
   },
   {
     href: "/admin/logs",
