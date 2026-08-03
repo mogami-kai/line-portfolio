@@ -634,12 +634,31 @@ export interface DispatchShiftCell {
   otHours: number;
 }
 
+/**
+ * セルから開く出面への参照（1職人・1日・1出面ぶん）。
+ * マス目タップ→該当出面の編集モーダル、および残業がどの現場で出たかの表示に使う。
+ */
+export interface DispatchEntryRef {
+  reportId: string;
+  clientName: string;
+  /** 現場名（自由入力優先→現場マスタ名）。未設定は空文字。 */
+  siteName: string;
+  shift: Shift;
+  manDays: number;
+  otHours: number;
+}
+
 /** 1職人・1日ぶんのセル。出勤なしは shifts: []。 */
 export interface DispatchDayCell {
   day: number; // 1-31
   shifts: DispatchShiftCell[];
   totalManDays: number;
   totalOtHours: number;
+  /**
+   * その日その職人が登録されている出面（登録順）。
+   * 1件ならタップで即編集、複数件ならどれを開くか選ばせる。
+   */
+  refs: DispatchEntryRef[];
 }
 
 export interface DispatchMatrixTotals {
@@ -669,6 +688,11 @@ export interface DispatchMatrixRawEntry {
   /** ReportEntry.manDays の保存値（未解決）。 */
   manDays: number;
   otHours: number;
+  /** 所属する出面（セルタップで開く対象）。 */
+  reportId: string;
+  clientName: string;
+  /** 現場名（自由入力優先→現場マスタ名）。未設定は空文字。 */
+  siteName: string;
 }
 
 /** セルの組み合わせ表示順（例が示す「日+夜」「日+半」に合わせ日勤を先頭に）。 */
@@ -690,6 +714,8 @@ export function buildDispatchMatrix(
     workerName: string;
     /** day(1-based) → shift → 集約バケット。 */
     dayShifts: Map<number, Map<Shift, DispatchShiftCell>>;
+    /** day(1-based) → その日の出面参照（登録順）。 */
+    dayRefs: Map<number, DispatchEntryRef[]>;
     totals: DispatchMatrixTotals;
   }
   const map = new Map<string, WorkerAcc>();
@@ -703,6 +729,7 @@ export function buildDispatchMatrix(
         workerId: e.workerId,
         workerName: e.workerName,
         dayShifts: new Map(),
+        dayRefs: new Map(),
         totals: {
           manDays: 0,
           dayManDays: 0,
@@ -729,6 +756,18 @@ export function buildDispatchMatrix(
     dayMap.set(e.shift, bucket);
     acc.dayShifts.set(day, dayMap);
 
+    // セルタップで開く出面・残業がどの現場で出たかの表示に使う参照を積む。
+    const refs = acc.dayRefs.get(day) ?? [];
+    refs.push({
+      reportId: e.reportId,
+      clientName: e.clientName,
+      siteName: e.siteName,
+      shift: e.shift,
+      manDays: md,
+      otHours: ot,
+    });
+    acc.dayRefs.set(day, refs);
+
     acc.totals.manDays += md;
     if (e.shift === "NIGHT") acc.totals.nightManDays += md;
     else if (e.shift === "HALF") acc.totals.halfManDays += md;
@@ -750,7 +789,13 @@ export function buildDispatchMatrix(
           : [];
         const totalManDays = shifts.reduce((a, s) => a + s.manDays, 0);
         const totalOtHours = shifts.reduce((a, s) => a + s.otHours, 0);
-        daysArr.push({ day: d, shifts, totalManDays, totalOtHours });
+        daysArr.push({
+          day: d,
+          shifts,
+          totalManDays,
+          totalOtHours,
+          refs: acc.dayRefs.get(d) ?? [],
+        });
       }
       return {
         workerId: acc.workerId,
@@ -806,7 +851,11 @@ export async function summarizeDispatchMatrix(
       ...(opts?.orgId ? { orgId: opts.orgId } : {}),
     },
     select: {
+      id: true,
       workDate: true,
+      siteName: true,
+      site: { select: { name: true } },
+      client: { select: { name: true } },
       entries: {
         select: {
           shift: true,
@@ -816,10 +865,14 @@ export async function summarizeDispatchMatrix(
         },
       },
     },
+    // セル内の複数出面の並びを安定させる（登録順）。
+    orderBy: { createdAt: "asc" },
   });
 
   const raw: DispatchMatrixRawEntry[] = [];
   for (const r of reports) {
+    // 現場名は loadMonthRows / summarizeByWorker と同じ優先順（自由入力→現場マスタ）。
+    const siteName = r.siteName?.trim() || r.site?.name || "";
     for (const e of r.entries) {
       raw.push({
         workerId: e.worker?.id ?? null,
@@ -828,6 +881,9 @@ export async function summarizeDispatchMatrix(
         shift: e.shift as Shift,
         manDays: e.manDays,
         otHours: e.otHours,
+        reportId: r.id,
+        clientName: r.client.name,
+        siteName,
       });
     }
   }

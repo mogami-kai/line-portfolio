@@ -76,8 +76,11 @@ export function EditReportButton({
   );
 }
 
-/** 編集モーダル本体（body 直下にポータル）。フォーム状態と保存/削除を持つ。 */
-function EditModal({
+/**
+ * 編集モーダル本体（body 直下にポータル）。フォーム状態と保存/削除を持つ。
+ * ボタン以外（集計の月間出勤マトリクスのマス目など）からも開けるよう export する。
+ */
+export function EditModal({
   reportId,
   onClose,
 }: {

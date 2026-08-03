@@ -3291,3 +3291,151 @@ details.card .field {
 .dm-table td:last-child {
   border-right: none;
 }
+
+/* ── マス目タップで出面編集（月間出勤マトリクス） ── */
+.dm-td-day {
+  padding: 0; /* ボタンがセル全面を埋めるため、余白はボタン側で持つ */
+}
+.dm-cell-btn {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 5px 4px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.dm-cell-btn:hover {
+  background: rgba(43, 95, 179, 0.1);
+}
+.dm-cell-btn:active {
+  background: rgba(43, 95, 179, 0.18);
+}
+.dm-cell-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.dm-cell-shift {
+  line-height: 1.2;
+}
+/* セル内の残業表示（どの日に残業したかが表で分かる） */
+.dm-cell-ot {
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+  border-radius: 3px;
+  padding: 1px 3px;
+  white-space: nowrap;
+}
+/* 出勤なしのセルはボタンにしない（padding を td 側へ戻す） */
+.dm-td-day.dm-empty {
+  padding: 6px 8px;
+}
+
+/* 同日に複数出面があるときの選択ダイアログ */
+.dm-picker-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 16px;
+  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+}
+.dm-picker-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 24, 32, 0.4);
+  border: none;
+  cursor: pointer;
+}
+.dm-picker {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(16, 24, 32, 0.2);
+}
+.dm-picker-head {
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+.dm-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.dm-picker-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.dm-picker-item:active {
+  background: var(--accent-soft);
+}
+.dm-picker-site {
+  font-weight: 700;
+}
+.dm-picker-meta {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+/* 残業の内訳（表の下に折りたたみで置く） */
+.dm-ot {
+  margin-top: 10px;
+}
+.dm-ot > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+  list-style: none;
+}
+.dm-ot > summary::-webkit-details-marker {
+  display: none;
+}
+.dm-ot > summary::before {
+  content: "▾";
+  color: var(--ink-3);
+  font-size: 11px;
+  transition: transform 0.15s;
+}
+.dm-ot[open] > summary::before {
+  transform: rotate(180deg);
+}
+.dm-ot-total {
+  font-weight: 600;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.dm-ot-table {
+  margin-top: 6px;
+}

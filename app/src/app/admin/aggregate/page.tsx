@@ -43,12 +43,33 @@ const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
 const ymStr = (d: Date) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
 
-/** DispatchMatrixWorker[] → 表示用の行（セル文字列は formatDispatchCell で確定）。 */
+/** 勤務区分 → セル/一覧に出す1文字ラベル。 */
+const SHIFT_LABEL_JP: Record<"DAY" | "NIGHT" | "HALF", string> = {
+  DAY: "日",
+  NIGHT: "夜",
+  HALF: "半",
+};
+
+/**
+ * DispatchMatrixWorker[] → 表示用の行。
+ * セル文字列は formatDispatchCell で確定させ、タップで開く出面の参照
+ * （reportId・現場名・残業）をそのまま渡す。
+ */
 function toDispatchRows(workers: DispatchMatrixWorker[]): DispatchMatrixRow[] {
   return workers.map((w, i) => ({
     key: w.workerId ?? `unknown-${i}`,
     workerName: w.workerName,
-    cells: w.days.map((d) => formatDispatchCell(d)),
+    cells: w.days.map((d) => ({
+      text: formatDispatchCell(d),
+      otHours: d.totalOtHours,
+      refs: d.refs.map((ref) => ({
+        reportId: ref.reportId,
+        clientName: ref.clientName,
+        siteName: ref.siteName,
+        shiftLabel: SHIFT_LABEL_JP[ref.shift],
+        otHours: ref.otHours,
+      })),
+    })),
     totals: w.totals,
   }));
 }
