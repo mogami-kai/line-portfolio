@@ -3174,18 +3174,6 @@ details.card .field {
      border-collapse は使わず border-bottom/right で罫線を再現する。
    ・スマホは横スクロール（overflow-x: auto）。カルーセルライブラリは使わない。
    ============================================================ */
-.dm-hint {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--ink-3);
-  text-align: center;
-}
-@media (min-width: 1024px) {
-  .dm-hint {
-    display: none;
-  }
-}
-
 .dm-scroll {
   overflow: auto;
   max-height: 62vh;

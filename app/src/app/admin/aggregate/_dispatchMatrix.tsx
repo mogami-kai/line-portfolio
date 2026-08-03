@@ -100,9 +100,6 @@ export function DispatchMatrixTable({
 
   return (
     <div>
-      <p className="dm-hint">
-        マス目をタップすると出面を編集できます（← 横スワイプで日付移動 →）
-      </p>
       <div
         className="dm-scroll"
         tabIndex={0}
