@@ -24,6 +24,9 @@ const entry = (
   shift: "DAY",
   manDays: 0,
   otHours: 0,
+  reportId: "r1",
+  clientName: "辻濱興業",
+  siteName: "みなとみらい",
   ...overrides,
 });
 
@@ -151,6 +154,78 @@ describe("buildDispatchMatrix — 勤務区分ごとの人工・表示", () => {
   });
 });
 
+describe("buildDispatchMatrix — セルから開く出面参照（refs）", () => {
+  it("出勤日は reportId・現場名・残業を持つ（マス目タップの編集対象）", () => {
+    const [w] = buildDispatchMatrix("2026-07", [
+      entry({
+        workDate: wd("2026-07-10"),
+        shift: "DAY",
+        otHours: 1,
+        reportId: "rep-A",
+        clientName: "辻濱興業",
+        siteName: "みなとみらい",
+      }),
+    ]);
+    expect(w.days[9].refs).toEqual([
+      {
+        reportId: "rep-A",
+        clientName: "辻濱興業",
+        siteName: "みなとみらい",
+        shift: "DAY",
+        manDays: 1,
+        otHours: 1,
+      },
+    ]);
+  });
+
+  it("出勤なしの日は refs が空（タップ不可）", () => {
+    const [w] = buildDispatchMatrix("2026-07", [
+      entry({ workDate: wd("2026-07-10") }),
+    ]);
+    expect(w.days[0].refs).toEqual([]);
+  });
+
+  it("同日に複数出面があると refs が登録順で複数入る（選択させる）", () => {
+    const [w] = buildDispatchMatrix("2026-07", [
+      entry({ workDate: wd("2026-07-10"), reportId: "rep-1", siteName: "A現場" }),
+      entry({
+        workDate: wd("2026-07-10"),
+        shift: "NIGHT",
+        reportId: "rep-2",
+        siteName: "B現場",
+        otHours: 2,
+      }),
+    ]);
+    expect(w.days[9].refs.map((r) => r.reportId)).toEqual(["rep-1", "rep-2"]);
+    expect(w.days[9].refs.map((r) => r.siteName)).toEqual(["A現場", "B現場"]);
+  });
+
+  it("残業がどの現場で出たか ref 単位で追える（totalOtHours はその日の合計）", () => {
+    const [w] = buildDispatchMatrix("2026-07", [
+      entry({ workDate: wd("2026-07-10"), reportId: "rep-1", siteName: "A現場", otHours: 0 }),
+      entry({
+        workDate: wd("2026-07-10"),
+        shift: "NIGHT",
+        reportId: "rep-2",
+        siteName: "B現場",
+        otHours: 1.5,
+      }),
+    ]);
+    const withOt = w.days[9].refs.filter((r) => r.otHours > 0);
+    expect(withOt).toHaveLength(1);
+    expect(withOt[0].siteName).toBe("B現場");
+    expect(w.days[9].totalOtHours).toBe(1.5);
+  });
+
+  it("現場名が空でも ref は取引先名を保持する（表示側でフォールバック）", () => {
+    const [w] = buildDispatchMatrix("2026-07", [
+      entry({ workDate: wd("2026-07-10"), siteName: "", clientName: "恵興業" }),
+    ]);
+    expect(w.days[9].refs[0].siteName).toBe("");
+    expect(w.days[9].refs[0].clientName).toBe("恵興業");
+  });
+});
+
 describe("buildDispatchMatrix — 職人の分離・並び順", () => {
   it("職人ごとに行を分ける（workerId基準）", () => {
     const workers = buildDispatchMatrix("2026-07", [
@@ -197,6 +272,7 @@ describe("formatDispatchCell", () => {
     shifts,
     totalManDays: 0,
     totalOtHours: 0,
+    refs: [],
   });
 
   it("空配列は「－」", () => {
