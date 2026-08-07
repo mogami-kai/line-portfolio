@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExpenseKindPicker } from "../_components/expenseKindPicker.js";
 import { MyPage } from "./_myPage.js";
+import { LIFF_SDK_URL } from "./_sdkUrl.js";
 
 // 冪等キー生成（二重送信防止）。crypto.randomUUID 優先、無ければ簡易生成。
 function newRequestId(): string {
@@ -56,8 +57,6 @@ declare global {
   }
 }
 
-// LIFF v2 SDK（公式CDN: static.line-scdn.net。static.line.me は読めずSDK load errorになる）
-const LIFF_SDK_URL = "https://static.line-scdn.net/liff/edge/2/sdk.js";
 const LS_KEY = "demen:lastReport:v1";
 
 type Shift = "DAY" | "HALF" | "NIGHT";

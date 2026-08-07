@@ -25,15 +25,13 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ja">
-      <head>
-        {/* LIFF SDK の CDN へ早期に接続（DNS+TLS を先行）。/liff の初期描画を短縮。 */}
-        <link
-          rel="preconnect"
-          href="https://static.line-scdn.net"
-          crossOrigin="anonymous"
-        />
-        <link rel="dns-prefetch" href="https://static.line-scdn.net" />
-      </head>
+      {/*
+        LIFF SDK の CDN への先行接続は src/app/liff/layout.tsx に移した。
+        ・preconnect より強い preload（接続を張ったうえで実体も取りに行く）にした
+        ・crossOrigin="anonymous" を外した — 実際に読む <script> は crossorigin 無し
+          ＝ no-cors なので、anonymous で温めた接続は流用されず無駄だった
+        ・/admin では LINE の CDN を一切使わないので、そちらで張るのもやめた
+      */}
       <body>{children}</body>
     </html>
   );

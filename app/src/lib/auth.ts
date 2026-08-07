@@ -11,6 +11,7 @@
 //   協力会社(PARTNER): LIFF フォームのみ。出面は保存のみ（グループ投稿なし）。
 // ============================================================
 
+import { cache } from "react";
 import type { Organization, User } from "@prisma/client";
 import { prisma } from "./db.js";
 import { resolveLineUserFromToken } from "./line.js";
@@ -295,17 +296,23 @@ export async function getAdminContextFromSession(
  * Server Component / Server Action / Route Handler から呼べる。
  * 該当が無ければ null（呼び出し側で 403/ログイン誘導）。
  */
-export async function getAdminContext(): Promise<ResolvedUser | null> {
-  // next/headers は Server Component / Action / Route Handler でのみ利用可。
-  // 動的 import で middleware（Edge）からの誤用時に副作用を避ける。
-  const { cookies } = await import("next/headers");
-  const store = await cookies();
-  // cookies().get().value は復号済みの生値。verifySession に直接渡す
-  // （parseCookie の再 decode を避ける）。
-  const raw = store.get("demen_session")?.value;
-  const session = verifySession(raw);
-  return getAdminContextFromSession(session);
-}
+// React cache() で「同一リクエスト内は1回だけ」に絞る。/admin は layout と page の
+// 両方がこれを呼ぶため、素のままだと 1 画面ごとに同じ user 検索が 2 回以上 DB へ飛ぶ。
+// リクエストをまたいだキャッシュではないので、ロール剥奪・承認取消は次のリクエストで
+// 即座に効く（多層防御の前提は変わらない）。
+export const getAdminContext = cache(
+  async function getAdminContext(): Promise<ResolvedUser | null> {
+    // next/headers は Server Component / Action / Route Handler でのみ利用可。
+    // 動的 import で middleware（Edge）からの誤用時に副作用を避ける。
+    const { cookies } = await import("next/headers");
+    const store = await cookies();
+    // cookies().get().value は復号済みの生値。verifySession に直接渡す
+    // （parseCookie の再 decode を避ける）。
+    const raw = store.get("demen_session")?.value;
+    const session = verifySession(raw);
+    return getAdminContextFromSession(session);
+  },
+);
 
 /**
  * セッションが存在するが ADMIN でないユーザーを返す（ロール問わず）。
