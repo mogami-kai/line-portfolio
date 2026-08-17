@@ -9,6 +9,7 @@
 
 import { prisma } from "./db.js";
 import { pushToUser } from "./line.js";
+import { summarize } from "./invoice.js";
 import { jstTodayDate, jstHour } from "./invoiceDates.js";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
@@ -81,19 +82,21 @@ export async function runDueReminder(now: Date = new Date()): Promise<ReminderRe
     return { sent: false, reason: "too_early" };
   }
 
-  // 今日が支払期限の請求書を集計（税込合計＝明細金額の総和）。
+  // 今日が支払期限の請求書を集計。明細の単価・金額は税抜なので、請求書と同じ
+  // summarize（外税）で消費税を足した「合計（税込）」＝実際の入金予定額を出す。
   const invoices = await prisma.invoice.findMany({
     where: { dueDate: today },
     select: {
       client: { select: { name: true, honorific: true } },
-      lines: { select: { amount: true } },
+      lines: { select: { amount: true, taxRate: true } },
     },
     orderBy: { invoiceNo: "asc" },
   });
+  const taxRate = setting?.taxRate ?? 0.1;
   const dues: DueInvoice[] = invoices.map((iv) => ({
     clientName: iv.client.name,
     honorific: iv.client.honorific ?? "様",
-    total: iv.lines.reduce((a, l) => a + l.amount, 0),
+    total: summarize(iv.lines, taxRate).total,
   }));
 
   // 設定時刻は過ぎたので、対象ゼロでも今日は「処理済み」にする（毎時の再クエリを止める）。

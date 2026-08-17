@@ -9,8 +9,8 @@
 import { prisma } from "./db.js";
 import {
   resolveManDays,
-  joyoAmount,
-  overtimeLineAmountResolved,
+  nightUnit,
+  workerPay,
   type Shift,
 } from "./calc.js";
 import {
@@ -362,9 +362,14 @@ export interface WorkerMonthSummary {
   otHours: number;
   /** 職人に設定済みの人工単価（円）。未設定は null。 */
   unitPrice: number | null;
+  /** 夜勤単価（円/人工）＝ 人工単価 × 1.25（自動）。単価未設定なら 0。 */
+  nightUnitPrice: number;
   /** 職人に設定済みの残業単価（円/時）。未設定は null（自動計算）。 */
   otUnitPrice: number | null;
-  /** 給料概算（人工×単価 ＋ 残業×残業単価）。単価未設定なら 0。 */
+  /**
+   * 給料概算 ＝ (日勤＋半日)×人工単価 ＋ 夜勤×夜勤単価(1.25倍) ＋ 残業×残業単価。
+   * 単価未設定なら 0。
+   */
   pay: number;
   /** その職人が出た現場の内訳（人工の多い順）。 */
   sites: WorkerSiteBreakdown[];
@@ -462,16 +467,19 @@ export async function summarizeByWorker(
   return Array.from(map.values())
     .map((v) => {
       const unit = v.unitPrice ?? 0;
-      const pay =
-        unit > 0
-          ? joyoAmount(v.manDays, unit) +
-            overtimeLineAmountResolved(v.otHours, unit, v.otUnitPrice)
-          : 0;
+      // 夜勤は人工1日扱いのまま単価を1.25倍（calc.workerPay に一元化）。
+      const pay = workerPay({
+        dayManDays: v.dayManDays + v.halfManDays,
+        nightManDays: v.nightManDays,
+        otHours: v.otHours,
+        unitPrice: unit,
+        otUnitPrice: v.otUnitPrice,
+      });
       // v.sites は Map。後置の sites(配列) がスプレッドの sites を上書きする。
       const sites = Array.from(v.sites.values()).sort(
         (a, b) => b.manDays - a.manDays || a.site.localeCompare(b.site, "ja"),
       );
-      return { ...v, pay, sites };
+      return { ...v, nightUnitPrice: nightUnit(unit), pay, sites };
     })
     .sort(
       (a, b) =>
