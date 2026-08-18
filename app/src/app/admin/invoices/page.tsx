@@ -10,6 +10,7 @@
 //   - 既存 Invoice には CSV / xlsx ダウンロードリンク（/api/invoices/[id]/export）。
 // ============================================================
 
+import type { CSSProperties } from "react";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext } from "@/lib/auth.js";
@@ -32,6 +33,17 @@ export const dynamic = "force-dynamic";
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
 const ymStr = (d: Date) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+// プレビュー末尾の合計ブロック（凍結クラスに無い構造なので CSS 変数のインラインで補う）。
+//   明細（税抜）と合計欄の境目を罫線で切り、税込の総額だけを強調する。
+const sumHeadStyle: CSSProperties = {
+  borderTop: "1.5px solid var(--line-strong)",
+};
+const grandTotalStyle: CSSProperties = {
+  background: "var(--accent-soft)",
+  color: "var(--accent-dark)",
+  fontWeight: 800,
+};
 
 /** 内訳の小表（現場別/職人別/日別）。確認用。 */
 function BreakdownTable({
@@ -61,12 +73,14 @@ function BreakdownTable({
 }
 
 // 型: summaries の 1 要素（プレビュー明細つき）。
+//   単価・金額（＝subtotal）は税抜、total だけが税込（消費税を上乗せ）。
 type ClientSummary = {
   clientId: string;
   name: string;
   lines: InvoiceLine[];
   total: number;
   subtotal: number;
+  tax: number;
   exempt: number;
   rateMissing: boolean;
 };
@@ -81,7 +95,14 @@ type ClientDetail = {
 type ExistingInvoice = { id: string; invoiceNo: string; status: string };
 
 // プレビュー明細（外向き・現場名は出ない）。PC テーブルの展開行 / スマホカード共用。
-function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
+//   単価・金額は税抜。末尾に 小計（税抜）→ 消費税 → 対象外 → 合計（税込）を出す。
+function PreviewBlock({
+  lines,
+  summary,
+}: {
+  lines: InvoiceLine[];
+  summary: { subtotal: number; tax: number; exempt: number; total: number };
+}) {
   return (
     <>
       {lines.length === 0 ? (
@@ -92,8 +113,8 @@ function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
             <tr>
               <th>品目</th>
               <th className="num">数量</th>
-              <th className="num">単価</th>
-              <th className="num">金額</th>
+              <th className="num">単価（税抜）</th>
+              <th className="num">金額（税抜）</th>
             </tr>
           </thead>
           <tbody>
@@ -108,6 +129,32 @@ function PreviewBlock({ lines }: { lines: InvoiceLine[] }) {
                 <td className="num">{yen(l.amount)}</td>
               </tr>
             ))}
+            <tr>
+              <td colSpan={3} style={sumHeadStyle}>
+                小計（税抜）
+              </td>
+              <td className="num" style={sumHeadStyle}>
+                {yen(summary.subtotal)}
+              </td>
+            </tr>
+            <tr>
+              <td colSpan={3}>消費税</td>
+              <td className="num">{yen(summary.tax)}</td>
+            </tr>
+            {summary.exempt > 0 && (
+              <tr>
+                <td colSpan={3}>対象外（立替）</td>
+                <td className="num">{yen(summary.exempt)}</td>
+              </tr>
+            )}
+            <tr>
+              <td colSpan={3} style={grandTotalStyle}>
+                合計（税込）
+              </td>
+              <td className="num" style={grandTotalStyle}>
+                {yen(summary.total)}
+              </td>
+            </tr>
           </tbody>
         </table>
       )}
@@ -207,6 +254,7 @@ export default async function InvoicesPage({
         lines,
         total: s.total,
         subtotal: s.subtotal,
+        tax: s.tax,
         exempt: s.exempt,
         rateMissing: hasLabor && !ratedClients.has(clientId),
       };
@@ -239,7 +287,7 @@ export default async function InvoicesPage({
         <>
           <div className="inv-detail-block">
             <div className="inv-detail-h">プレビュー（請求書の明細）</div>
-            <PreviewBlock lines={s.lines} />
+            <PreviewBlock lines={s.lines} summary={s} />
           </div>
           {d && (d.bySite.length > 0 || d.byWorker.length > 0) && (
             <div className="inv-detail-block">
@@ -371,7 +419,7 @@ export default async function InvoicesPage({
                   <details className="acc" style={{ marginTop: 10 }}>
                     <summary>プレビュー（請求書の明細）</summary>
                     <div className="acc-body">
-                      <PreviewBlock lines={s.lines} />
+                      <PreviewBlock lines={s.lines} summary={s} />
                     </div>
                   </details>
 

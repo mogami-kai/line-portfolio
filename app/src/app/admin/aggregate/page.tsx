@@ -196,6 +196,15 @@ function WorkerAccordion({
               <span className="k">残業合計</span>
               <span className="v">{w.otHours} h</span>
             </div>
+            {/* 夜勤がある月だけ、給料に効いている夜勤単価（日勤×1.25）を出す。 */}
+            {w.nightManDays > 0 && (
+              <div className="kv">
+                <span className="k">夜勤単価（日勤×1.25）</span>
+                <span className="v">
+                  {w.nightUnitPrice > 0 ? yen(w.nightUnitPrice) : "単価未設定"}
+                </span>
+              </div>
+            )}
             <div className="kv">
               <span className="k">給料（概算）</span>
               <span className="v">{w.pay > 0 ? yen(w.pay) : "単価未設定"}</span>

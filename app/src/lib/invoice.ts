@@ -13,6 +13,9 @@
 //   小計（税抜）→ 消費税 → 対象外 → 合計（税込）→ お支払期限
 //   お振込先 / 備考
 //
+// ★ 税の扱い（外税）: 明細の単価・金額はすべて税抜。消費税は小計に上乗せし、
+//   最終的な「合計」だけが税込になる（summarize / toXlsx を参照）。
+//
 // GASは「単価=入力セル＋金額=数式」の編集可能スプレッドシートを作るが、
 // アプリ側は確定スナップショット（amount を計算済みで埋める）として出力する。
 // 金額計算は calc.ts に一元化（丸めも Math.round で統一）。
@@ -541,30 +544,38 @@ export function buildBillingLines(
 // ============================================================
 // サマリ: 小計（税抜）/ 消費税 / 対象外 / 合計（税込）
 //
-//   ★ 内税（税込）方式:
-//     明細金額（人工×単価 など）は「税込」として扱う。集計の金額をそのまま
-//     合計（税込）にしたいので、消費税は上乗せせず、税込金額から逆算する。
-//       課税税込 = Σ(税率>0 の明細金額)
-//       小計(税抜) = round(課税税込 / (1 + 税率))
-//       消費税     = 課税税込 − 小計(税抜)
-//       合計(税込) = 課税税込 + 対象外（立替など税率0）
-//     → 合計（税込）は集計の額と一致する（従来の「合計が10%上がる」外税をやめた）。
+//   ★ 外税（単価＝税抜）方式（REQUIREMENTS.md §10）:
+//     明細の単価・金額（人工×単価 など）はすべて「税抜」。消費税は小計に
+//     上乗せし、最終的な合計だけが「税込」になる。
+//       小計(税抜) = Σ(税率>0 の明細金額)
+//       消費税     = Σ 税率ごとに round(その税率の税抜合計 × 税率)
+//                    （10%/8% 混在でも税率区分ごとに計算して端数1回だけ丸める）
+//       対象外     = Σ(税率0 の明細金額＝立替経費など)
+//       合計(税込) = 小計 + 消費税 + 対象外
+//     税率は明細（InvoiceLine.taxRate）のスナップショット値を正とする。過去の
+//     請求書を現在の税率で計算し直さないため。引数 taxRate は明細に税率が
+//     入っていない（数値でない）ときの既定値。
 // ============================================================
 export function summarize(
-  lines: InvoiceLine[],
+  // 金額と税率だけ見るので、明細の一部（DB から金額・税率だけ引いた行）でも渡せる。
+  lines: readonly Pick<InvoiceLine, "amount" | "taxRate">[],
   taxRate: number,
 ): InvoiceSummary {
-  let taxableIncl = 0; // 課税明細（税込扱い）
+  let subtotal = 0; // 課税明細の税抜合計
   let exempt = 0; // 対象外（立替など・税率0）
+  // 税率ごとの税抜合計（10%/8% 混在でも区分ごとに1回だけ丸める）。
+  const baseByRate = new Map<number, number>();
   for (const l of lines || []) {
-    if (l.taxRate > 0) taxableIncl += l.amount;
-    else exempt += l.amount;
+    const rate = toNumber(l.taxRate, taxRate);
+    if (rate > 0) {
+      subtotal += l.amount;
+      baseByRate.set(rate, (baseByRate.get(rate) ?? 0) + l.amount);
+    } else {
+      exempt += l.amount;
+    }
   }
-  // 税込金額から税抜小計を逆算（税率0/未設定なら税抜=税込）。
-  const subtotal =
-    taxRate > 0 ? Math.round(taxableIncl / (1 + taxRate)) : taxableIncl;
-  const tax = taxableIncl - subtotal;
-  // total = subtotal + tax + exempt（= 課税税込 + 対象外 = 集計の額）。
+  let tax = 0;
+  for (const [rate, base] of baseByRate) tax += Math.round(base * rate);
   return { subtotal, tax, exempt, total: subtotal + tax + exempt };
 }
 
@@ -648,9 +659,9 @@ export async function toXlsx(data: {
 
   const issuer = data.issuer || {};
   const lines = data.lines || [];
-  // 内税（税込）方式で小計・消費税・合計を算出（summarize に一元化）。
-  //   明細金額は税込。小計(税抜)=round(課税税込/(1+税率))、消費税=課税税込−小計、
-  //   合計(税込)=課税税込+対象外（= 集計の額）。
+  // 外税（単価＝税抜）方式で小計・消費税・合計を算出（summarize に一元化）。
+  //   明細の単価・金額は税抜。小計(税抜)=Σ課税明細、消費税=round(小計×税率)、
+  //   合計(税込)=小計+消費税+対象外（立替など）。
   const rate = data.taxRate || 0.1;
   const { subtotal, tax, exempt, total } = summarize(lines, rate);
   const taxPct = Math.round(rate * 100);
