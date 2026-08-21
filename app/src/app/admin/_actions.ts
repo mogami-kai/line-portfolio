@@ -35,7 +35,16 @@ import {
   generateInviteToken,
 } from "@/lib/invite.js";
 import { headers } from "next/headers";
-import type { ReportEditorData, ReportEditInput } from "./_editTypes.js";
+import { createReportCore } from "@/lib/reportCreate.js";
+import type {
+  ReportEditorData,
+  ReportEditInput,
+  ReportCreateInput,
+  ReportCreateResult,
+  OrgLite,
+  WorkerLite,
+  ClientLite,
+} from "./_editTypes.js";
 
 /** 管理者（ADMIN / スコープ管理者）を要求し、実行中のコンテキストを返す。違反時は throw。 */
 async function requireAdminAction(): Promise<ResolvedUser> {
@@ -1058,6 +1067,140 @@ export async function updateReportAction(input: ReportEditInput): Promise<void> 
   });
   revalidateTag("reports"); // 月次集計キャッシュを無効化
   revalidatePath("/admin");
+}
+
+// ============================================================
+// 出面の新規登録（管理画面から代理入力。/admin ダッシュボードの
+// 「＋ 出面を追加」から開く。LIFF提出し忘れ分の後追い登録に使う）
+//
+//   getReportCreateFormDataAction: モーダルを開いた時に1往復で取得
+//     （全社管理者=全active組織／スコープ管理者=自組織のみ）。
+//   createReportAction           : 作成本体は @/lib/reportCreate の
+//     createReportCore（LIFF提出と同じ正本ロジック）を呼ぶ。
+//     失敗時は他アクション同様 throw（hold/該当なし等もエラーとして
+//     フォームに表示させ、黙って保存も黙って拒否もしない）。
+// ============================================================
+
+/** 新規登録モーダルの初期データ（組織/取引先/職人）。 */
+export async function getReportCreateFormDataAction(): Promise<{
+  orgs: OrgLite[];
+  clients: ClientLite[];
+  workers: WorkerLite[];
+}> {
+  const admin = await requireAdminAction();
+  const scopeOrgId = adminScopeOrgId(admin);
+  const [orgs, clients, workers] = await Promise.all([
+    prisma.organization.findMany({
+      where: { active: true, ...(scopeOrgId ? { id: scopeOrgId } : {}) },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, kind: true },
+    }),
+    prisma.client.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    // 新規登録の職人プールは active のみ（過去の無効職人は編集画面と違い出さない）。
+    prisma.worker.findMany({
+      where: { active: true, ...(scopeOrgId ? { orgId: scopeOrgId } : {}) },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, orgId: true },
+    }),
+  ]);
+  return { orgs, clients, workers };
+}
+
+const reportCreateSchema = z.object({
+  orgId: z.string().min(1, "組織を選択してください"),
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日付が不正です"),
+  clientId: z.string().min(1, "取引先を選択してください"),
+  siteName: z.string().trim(),
+  contractType: z.enum(["JOYO", "UKEOI"]),
+  contractAmount: z.number().int().positive().nullable(),
+  entries: z
+    .array(
+      z.object({
+        workerId: z.string().min(1, "職人を選択してください"),
+        shift: z.enum(["DAY", "HALF", "NIGHT"]),
+        manDays: z.number().positive(),
+        otHours: z.number().nonnegative(),
+      }),
+    )
+    .min(1, "職人を1人以上入れてください"),
+  expenses: z.array(
+    z.object({
+      kind: z.string().min(1, "経費の項目名を入力してください"),
+      amount: z.number().int().nonnegative(),
+      billable: z.boolean(),
+      paidBy: z.string().trim().max(50).optional(),
+    }),
+  ),
+  postToGroup: z.boolean(),
+});
+
+/** 出面を新規登録（管理画面）。作成本体は createReportCore に委譲。 */
+export async function createReportAction(
+  input: ReportCreateInput,
+): Promise<ReportCreateResult> {
+  const admin = await requireAdminAction();
+  const parsed = reportCreateSchema.safeParse(input);
+  if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  const {
+    orgId,
+    workDate,
+    clientId,
+    siteName,
+    contractType,
+    contractAmount,
+    entries,
+    expenses,
+    postToGroup,
+  } = parsed.data;
+
+  // スコープ管理者は自組織以外を選べない。
+  await assertOrgInScope(admin, orgId);
+
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { id: true, kind: true, active: true },
+  });
+  if (!org) throw new Error("組織が見つかりません");
+  if (!org.active) throw new Error("無効化された組織には登録できません");
+
+  if (contractType === "UKEOI" && (contractAmount === null || contractAmount <= 0)) {
+    throw new Error("請負金額を入力してください");
+  }
+
+  const result = await createReportCore(
+    {
+      workDate,
+      clientId,
+      siteName,
+      contractType,
+      contractAmount,
+      entries,
+      expenses: expenses.filter((x) => x.kind.trim() && x.amount > 0),
+    },
+    {
+      orgId: org.id,
+      orgKind: org.kind,
+      createdById: admin.user.id,
+      createdByName: admin.user.displayName,
+      // PARTNER 組織にはそもそも投稿対象が無いので postToGroup は SELF のときだけ効かせる。
+      postToGroup: org.kind === "SELF" ? postToGroup : undefined,
+    },
+  );
+
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+
+  revalidatePath("/admin");
+  return {
+    reportId: result.reportId,
+    status: result.status,
+    postedToGroup: result.postedToGroup,
+  };
 }
 
 // ============================================================

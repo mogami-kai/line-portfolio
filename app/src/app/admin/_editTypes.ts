@@ -18,6 +18,13 @@ export interface ClientLite {
   name: string;
 }
 
+/** 新規作成フォームの組織セレクト用の最小の組織。 */
+export interface OrgLite {
+  id: string;
+  name: string;
+  kind: OrgKind;
+}
+
 /** 編集フォームの職人ドロップダウン用の最小の職人（org でフィルタする）。 */
 export interface WorkerLite {
   id: string;
@@ -86,6 +93,30 @@ export interface ReportEditInput {
   contractAmount: number | null; // UKEOI のとき必須・正の整数 / JOYO は null
   entries: EditableEntry[]; // 最低1件
   expenses: EditableExpense[];
+}
+
+/**
+ * createReportAction への入力（管理画面からの新規出面登録）。
+ *   orgId … 職人プールを決める組織（全社管理者のみ選択可。スコープ管理者は自組織固定）。
+ *   postToGroup … SELF 組織のときだけ有効。false なら投稿をスキップ（代理登録の後追い登録など）。
+ */
+export interface ReportCreateInput {
+  orgId: string;
+  workDate: string; // "YYYY-MM-DD"
+  clientId: string;
+  siteName: string;
+  contractType: ContractType;
+  contractAmount: number | null;
+  entries: EditableEntry[]; // 最低1件
+  expenses: EditableExpense[];
+  postToGroup: boolean;
+}
+
+/** createReportAction の戻り値（失敗時は他アクション同様 throw）。 */
+export interface ReportCreateResult {
+  reportId: string;
+  status: ReportStatus;
+  postedToGroup: boolean;
 }
 
 // ── 勤務体系（ドメイン定数。LIFF と同じ並び/換算） ──
