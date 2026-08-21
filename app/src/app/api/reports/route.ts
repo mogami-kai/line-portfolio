@@ -16,26 +16,13 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { revalidateTag } from "next/cache";
 import { z } from "zod";
-import { prisma } from "@/lib/db.js";
 import {
   bearerToken,
   requireApproved,
   resolveUserFromAccessToken,
 } from "@/lib/auth.js";
-import {
-  formatReportLog,
-  pushToGroup,
-  type ReportLogInput,
-} from "@/lib/line.js";
-import {
-  buildAskbackMessage,
-  validateReportRows,
-  type RowInput,
-} from "@/lib/validate.js";
-import { isValidReceiptId } from "@/lib/storage.js";
-import { reportLabel, writeAuditLog } from "@/lib/audit.js";
+import { createReportCore } from "@/lib/reportCreate.js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -152,283 +139,44 @@ export async function POST(req: Request) {
     return json(400, { ok: false, error: "invalid_json" });
   }
 
-  // ── 冪等性: clientRequestId が既存なら、その結果を返す（新規作成しない）──
-  // ネットワーク再送・ボタン連打での二重登録を防ぐ。所有者一致も確認する。
-  if (body.clientRequestId) {
-    const dup = await prisma.report.findUnique({
-      where: { clientRequestId: body.clientRequestId },
-      select: { id: true, status: true, postedToGroup: true, createdById: true },
-    });
-    if (dup) {
-      // 別人のキーと衝突した場合は新規キー扱いにせず、安全側で受理済みとして返す
-      // （ここでは作成者一致のときのみ "既存" を返し、不一致は 409 で弾く）。
-      if (dup.createdById !== user.id) {
-        return json(409, { ok: false, error: "request_id_conflict" });
-      }
-      return json(200, {
-        ok: true,
-        reportId: dup.id,
-        status: dup.status,
-        postedToGroup: dup.postedToGroup,
-        deduped: true,
-      });
-    }
-  }
-
-  // 参照整合性: clientId / siteId / workerId が DB に存在し、かつ有効(active)か。
-  const client = await prisma.client.findFirst({
-    where: { id: body.clientId, active: true },
-    select: { id: true, name: true },
-  });
-  if (!client) {
-    return json(400, {
-      ok: false,
-      error: "client_not_found",
-      message: "取引先が見つからないか、無効化されています。",
-    });
-  }
-
-  // v3: 現場は自由入力（Report.siteName）に一本化。現場マスタ自動作成はしない。
-  // siteId は基本 null。過去クライアント互換で siteId が来た場合のみ存在確認して
-  // 紐付ける（無ければ無視＝siteName だけで保存し、出面自体は通す）。
-  let site: { id: string; name: string } | null = null;
-  if (body.siteId) {
-    site = await prisma.site.findFirst({
-      where: { id: body.siteId, clientId: body.clientId },
-      select: { id: true, name: true },
-    });
-  }
-
-  // 保存・投稿・検証に使う現場表記。siteName（自由入力）を最優先。
-  // 互換で来た siteId が解決できた場合のみその名前にフォールバック。空文字可。
-  const siteName = (body.siteName ?? site?.name ?? "").trim();
-
-  const workerIds = body.entries.map((e) => e.workerId);
-  const workers = await prisma.worker.findMany({
-    where: { id: { in: workerIds }, orgId: org.id, active: true },
-    select: { id: true, name: true },
-  });
-  const workerById = new Map(workers.map((w) => [w.id, w]));
-  const missingWorker = workerIds.find((id) => !workerById.has(id));
-  if (missingWorker) {
-    return json(400, {
-      ok: false,
-      error: "worker_not_found",
-      message: "職人が見つからないか、無効化されています。",
-    });
-  }
-
-  // ── 3b) 聞き返し判定（@/lib/validate）──
-  // 構造化入力なので取引先/職人は確定。日付・人工・残業・重複を精査する。
-  const refDate = new Date();
-  const rows: RowInput[] = body.entries.map((e) => ({
-    client: client.name,
-    site: siteName,
-    date: body.workDate,
-    worker: workerById.get(e.workerId)!.name,
-    qty: e.manDays,
-    ot: e.otHours,
-  }));
-
-  // 既知取引先＝選択済みなので resolveClient で常に正式名を返す（取引先チェックは ok 化）。
-  const report = validateReportRows(rows, {
-    canonicals: [client.name],
-    resolveClient: () => client.name,
-    refDate,
-  });
-
-  if (report.status === "hold") {
-    // 保存せず聞き返し。
-    return json(422, {
-      ok: false,
-      status: "hold",
-      message: buildAskbackMessage(report),
-    });
-  }
-
-  // confirm → 管理者承認キュー（NEEDS_REVIEW）。ok → CONFIRMED。
-  // 現場は自由入力（Report.siteName）なので、新規現場ゲートは設けない。
-  const status = report.status === "confirm" ? "NEEDS_REVIEW" : "CONFIRMED";
-
-  // ── 4) 保存（Report + entries + expenses）──
-  // source は org.kind から自動判定（本人は選ばない）。
-  // create を関数化して戻り型を推論させ、冪等キー競合（P2002）のみ握る。
-  const dayStart = new Date(`${body.workDate}T00:00:00.000Z`);
-
-  // 領収書IDの所有権検証: 形式が正しく、かつ自組織(orgId)の ReceiptImage に
-  // 実在するものだけを許可（1クエリでまとめて確認）。
-  const receiptIdCandidates = (body.expenses ?? [])
-    .map((x) => x.receiptPath)
-    .filter((v): v is string => Boolean(v) && isValidReceiptId(v as string));
-  const ownedReceiptIds = new Set<string>(
-    receiptIdCandidates.length
-      ? (
-          await prisma.receiptImage.findMany({
-            where: { id: { in: receiptIdCandidates }, orgId: org.id },
-            select: { id: true },
-          })
-        ).map((r) => r.id)
-      : [],
+  // ── 4〜6) 作成本体（正本は @/lib/reportCreate）──
+  const result = await createReportCore(
+    {
+      workDate: body.workDate,
+      clientId: body.clientId,
+      siteName: body.siteName,
+      siteId: body.siteId,
+      contractType: body.contractType,
+      contractAmount: body.contractAmount,
+      entries: body.entries,
+      expenses: body.expenses,
+      clientRequestId: body.clientRequestId,
+    },
+    {
+      orgId: org.id,
+      orgKind: org.kind,
+      createdById: user.id,
+      createdByName: user.displayName,
+      // postToGroup は渡さない＝org.kind による既存の自動判定を維持。
+    },
   );
-  const createReport = () =>
-    prisma.report.create({
-      data: {
-        workDate: dayStart,
-        clientId: client.id,
-        siteId: site?.id ?? null,
-        // v3: 現場は自由入力。空文字は null として保存（未記入と区別しやすく）。
-        siteName: siteName || null,
-        contractType: body.contractType,
-        // v3: 請負(UKEOI)のみ請負金額を保存。常用(JOYO)は null。
-        // 上の superRefine で JOYO×contractAmount は弾いているので二重ガード。
-        contractAmount:
-          body.contractType === "UKEOI"
-            ? (body.contractAmount ?? null)
-            : null,
-        source: org.kind,
-        orgId: org.id,
-        createdById: user.id,
-        status,
-        postedToGroup: false,
-        clientRequestId: body.clientRequestId ?? null,
-        entries: {
-          create: body.entries.map((e) => ({
-            workerId: e.workerId,
-            shift: e.shift,
-            manDays: e.manDays,
-            otHours: e.otHours,
-          })),
-        },
-        expenses: body.expenses?.length
-          ? {
-              create: body.expenses.map((x) => ({
-                workDate: dayStart,
-                clientId: client.id,
-                siteId: site?.id ?? null,
-                kind: x.kind,
-                amount: x.amount,
-                billable: x.billable,
-                paidBy: x.paidBy || null,
-                // 自組織所有が確認できた領収書IDのみ保存（他組織IDの注入を遮断）。
-                receiptPath:
-                  x.receiptPath && ownedReceiptIds.has(x.receiptPath)
-                    ? x.receiptPath
-                    : null,
-              })),
-            }
-          : undefined,
-      },
-      include: {
-        client: { select: { name: true } },
-        // site 関係は v3 では投稿に使わない（現場は scalar の siteName を使う）。
-        // siteName / contractAmount は scalar なので include 無しで返る。
-        entries: { include: { worker: { select: { name: true } } } },
-        expenses: { select: { kind: true, amount: true } },
-      },
-    });
 
-  let created: Awaited<ReturnType<typeof createReport>>;
-  try {
-    created = await createReport();
-  } catch (e) {
-    // 冪等キーの競合（同時 2 連打）: 既存レポートを返して二重作成を避ける。
-    if (
-      body.clientRequestId &&
-      typeof e === "object" &&
-      e !== null &&
-      (e as { code?: string }).code === "P2002"
-    ) {
-      const existing = await prisma.report.findUnique({
-        where: { clientRequestId: body.clientRequestId },
-        select: { id: true, status: true, postedToGroup: true },
-      });
-      if (existing) {
-        return json(200, {
-          ok: true,
-          reportId: existing.id,
-          status: existing.status,
-          postedToGroup: existing.postedToGroup,
-          deduped: true,
-        });
-      }
+  if (!result.ok) {
+    if (result.kind === "hold") {
+      return json(422, { ok: false, status: "hold", message: result.message });
     }
-    throw e;
+    if (result.kind === "conflict") {
+      return json(409, { ok: false, error: "request_id_conflict" });
+    }
+    return json(400, { ok: false, error: result.kind, message: result.message });
   }
 
-  // 操作履歴: フォーム入力（誰が送ったか）。失敗しても本処理は続行。
-  await writeAuditLog({
-    actorId: user.id,
-    actorName: user.displayName,
-    action: "REPORT_CREATE",
-    reportId: created.id,
-    summary: `${reportLabel(created.workDate, created.client.name, created.siteName)} を入力`,
-  });
-
-  // 新規出面が増えたので、管理ダッシュボードの月次集計キャッシュを無効化。
-  revalidateTag("reports");
-
-  // 現場の利用統計を更新（LIFFの「最近使った/よく使う」並び順用）。失敗は無視（保存は確定済み）。
-  if (site) {
-    try {
-      await prisma.site.update({
-        where: { id: site.id },
-        data: { usageCount: { increment: 1 }, lastUsedAt: dayStart },
-      });
-    } catch (e) {
-      console.error("[reports] site usage update failed", e);
-    }
-  }
-
-  // ── 5) ★2系統ルーティング（org.kind で1分岐）★ ──
-  let postedToGroup = false;
-  if (org.kind === "SELF") {
-    // 自社 → 出面グループへ整形ログ投稿。
-    try {
-      // v3: 現場表記は自由入力（Report.siteName）を使う（現場マスタ名ではない）。
-      // 請負(UKEOI)は請負金額が分かるよう現場行に「（請負 ¥1,234,000）」を併記する。
-      // 空なら null を渡し、formatReportLog 側の「(現場未設定)」表記に委ねる。
-      const baseSiteName = created.siteName ?? "";
-      const ukeoiNote =
-        created.contractType === "UKEOI" && created.contractAmount != null
-          ? `（請負 ¥${created.contractAmount.toLocaleString("ja-JP")}）`
-          : "";
-      const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
-      const logInput: ReportLogInput = {
-        workDate: created.workDate,
-        contractType: created.contractType,
-        client: created.client,
-        site: displaySiteName ? { name: displaySiteName } : null,
-        entries: created.entries.map((e) => ({
-          shift: e.shift,
-          manDays: e.manDays,
-          otHours: e.otHours,
-          worker: e.worker,
-        })),
-        expenses: created.expenses.map((x) => ({
-          kind: x.kind,
-          amount: x.amount,
-        })),
-      };
-      await pushToGroup(formatReportLog(logInput));
-      postedToGroup = true;
-      await prisma.report.update({
-        where: { id: created.id },
-        data: { postedToGroup: true },
-      });
-    } catch (e) {
-      // 投稿失敗でも保存は確定済み。投稿フラグは false のまま返す。
-      console.error("[reports] pushToGroup failed", e);
-    }
-  }
-  // PARTNER → 何もしない（グループ非投稿・管理ダッシュボードでのみ集約）。
-
-  // ── 6) レスポンス ──
   return json(200, {
     ok: true,
-    reportId: created.id,
-    status: created.status,
-    postedToGroup,
-    askback:
-      report.status === "confirm" ? buildAskbackMessage(report) : undefined,
+    reportId: result.reportId,
+    status: result.status,
+    postedToGroup: result.postedToGroup,
+    deduped: result.deduped,
+    askback: result.askback,
   });
 }

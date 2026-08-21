@@ -23,6 +23,7 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext, getSessionUserIfExists, adminScopeOrgId } from "@/lib/auth.js";
 import { RecentFeed, type FeedItem } from "./_feed.js";
 import { EditReportButton } from "./_editReport.js";
+import { CreateReportButton } from "./_createReport.js";
 import {
   confirmReportAction,
   deleteReportAction,
@@ -477,7 +478,10 @@ export default async function AdminPage({
           <section className="block">
             <div className="section-head">
               <h2 className="section-title">直近の出面</h2>
-              <span className="muted">{ym} の入力</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span className="muted">{ym} の入力</span>
+                <CreateReportButton />
+              </div>
             </div>
             {recent.length === 0 ? (
               <div className="empty-state">
