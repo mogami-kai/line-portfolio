@@ -623,6 +623,8 @@ export async function summarizeExpenses(
 //   合計と食い違わないようにする。DB取得（summarizeDispatchMatrix）と
 //   集計ロジック（buildDispatchMatrix・DB非依存の純粋関数）を分離し、
 //   後者は単体テスト対象にする。
+//   取引先での絞り込み（?client=）は buildDispatchMatrixView で行い、
+//   絞り込み中の合計列はその取引先の分だけになる。
 // ============================================================
 
 /** "2026-07" → 31。閏年・月末は Date に判定させる（手計算しない）。 */
@@ -698,6 +700,8 @@ export interface DispatchMatrixRawEntry {
   otHours: number;
   /** 所属する出面（セルタップで開く対象）。 */
   reportId: string;
+  /** 取引先での絞り込みに使う（Report.clientId）。 */
+  clientId: string;
   clientName: string;
   /** 現場名（自由入力優先→現場マスタ名）。未設定は空文字。 */
   siteName: string;
@@ -840,15 +844,65 @@ export function formatDispatchCell(cell: DispatchDayCell): string {
     .join("+");
 }
 
+/** 取引先の絞り込み候補（その月・そのスコープで出面がある取引先）。 */
+export interface DispatchClientOption {
+  clientId: string;
+  clientName: string;
+}
+
+/** 月間出勤マトリクス＋取引先の絞り込み状態。 */
+export interface DispatchMatrixView {
+  /** 絞り込み候補（取引先名順）。絞り込み前の全出面から作る。 */
+  clients: DispatchClientOption[];
+  /** 適用中の取引先。null＝全取引先（未指定・候補に無い id も null）。 */
+  clientId: string | null;
+  /** 絞り込み後のマトリクス（合計列もその取引先の分だけ）。 */
+  workers: DispatchMatrixWorker[];
+}
+
+/**
+ * 取引先で絞り込んだ月間出勤マトリクスを作る。DB非依存の純粋関数。
+ * 候補は絞り込み前の全出面から作るので、絞り込み中でも他の取引先へ切り替えられる。
+ * 候補に無い clientId（その月に出面が無い・スコープ外）は無視して全取引先を返す。
+ */
+export function buildDispatchMatrixView(
+  yearMonth: string,
+  entries: DispatchMatrixRawEntry[],
+  clientId?: string | null,
+): DispatchMatrixView {
+  const byId = new Map<string, DispatchClientOption>();
+  for (const e of entries) {
+    if (!byId.has(e.clientId)) {
+      byId.set(e.clientId, { clientId: e.clientId, clientName: e.clientName });
+    }
+  }
+  const clients = Array.from(byId.values()).sort(
+    (a, b) =>
+      a.clientName.localeCompare(b.clientName, "ja") ||
+      a.clientId.localeCompare(b.clientId),
+  );
+  const active = clientId && byId.has(clientId) ? clientId : null;
+  const filtered = active
+    ? entries.filter((e) => e.clientId === active)
+    : entries;
+  return {
+    clients,
+    clientId: active,
+    workers: buildDispatchMatrix(yearMonth, filtered),
+  };
+}
+
 /**
  * 月間出勤マトリクスのDB取得。職人×日×entriesぶんを1クエリでまとめて取り、
- * 集計は buildDispatchMatrix（純粋関数）に委譲する（N+1なし）。
+ * 集計は buildDispatchMatrixView（純粋関数）に委譲する（N+1なし）。
  * opts は summarizeByWorker と同じ規約（source/orgId でスコープ）。
+ * clientId の絞り込みは where に入れずメモリで行う（候補の取引先一覧に全件が要るため。
+ * where 句は summarizeByWorker と一致したまま）。
  */
 export async function summarizeDispatchMatrix(
   yearMonth: string,
-  opts?: { source?: OrgKind; orgId?: string },
-): Promise<DispatchMatrixWorker[]> {
+  opts?: { source?: OrgKind; orgId?: string; clientId?: string | null },
+): Promise<DispatchMatrixView> {
   const { from, to } = monthRange(yearMonth);
   const reports = await prisma.report.findMany({
     where: {
@@ -863,7 +917,7 @@ export async function summarizeDispatchMatrix(
       workDate: true,
       siteName: true,
       site: { select: { name: true } },
-      client: { select: { name: true } },
+      client: { select: { id: true, name: true } },
       entries: {
         select: {
           shift: true,
@@ -890,12 +944,13 @@ export async function summarizeDispatchMatrix(
         manDays: e.manDays,
         otHours: e.otHours,
         reportId: r.id,
+        clientId: r.client.id,
         clientName: r.client.name,
         siteName,
       });
     }
   }
-  return buildDispatchMatrix(yearMonth, raw);
+  return buildDispatchMatrixView(yearMonth, raw, opts?.clientId);
 }
 
 // ============================================================

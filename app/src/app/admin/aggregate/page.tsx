@@ -11,6 +11,7 @@
 //   ガード: getAdminContext()（middleware で保護済みだが念のためホームへ集約）。
 //   ?ym= 対応・月スイッチャー可。集計は @/lib/aggregate（calc・invoice を再利用）で
 //   ロジックは変えず、ホームから当該ブロックを移設したもの。
+//   ?client= で月間出勤マトリクスだけを取引先で絞り込む（月を切り替えても維持）。
 // ============================================================
 
 import { Suspense } from "react";
@@ -28,6 +29,7 @@ import {
   summarizeDispatchMatrix,
   summarizeExpenses,
   type ClientMonthSummary,
+  type DispatchMatrixView,
   type DispatchMatrixWorker,
   type ExpensePayerSummary,
   type WorkerMonthSummary,
@@ -35,13 +37,24 @@ import {
 import { jstTodayDate } from "@/lib/invoiceDates.js";
 import { RateEditor } from "./_rateEditor.js";
 import { EditReportButton } from "../_editReport.js";
-import { DispatchMatrixTable, type DispatchMatrixRow } from "./_dispatchMatrix.js";
+import {
+  DispatchClientFilter,
+  DispatchMatrixTable,
+  type DispatchMatrixRow,
+} from "./_dispatchMatrix.js";
 
 export const dynamic = "force-dynamic";
 
 const yen = (n: number) => "¥" + Math.round(n).toLocaleString("ja-JP");
 const ymStr = (d: Date) =>
   `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+/** 集計ページの URL（取引先の絞り込みがあれば付けたまま月を切り替える）。 */
+function aggregateHref(ym: string, clientId: string | null): string {
+  const qs = new URLSearchParams({ ym });
+  if (clientId) qs.set("client", clientId);
+  return `/admin/aggregate?${qs.toString()}`;
+}
 
 /** 勤務区分 → セル/一覧に出す1文字ラベル。 */
 const SHIFT_LABEL_JP: Record<"DAY" | "NIGHT" | "HALF", string> = {
@@ -89,6 +102,58 @@ function computeTodayDay(yearMonth: string): number | null {
     today.getUTCMonth() + 1,
   ).padStart(2, "0")}`;
   return ym === yearMonth ? today.getUTCDate() : null;
+}
+
+/**
+ * 月間出勤マトリクス（見出し・取引先の絞り込み・表）。
+ * requestedClientId は URL の ?client=。その月に出面が無い取引先なら
+ * view.clientId が null（全取引先）になるので、その旨を添える。
+ */
+function DispatchMatrixSection({
+  ym,
+  view,
+  requestedClientId,
+}: {
+  ym: string;
+  view: DispatchMatrixView;
+  requestedClientId: string | null;
+}) {
+  // 日付軸（月末日・曜日・当日）はスコープ・絞り込みに依らず共通。
+  const days = daysInMonth(ym);
+  const selected = view.clients.find((c) => c.clientId === view.clientId);
+  return (
+    <>
+      <div className="section-head">
+        <h3 className="section-subtitle">月間出勤マトリクス</h3>
+      </div>
+      {view.clients.length > 0 && (
+        <DispatchClientFilter
+          ym={ym}
+          clients={view.clients}
+          value={view.clientId}
+        />
+      )}
+      {selected ? (
+        <p className="hint dm-filter-note">
+          {selected.clientName} の出面だけを表示中（右端の人工・残業もこの取引先の分）
+        </p>
+      ) : (
+        // 月に出面自体が無いときは表の空状態メッセージだけで足りる。
+        requestedClientId &&
+        view.clients.length > 0 && (
+          <p className="hint dm-filter-note">
+            選んだ取引先はこの月の確定済み出面がないため、すべての取引先を表示しています
+          </p>
+        )
+      )}
+      <DispatchMatrixTable
+        rows={toDispatchRows(view.workers)}
+        daysInMonth={days}
+        weekdays={computeWeekdays(ym, days)}
+        todayDay={computeTodayDay(ym)}
+      />
+    </>
+  );
 }
 
 function ClientAccordion({
@@ -348,15 +413,13 @@ function ExpenseAggregation({
 async function MonthSummary({
   ym,
   scopeOrgId,
+  clientId,
 }: {
   ym: string;
   scopeOrgId: string | null;
+  /** 月間出勤マトリクスの取引先絞り込み（?client=）。他の集計には効かない。 */
+  clientId: string | null;
 }) {
-  // 月間出勤マトリクスの日付軸（月末日・曜日・当日）はスコープに依らず共通。
-  const days = daysInMonth(ym);
-  const weekdays = computeWeekdays(ym, days);
-  const todayDay = computeTodayDay(ym);
-
   // スコープ管理者（自組織のみ）: 自組織1つ分の集計を計算して表示する。
   if (scopeOrgId) {
     const rows = await loadMonthRows(ym, { orgId: scopeOrgId });
@@ -364,7 +427,7 @@ async function MonthSummary({
       summarizeByClient(ym, rows),
       summarizeByWorker(ym, { orgId: scopeOrgId }),
       summarizeExpenses(ym, { orgId: scopeOrgId }),
-      summarizeDispatchMatrix(ym, { orgId: scopeOrgId }),
+      summarizeDispatchMatrix(ym, { orgId: scopeOrgId, clientId }),
     ]);
     const totals = clients.reduce(
       (a, r) => ({
@@ -378,14 +441,10 @@ async function MonthSummary({
     );
     return (
       <>
-        <div className="section-head">
-          <h3 className="section-subtitle">月間出勤マトリクス</h3>
-        </div>
-        <DispatchMatrixTable
-          rows={toDispatchRows(dispatch)}
-          daysInMonth={days}
-          weekdays={weekdays}
-          todayDay={todayDay}
+        <DispatchMatrixSection
+          ym={ym}
+          view={dispatch}
+          requestedClientId={clientId}
         />
 
         <div className="section-head">
@@ -417,19 +476,16 @@ async function MonthSummary({
     await Promise.all([
       getMonthSummary(ym),
       // 職人別（給料の見方）と同じ範囲＝自社(SELF)のみ。合計を一致させるため。
-      summarizeDispatchMatrix(ym, { source: "SELF" }),
+      // 取引先の候補もこの範囲の出面から作る（協力会社の取引先は出さない）。
+      summarizeDispatchMatrix(ym, { source: "SELF", clientId }),
     ]);
   return (
     <>
       {/* 月間出勤マトリクス（職人別と同じ範囲＝自社） */}
-      <div className="section-head">
-        <h3 className="section-subtitle">月間出勤マトリクス</h3>
-      </div>
-      <DispatchMatrixTable
-        rows={toDispatchRows(dispatch)}
-        daysInMonth={days}
-        weekdays={weekdays}
-        todayDay={todayDay}
+      <DispatchMatrixSection
+        ym={ym}
+        view={dispatch}
+        requestedClientId={clientId}
       />
 
       {/* 職人別（給料の見方：後藤◯◯ 齋◯◯…のいつもの形） */}
@@ -488,7 +544,7 @@ function SummarySkeleton() {
 export default async function AggregatePage({
   searchParams,
 }: {
-  searchParams: Promise<{ ym?: string }>;
+  searchParams: Promise<{ ym?: string; client?: string | string[] }>;
 }) {
   const admin = await getAdminContext();
   if (!admin) {
@@ -501,6 +557,9 @@ export default async function AggregatePage({
 
   const sp = await searchParams;
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
+  // マトリクスの取引先絞り込み。スコープ内の出面との照合だけに使う（DBには渡さない）。
+  const clientId =
+    typeof sp.client === "string" && sp.client !== "" ? sp.client : null;
   const { from } = monthRange(ym);
 
   // 月ナビ。
@@ -518,7 +577,7 @@ export default async function AggregatePage({
       <div className="month-switch">
         <a
           className="month-nav"
-          href={`/admin/aggregate?ym=${ymStr(prev)}`}
+          href={aggregateHref(ymStr(prev), clientId)}
           aria-label="前月"
         >
           ◀
@@ -529,7 +588,7 @@ export default async function AggregatePage({
         </span>
         <a
           className="month-nav"
-          href={`/admin/aggregate?ym=${ymStr(next)}`}
+          href={aggregateHref(ymStr(next), clientId)}
           aria-label="翌月"
         >
           ▶
@@ -554,7 +613,7 @@ export default async function AggregatePage({
         </a>
 
         <Suspense fallback={<SummarySkeleton />}>
-          <MonthSummary ym={ym} scopeOrgId={scopeOrgId} />
+          <MonthSummary ym={ym} scopeOrgId={scopeOrgId} clientId={clientId} />
         </Suspense>
       </section>
     </main>

@@ -64,7 +64,7 @@ describe("summarizeDispatchMatrix — クエリ条件", () => {
         workDate: new Date("2026-07-01T00:00:00.000Z"),
         siteName: "みなとみらい",
         site: null,
-        client: { name: "辻濱興業" },
+        client: { id: "c-tsuji", name: "辻濱興業" },
         entries: [
           {
             shift: "DAY",
@@ -79,7 +79,7 @@ describe("summarizeDispatchMatrix — クエリ条件", () => {
         workDate: new Date("2026-07-02T00:00:00.000Z"),
         siteName: null,
         site: { name: "旧現場マスタ名" },
-        client: { name: "辻濱興業" },
+        client: { id: "c-tsuji", name: "辻濱興業" },
         entries: [
           {
             shift: "NIGHT",
@@ -90,7 +90,7 @@ describe("summarizeDispatchMatrix — クエリ条件", () => {
         ],
       },
     ]);
-    const result = await summarizeDispatchMatrix("2026-07");
+    const { workers: result } = await summarizeDispatchMatrix("2026-07");
     expect(findManyMock).toHaveBeenCalledTimes(1);
     expect(result).toHaveLength(1);
     expect(result[0].workerName).toBe("山田");
@@ -109,7 +109,7 @@ describe("summarizeDispatchMatrix — クエリ条件", () => {
         workDate: new Date("2026-07-01T00:00:00.000Z"),
         siteName: "みなとみらい",
         site: { name: "使われない旧名" },
-        client: { name: "辻濱興業" },
+        client: { id: "c-tsuji", name: "辻濱興業" },
         entries: [
           { shift: "DAY", manDays: 1, otHours: 2, worker: { id: "w1", name: "山田" } },
         ],
@@ -119,13 +119,15 @@ describe("summarizeDispatchMatrix — クエリ条件", () => {
         workDate: new Date("2026-07-02T00:00:00.000Z"),
         siteName: null, // 自由入力なし → 現場マスタ名にフォールバック
         site: { name: "旧現場マスタ名" },
-        client: { name: "恵興業" },
+        client: { id: "c-megumi", name: "恵興業" },
         entries: [
           { shift: "DAY", manDays: 1, otHours: 0, worker: { id: "w1", name: "山田" } },
         ],
       },
     ]);
-    const [w] = await summarizeDispatchMatrix("2026-07");
+    const {
+      workers: [w],
+    } = await summarizeDispatchMatrix("2026-07");
     expect(w.days[0].refs[0]).toMatchObject({
       reportId: "rep-1",
       clientName: "辻濱興業",
@@ -138,10 +140,60 @@ describe("summarizeDispatchMatrix — クエリ条件", () => {
     });
   });
 
+  it("取引先の絞り込みは where に入れない（候補の一覧に全取引先が要るため）", async () => {
+    findManyMock.mockResolvedValue([]);
+    await summarizeDispatchMatrix("2026-07", { source: "SELF" });
+    const whereAll = findManyMock.mock.calls[0][0].where;
+    findManyMock.mockClear();
+    await summarizeDispatchMatrix("2026-07", {
+      source: "SELF",
+      clientId: "c-tsuji",
+    });
+    expect(findManyMock).toHaveBeenCalledTimes(1);
+    expect(findManyMock.mock.calls[0][0].where).toEqual(whereAll);
+  });
+
+  it("clientId を渡すとその取引先の出面だけでマトリクスを作る", async () => {
+    findManyMock.mockResolvedValue([
+      {
+        id: "rep-1",
+        workDate: new Date("2026-07-01T00:00:00.000Z"),
+        siteName: "みなとみらい",
+        site: null,
+        client: { id: "c-tsuji", name: "辻濱興業" },
+        entries: [
+          { shift: "DAY", manDays: 1, otHours: 0, worker: { id: "w1", name: "山田" } },
+        ],
+      },
+      {
+        id: "rep-2",
+        workDate: new Date("2026-07-02T00:00:00.000Z"),
+        siteName: "B現場",
+        site: null,
+        client: { id: "c-megumi", name: "恵興業" },
+        entries: [
+          { shift: "DAY", manDays: 1, otHours: 0, worker: { id: "w1", name: "山田" } },
+          { shift: "DAY", manDays: 1, otHours: 0, worker: { id: "w2", name: "佐藤" } },
+        ],
+      },
+    ]);
+    const view = await summarizeDispatchMatrix("2026-07", {
+      source: "SELF",
+      clientId: "c-tsuji",
+    });
+    expect(view.clientId).toBe("c-tsuji");
+    expect(view.clients.map((c) => c.clientName)).toEqual(["恵興業", "辻濱興業"]);
+    expect(view.workers).toHaveLength(1);
+    expect(view.workers[0].workerName).toBe("山田");
+    expect(view.workers[0].totals.manDays).toBe(1);
+    expect(view.workers[0].days[0].refs[0].reportId).toBe("rep-1");
+    expect(view.workers[0].days[1].refs).toEqual([]);
+  });
+
   it("データなし（0件）でも空配列を返す（画面側で空状態メッセージに切替）", async () => {
     findManyMock.mockResolvedValue([]);
     const result = await summarizeDispatchMatrix("2026-07");
-    expect(result).toEqual([]);
+    expect(result).toEqual({ clients: [], clientId: null, workers: [] });
   });
 });
 
@@ -159,7 +211,7 @@ describe("PARITY: summarizeByWorker と summarizeDispatchMatrix の合計一致"
       workDate: new Date("2026-07-01T00:00:00.000Z"),
       siteName: "A現場",
       site: null,
-      client: { name: "辻濱興業" },
+      client: { id: "c-tsuji", name: "辻濱興業" },
       entries: [
         { shift: "DAY", manDays: 1, otHours: 1, worker: { id: "w1", name: "山田", unitPrice: null, otUnitPrice: null } },
         { shift: "HALF", manDays: 0.5, otHours: 0, worker: { id: "w2", name: "佐藤", unitPrice: null, otUnitPrice: null } },
@@ -170,7 +222,7 @@ describe("PARITY: summarizeByWorker と summarizeDispatchMatrix の合計一致"
       workDate: new Date("2026-07-01T00:00:00.000Z"),
       siteName: "B現場",
       site: null,
-      client: { name: "恵興業" },
+      client: { id: "c-megumi", name: "恵興業" },
       entries: [
         { shift: "NIGHT", manDays: 1, otHours: 0.5, worker: { id: "w1", name: "山田", unitPrice: null, otUnitPrice: null } },
       ],
@@ -180,7 +232,7 @@ describe("PARITY: summarizeByWorker と summarizeDispatchMatrix の合計一致"
       workDate: new Date("2026-07-15T00:00:00.000Z"),
       siteName: "A現場",
       site: null,
-      client: { name: "辻濱興業" },
+      client: { id: "c-tsuji", name: "辻濱興業" },
       entries: [
         { shift: "DAY", manDays: 0.75, otHours: 0, worker: { id: "w1", name: "山田", unitPrice: null, otUnitPrice: null } },
         { shift: "DAY", manDays: 1, otHours: 2, worker: { id: "w2", name: "佐藤", unitPrice: null, otUnitPrice: null } },
@@ -195,7 +247,9 @@ describe("PARITY: summarizeByWorker と summarizeDispatchMatrix の合計一致"
 
   it("職人ごとの 人工/日勤/夜勤/半日/残業 が完全に一致する", async () => {
     const byWorker = await summarizeByWorker("2026-07", { source: "SELF" });
-    const matrix = await summarizeDispatchMatrix("2026-07", { source: "SELF" });
+    const { workers: matrix } = await summarizeDispatchMatrix("2026-07", {
+      source: "SELF",
+    });
     const norm = (
       rows: {
         workerId: string | null;
@@ -224,7 +278,9 @@ describe("PARITY: summarizeByWorker と summarizeDispatchMatrix の合計一致"
 
   it("全職人の人工総合計が一致する", async () => {
     const byWorker = await summarizeByWorker("2026-07", { source: "SELF" });
-    const matrix = await summarizeDispatchMatrix("2026-07", { source: "SELF" });
+    const { workers: matrix } = await summarizeDispatchMatrix("2026-07", {
+      source: "SELF",
+    });
     expect(matrix.reduce((s, r) => s + r.totals.manDays, 0)).toBe(
       byWorker.reduce((s, r) => s + r.manDays, 0),
     );
