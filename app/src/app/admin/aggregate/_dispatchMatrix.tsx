@@ -9,9 +9,11 @@
 //
 //   集計・整形は呼び出し側（page.tsx → @/lib/aggregate）で完了させ、ここでは
 //   受け取った値を並べるだけ（JSX内で集計処理をしない）。
+//   取引先の絞り込みは ?client= をサーバへ渡して作り直す（DispatchClientFilter）。
 // ============================================================
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { EditModal } from "../_editReport.js";
 
 /** セルから開く出面への参照（サーバ側 DispatchEntryRef と同形）。 */
@@ -55,6 +57,57 @@ function fmtNum(n: number): string {
 /** 現場名（未設定なら取引先名）。セルのツールチップ・選択リストに使う。 */
 function refLabel(r: DispatchCellRef): string {
   return r.siteName || r.clientName;
+}
+
+/**
+ * 取引先の絞り込み。選ぶと ?client= 付きで同じ集計ページへ遷移し、
+ * マトリクス（合計列・残業の内訳を含む）をその取引先の出面だけで作り直す。
+ */
+export function DispatchClientFilter({
+  ym,
+  clients,
+  value,
+}: {
+  ym: string;
+  clients: { clientId: string; clientName: string }[];
+  /** 適用中の取引先。null＝すべての取引先。 */
+  value: string | null;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  const onChange = (clientId: string) => {
+    const qs = new URLSearchParams({ ym });
+    if (clientId) qs.set("client", clientId);
+    startTransition(() => {
+      router.push(`/admin/aggregate?${qs.toString()}`, { scroll: false });
+    });
+  };
+
+  return (
+    <div className="dm-filter">
+      <label className="dm-filter-label" htmlFor="dm-client-filter">
+        取引先
+      </label>
+      {/* 遷移中も選んだ値を出したままにするため非制御。確定値が変わったら key で作り直す。 */}
+      <select
+        key={value ?? ""}
+        id="dm-client-filter"
+        className="select dm-filter-select"
+        defaultValue={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        aria-busy={pending}
+      >
+        <option value="">すべての取引先</option>
+        {clients.map((c) => (
+          <option key={c.clientId} value={c.clientId}>
+            {c.clientName}
+          </option>
+        ))}
+      </select>
+      {pending && <span className="dm-filter-pending">更新中…</span>}
+    </div>
+  );
 }
 
 export function DispatchMatrixTable({

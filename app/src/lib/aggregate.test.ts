@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import {
   daysInMonth,
   buildDispatchMatrix,
+  buildDispatchMatrixView,
   formatDispatchCell,
   type DispatchMatrixRawEntry,
   type DispatchDayCell,
@@ -25,6 +26,7 @@ const entry = (
   manDays: 0,
   otHours: 0,
   reportId: "r1",
+  clientId: "c1",
   clientName: "辻濱興業",
   siteName: "みなとみらい",
   ...overrides,
@@ -289,5 +291,93 @@ describe("formatDispatchCell", () => {
         ]),
       ),
     ).toBe("日+夜×2+半");
+  });
+});
+
+describe("buildDispatchMatrixView — 取引先で絞り込む", () => {
+  // 山田: 辻濱 7/1 日勤＋残業2h・恵 7/1 夜勤 / 佐藤: 恵 7/2 日勤。
+  const ENTRIES = [
+    entry({
+      workerId: "w1",
+      workerName: "山田",
+      workDate: wd("2026-07-01"),
+      shift: "DAY",
+      otHours: 2,
+      reportId: "r-tsuji",
+      clientId: "c-tsuji",
+      clientName: "辻濱興業",
+    }),
+    entry({
+      workerId: "w1",
+      workerName: "山田",
+      workDate: wd("2026-07-01"),
+      shift: "NIGHT",
+      reportId: "r-megumi-1",
+      clientId: "c-megumi",
+      clientName: "恵興業",
+    }),
+    entry({
+      workerId: "w2",
+      workerName: "佐藤",
+      workDate: wd("2026-07-02"),
+      shift: "DAY",
+      reportId: "r-megumi-2",
+      clientId: "c-megumi",
+      clientName: "恵興業",
+    }),
+  ];
+
+  it("未指定なら全取引先のマトリクス（buildDispatchMatrix と同じ）", () => {
+    const view = buildDispatchMatrixView("2026-07", ENTRIES);
+    expect(view.clientId).toBeNull();
+    expect(view.workers).toEqual(buildDispatchMatrix("2026-07", ENTRIES));
+  });
+
+  it("候補はその月に出面がある取引先を重複なく名前順で返す", () => {
+    const view = buildDispatchMatrixView("2026-07", ENTRIES);
+    expect(view.clients).toEqual([
+      { clientId: "c-megumi", clientName: "恵興業" },
+      { clientId: "c-tsuji", clientName: "辻濱興業" },
+    ]);
+  });
+
+  it("指定した取引先の出面だけでセル・合計列を作り直す", () => {
+    const view = buildDispatchMatrixView("2026-07", ENTRIES, "c-tsuji");
+    expect(view.clientId).toBe("c-tsuji");
+    // 佐藤は辻濱の出面が無いので行ごと消える。
+    expect(view.workers.map((w) => w.workerName)).toEqual(["山田"]);
+    const [w] = view.workers;
+    // 7/1 は日勤＋夜勤だったが、辻濱の日勤だけになる。
+    expect(formatDispatchCell(w.days[0])).toBe("日");
+    expect(w.days[0].refs.map((r) => r.reportId)).toEqual(["r-tsuji"]);
+    expect(w.totals).toEqual({
+      manDays: 1,
+      dayManDays: 1,
+      nightManDays: 0,
+      halfManDays: 0,
+      otHours: 2,
+    });
+  });
+
+  it("絞り込み中も候補は全取引先のまま（別の取引先へ切り替えられる）", () => {
+    const view = buildDispatchMatrixView("2026-07", ENTRIES, "c-tsuji");
+    expect(view.clients.map((c) => c.clientId)).toEqual([
+      "c-megumi",
+      "c-tsuji",
+    ]);
+  });
+
+  it("候補に無い取引先（その月に出面なし・スコープ外）は無視して全取引先を返す", () => {
+    const view = buildDispatchMatrixView("2026-07", ENTRIES, "c-unknown");
+    expect(view.clientId).toBeNull();
+    expect(view.workers).toEqual(buildDispatchMatrix("2026-07", ENTRIES));
+  });
+
+  it("データなしなら候補も空", () => {
+    expect(buildDispatchMatrixView("2026-07", [], "c-tsuji")).toEqual({
+      clients: [],
+      clientId: null,
+      workers: [],
+    });
   });
 });
