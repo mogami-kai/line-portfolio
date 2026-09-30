@@ -9,7 +9,8 @@ LINE(LIFF)で現場の出面を入力 → Supabase(Postgres) 保存 → 取引�
 
 - **アプリ本体は `app/` 配下**。npm コマンドは `cd app` してから叩く（リポジトリ直下では動かない）
 - **2系統ルーティングが核**: 所属org からサーバが SELF / PARTNER を自動判定する。
-  - SELF = 保存＋LINEグループへログ投稿 / PARTNER = 保存のみ・グループ非投稿・管理ダッシュボードのみ集約
+  - 出面の LINE 通知はグループ投稿をやめ、管理者への個別送信（`src/lib/notify.ts`）。送り先は設定の「通知先ロール」
+  - SELF = 保存＋自社の管理者へ通知 / PARTNER = 保存＋全社管理者（とその協力会社の管理者）へのみ通知・管理ダッシュボードのみ集約
   - **不変条件: 自社にパートナーの存在を意識させない**（PARTNERの投稿・可視化を自社側に漏らさない）
 - スタック: Next.js(App Router) / Vercel / Supabase(Postgres) / Prisma / LINE(LIFF・Login・Messaging API)
 - データモデルは `app/prisma/schema.prisma`（12モデル）。DB変更は必ず Prisma migrate 経由

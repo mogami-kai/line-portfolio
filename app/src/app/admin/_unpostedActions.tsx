@@ -1,16 +1,16 @@
 "use client";
 
 // ============================================================
-// 未投稿アラートの操作ボタン（再投稿 / 再投稿しない）
+// 未通知アラートの操作ボタン（再通知 / 再通知しない）
 //   Server Action を直接呼び、失敗理由をカード内にインライン表示する。
 //   （以前は <form action> で throw → Next の汎用エラー画面になり、
-//     「なぜ再投稿できないか」が全く伝わらなかった）
+//     「なぜ再通知できないか」が全く伝わらなかった）
 // ============================================================
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-  resendReportToGroupAction,
+  resendReportNotifyAction,
   dismissUnpostedReportAction,
 } from "./_actions.js";
 
@@ -47,9 +47,9 @@ export function UnpostedActions({ reportId }: { reportId: string }) {
         type="button"
         className="btn btn--primary btn--sm"
         disabled={isPending}
-        onClick={() => run(resendReportToGroupAction)}
+        onClick={() => run(resendReportNotifyAction)}
       >
-        {isPending ? "送信中…" : "再投稿"}
+        {isPending ? "送信中…" : "再通知"}
       </button>
       <button
         type="button"
@@ -57,7 +57,7 @@ export function UnpostedActions({ reportId }: { reportId: string }) {
         disabled={isPending}
         onClick={() => run(dismissUnpostedReportAction)}
       >
-        再投稿しない
+        再通知しない
       </button>
       {err && (
         <div className="unposted-err" role="alert">

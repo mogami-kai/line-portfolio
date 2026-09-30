@@ -2,7 +2,7 @@
 // 操作履歴（AuditLog）
 //   「誰が・いつ・何をしたか」を LINE アカウント（User）に紐づけて記録する。
 //   - フォーム入力（LIFF からの出面作成）
-//   - 管理者のデータ加工（編集 / 削除 / 承認 / 再投稿 / 投稿済みにする）
+//   - 管理者のデータ加工（編集 / 削除 / 承認 / 再通知 / 通知済みにする）
 //   記録失敗は本処理を壊さない（fire-and-forget・console.error のみ）。
 //   閲覧は /admin/logs（履歴ページ）と編集モーダルのメタ表示。
 // ============================================================
@@ -19,18 +19,22 @@ export type AuditAction =
   | "REPORT_DISMISS"
   | "REPORT_DELETE_REQUEST"
   | "REPORT_DELETE_WITHDRAW"
-  | "REPORT_DELETE_REJECT";
+  | "REPORT_DELETE_REJECT"
+  | "OTHER_EXPENSE_ADD"
+  | "OTHER_EXPENSE_DELETE";
 
 export const ACTION_LABEL: Record<AuditAction, string> = {
   REPORT_CREATE: "フォーム入力",
   REPORT_UPDATE: "編集",
   REPORT_DELETE: "削除",
   REPORT_CONFIRM: "承認",
-  REPORT_RESEND: "LINE再投稿",
-  REPORT_DISMISS: "再投稿しない",
+  REPORT_RESEND: "LINE再通知",
+  REPORT_DISMISS: "再通知しない",
   REPORT_DELETE_REQUEST: "削除申請",
   REPORT_DELETE_WITHDRAW: "削除申請の取り下げ",
   REPORT_DELETE_REJECT: "削除申請の却下",
+  OTHER_EXPENSE_ADD: "その他経費の追加",
+  OTHER_EXPENSE_DELETE: "その他経費の削除",
 };
 
 /** 出面の1行要約（例: "7/9 辻濱興業 みなとみらい"）。 */

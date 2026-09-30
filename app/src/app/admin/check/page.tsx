@@ -10,7 +10,7 @@
 //
 //   前提の周知もここで行う:
 //     ・LINE の送信取り消し/削除はアプリのデータには影響しない
-//     ・LINE 投稿に失敗しても出面は保存済み（postedToGroup=false になるだけ）
+//     ・LINE 通知に失敗しても出面は保存済み（notified=false になるだけ）
 //
 //   ガード: getAdminContext()。スコープ管理者は自組織のみ（scopeWhere）。
 // ============================================================
@@ -45,7 +45,7 @@ interface CheckReport {
   workDate: Date;
   createdAt: Date;
   status: "CONFIRMED" | "NEEDS_REVIEW";
-  postedToGroup: boolean;
+  notified: boolean;
   clientName: string;
   siteLabel: string;
   orgKind: "SELF" | "PARTNER";
@@ -93,7 +93,7 @@ function ReportCard({ r }: { r: CheckReport }) {
           )}
           <span className="muted">
             入力: {r.creatorName}・{jstDateTime(r.createdAt)}
-            {r.postedToGroup ? "・LINE投稿済" : "・LINE未投稿"}
+            {r.notified ? "・LINE通知済" : "・LINE未通知"}
           </span>
         </div>
       </div>
@@ -143,7 +143,7 @@ export default async function CheckPage({
       workDate: true,
       createdAt: true,
       status: true,
-      postedToGroup: true,
+      notified: true,
       siteName: true,
       createdById: true,
       client: { select: { name: true } },
@@ -174,7 +174,7 @@ export default async function CheckPage({
     workDate: r.workDate,
     createdAt: r.createdAt,
     status: r.status,
-    postedToGroup: r.postedToGroup,
+    notified: r.notified,
     clientName: r.client.name,
     siteLabel: (r.siteName || r.site?.name || "").trim(),
     orgKind: r.org.kind,

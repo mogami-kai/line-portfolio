@@ -5,13 +5,29 @@
 //     secret は LINE_MESSAGING_CHANNEL_SECRET（無ければ LINE_CHANNEL_SECRET にフォールバック）。
 //   - イベントを軽く処理して即 200 を返す（LINE は素早い 200 応答を要求）。
 //   - 重要: source.groupId をログ出力 → 管理者が LINE_GROUP_ID を採取できる。
-//   - join / follow は受領のみ（応答返信は将来拡張）。
+//   - follow / unfollow で User.lineFriend（公式アカウントの友だち状態）を更新する。
+//     管理者への出面通知は友だち追加済みの相手にしか届かないため、ユーザー管理で見えるようにする。
+//   - join は受領のみ（応答返信は将来拡張）。
 //
 //   署名検証のため raw body をそのまま読む（req.text()）。
 // ============================================================
 
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db.js";
+
+/** 友だち状態を記録する（登録済みユーザーのみ。未登録なら何もしない）。失敗しても 200 を優先。 */
+async function recordFriendship(userId: string | undefined, friend: boolean) {
+  if (!userId) return;
+  try {
+    await prisma.user.updateMany({
+      where: { lineUserId: userId },
+      data: { lineFriend: friend },
+    });
+  } catch (e) {
+    console.error("[webhook] friendship update failed", e);
+  }
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,12 +112,15 @@ export async function POST(req: Request) {
         );
         break;
       case "follow":
-        // 友だち追加 → 初回ユーザー。ここでは登録/応答せず即 200 を優先。
-        // ユーザー作成・ロール付与は LIFF 初回オープン時 or 管理画面の承認で行う。
+        // 友だち追加（ブロック解除を含む）。ユーザー作成・ロール付与はここではせず、
+        // LIFF 初回オープン時 or 管理画面の承認で行う。既存ユーザーの友だち状態だけ記録する。
         console.log(`[webhook] followed by user: ${src.userId ?? "-"}`);
+        await recordFriendship(src.userId, true);
         break;
       case "unfollow":
+        // ブロック → 以降は通知が届かない。
         console.log(`[webhook] unfollowed by user: ${src.userId ?? "-"}`);
+        await recordFriendship(src.userId, false);
         break;
       case "message":
         // 当面はメッセージに自動応答しない（LIFF 入力に一本化）。

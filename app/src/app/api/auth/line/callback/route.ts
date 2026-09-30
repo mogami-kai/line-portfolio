@@ -15,7 +15,8 @@
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { getProfile, exchangeCode } from "@/lib/line.js";
+import { getProfile, exchangeCode, getFriendshipStatus } from "@/lib/line.js";
+import { prisma } from "@/lib/db.js";
 import { findApprovedAdminByLineUserId, resolveUser } from "@/lib/auth.js";
 import { INVITE_COOKIE, redeemInvite } from "@/lib/invite.js";
 import {
@@ -148,6 +149,16 @@ export async function GET(req: Request) {
     res.headers.append("Set-Cookie", CLEAR_STATE);
     res.headers.append("Set-Cookie", CLEAR_INVITE);
     return res;
+  }
+
+  // ── 4-1) 公式アカウントの友だち状態を記録（出面の通知は友だちにしか届かないため）──
+  //   LINE Login チャネルに公式アカウントがリンクされていないと確認できない（null）→ 記録しない。
+  //   ログイン自体は妨げない（best-effort）。
+  const friend = await getFriendshipStatus(token.accessToken);
+  if (friend !== null) {
+    await prisma.user
+      .update({ where: { id: sessionUser.user.id }, data: { lineFriend: friend } })
+      .catch((e) => console.error("[callback] friendship update failed", e));
   }
 
   // ── 成功: 署名付きセッションを発行 ──

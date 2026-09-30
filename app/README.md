@@ -7,8 +7,8 @@
 
 所属 org からサーバが自動判定（本人は選ばない）。自社にパートナーを意識させない。
 
-- **SELF（自社）** … 保存 ＋ Messaging API で出面グループへログ投稿
-- **PARTNER（協力）** … 保存のみ・グループ非投稿。管理ダッシュボードのみ集約閲覧
+- **SELF（自社）** … 保存 ＋ Messaging API で管理者へ個別通知（送り先は設定の「通知先ロール」）
+- **PARTNER（協力）** … 保存 ＋ 全社管理者（とその協力会社の管理者）へのみ通知。自社管理者には送らない。管理ダッシュボードのみ集約閲覧
 - パートナー追加＝`Organization(kind=PARTNER)` を足してエントリリンクを渡すだけ
 
 ## 管理画面の認証（本人認証）
@@ -39,9 +39,9 @@ npm run dev
 |---|---|
 | `DATABASE_URL` / `DIRECT_URL` | Supabase（pooler / 直結 migrate 用） |
 | `LINE_CHANNEL_ID` / `LINE_CHANNEL_SECRET` | LINE Login / 検証（LIFF・管理ログイン） |
-| `LINE_CHANNEL_ACCESS_TOKEN` | Messaging API（グループ push / リッチメニュー） |
+| `LINE_CHANNEL_ACCESS_TOKEN` | Messaging API（管理者への個別通知 / リッチメニュー） |
 | `NEXT_PUBLIC_LIFF_ID` | LIFF 入力フォーム |
-| `LINE_GROUP_ID` | 出面グループ（SELF のログ投稿先） |
+| `LINE_GROUP_ID` | （旧）出面グループ。出面の投稿には使わない（`/api/admin/line-diag` の疎通確認のみ） |
 | `ADMIN_LINE_USER_IDS` | 初期 ADMIN 付与（カンマ区切り lineUserId） |
 | `SESSION_SECRET` | 管理セッション署名鍵（**必須・32文字以上のランダム**） |
 | `LINE_LOGIN_CHANNEL_ID` / `LINE_LOGIN_CHANNEL_SECRET` | 管理ログイン用チャネル（未設定なら `LINE_CHANNEL_*` を流用） |

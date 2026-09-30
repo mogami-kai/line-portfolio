@@ -93,6 +93,11 @@ export default async function MastersPage() {
         dueReminderEnabled: setting.dueReminderEnabled,
         dueReminderHour: setting.dueReminderHour,
         dueReminderUserId: setting.dueReminderUserId,
+        profitShareName: setting.profitShareName,
+        profitShareRate: setting.profitShareRate,
+        profitViewRoles: setting.profitViewRoles,
+        notifySelfRoles: setting.notifySelfRoles,
+        notifyPartnerRoles: setting.notifyPartnerRoles,
       }
     : null;
 

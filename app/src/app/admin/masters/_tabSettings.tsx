@@ -22,7 +22,27 @@ import type { JSX } from "react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { SettingRow, AdminOption } from "./_mastersTypes.js";
-import { saveInvoiceSettingAction } from "../_actions.js";
+import {
+  saveInvoiceSettingAction,
+  sendTestNotificationAction,
+} from "../_actions.js";
+
+/** 出面の通知先に選べるロール（lib/notify の NOTIFY_*_ROLE_OPTIONS と同じ）。 */
+const NOTIFY_SELF_OPTIONS: { role: string; label: string }[] = [
+  { role: "ADMIN", label: "管理者" },
+  { role: "SELF_ADMIN", label: "自社管理者" },
+  { role: "ORG_ADMIN", label: "組織管理者（自社所属）" },
+];
+const NOTIFY_PARTNER_OPTIONS: { role: string; label: string }[] = [
+  { role: "ADMIN", label: "管理者" },
+  { role: "ORG_ADMIN", label: "組織管理者（その協力会社）" },
+];
+
+/** ADMIN 以外で粗利の閲覧を許可できるロール（lib/profit の PROFIT_VIEWABLE_ROLES と同じ）。 */
+const PROFIT_ROLE_OPTIONS: { role: string; label: string }[] = [
+  { role: "SELF_ADMIN", label: "自社管理者" },
+  { role: "ORG_ADMIN", label: "組織管理者（自社所属）" },
+];
 
 /** 比率（0.10）→ 表示用の % 値（10）。未設定時は既定 10%。 */
 function rateToPct(taxRate: number | undefined): number {
@@ -59,6 +79,46 @@ export function SettingsTab({
   const [reminderUserId, setReminderUserId] = useState(
     setting?.dueReminderUserId ?? "",
   );
+  // 粗利（取り分の相手・率・見られるロール）。
+  const [shareName, setShareName] = useState(setting?.profitShareName ?? "大和");
+  const [sharePct, setSharePct] = useState<string>(
+    String(Math.round((setting?.profitShareRate ?? 0.2) * 1000) / 10),
+  );
+  const [viewRoles, setViewRoles] = useState<string[]>(
+    setting?.profitViewRoles ?? [],
+  );
+  const toggleViewRole = (role: string, on: boolean) =>
+    setViewRoles((cur) =>
+      on ? Array.from(new Set([...cur, role])) : cur.filter((r) => r !== role),
+    );
+  // 出面の LINE 通知の送り先ロール（未作成なら既定: 自社=全管理者 / 協力会社=管理者）。
+  const [notifySelf, setNotifySelf] = useState<string[]>(
+    setting?.notifySelfRoles ?? ["ADMIN", "SELF_ADMIN", "ORG_ADMIN"],
+  );
+  const [notifyPartner, setNotifyPartner] = useState<string[]>(
+    setting?.notifyPartnerRoles ?? ["ADMIN"],
+  );
+  const toggleIn =
+    (set: (fn: (cur: string[]) => string[]) => void) => (role: string, on: boolean) =>
+      set((cur) =>
+        on ? Array.from(new Set([...cur, role])) : cur.filter((r) => r !== role),
+      );
+  // テスト送信（ログイン中の管理者本人へ）。
+  const [testPending, startTest] = useTransition();
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(
+    null,
+  );
+  function sendTest(): void {
+    setTestResult(null);
+    startTest(async () => {
+      const r = await sendTestNotificationAction();
+      setTestResult(
+        r.ok
+          ? { ok: true, msg: "送信しました。LINE に届いたか確認してください。" }
+          : { ok: false, msg: r.error ?? "送信できませんでした。" },
+      );
+    });
+  }
 
   function submit(fd: FormData): void {
     setErr(null);
@@ -313,6 +373,143 @@ export function SettingsTab({
             </select>
             <p className="hint">
               通知先の管理者が、この公式アカウントを「友だち追加」している必要があります（未追加だと届きません）。
+            </p>
+          </div>
+        </section>
+
+        {/* ── 出面の LINE 通知（管理者へ個別送信） ── */}
+        <section className="mst-block">
+          <h3 className="mst-block-title">出面のLINE通知（管理者へ個別に送信）</h3>
+          <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+            出面の登録・取消を、公式アカウントから管理者へ個別に送ります（グループには投稿しません）。
+            管理者ごとのON/OFFと友だち追加の状況は「ユーザー管理」で確認できます。
+          </p>
+
+          <div className="field">
+            <span className="label">自社の出面の通知先</span>
+            {NOTIFY_SELF_OPTIONS.map((o) => (
+              <label key={o.role} className="inline-row" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  name="notifySelfRoles"
+                  value={o.role}
+                  checked={notifySelf.includes(o.role)}
+                  onChange={(e) => toggleIn(setNotifySelf)(o.role, e.target.checked)}
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="field">
+            <span className="label">協力会社の出面の通知先</span>
+            {NOTIFY_PARTNER_OPTIONS.map((o) => (
+              <label key={o.role} className="inline-row" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  name="notifyPartnerRoles"
+                  value={o.role}
+                  checked={notifyPartner.includes(o.role)}
+                  onChange={(e) =>
+                    toggleIn(setNotifyPartner)(o.role, e.target.checked)
+                  }
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+            <p className="hint">協力会社の出面は自社管理者には送りません。</p>
+          </div>
+
+          <div className="field">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={sendTest}
+              disabled={testPending}
+            >
+              {testPending ? "送信中…" : "自分にテスト送信"}
+            </button>
+            {testResult && (
+              <p
+                className="hint"
+                role="status"
+                style={{ color: testResult.ok ? "var(--ok-ink)" : "var(--danger)" }}
+              >
+                {testResult.msg}
+              </p>
+            )}
+            <p className="hint">
+              届かない場合は、公式アカウントを友だち追加しているか、LINE ログイン用チャネルと公式アカウント（Messaging API）が同じプロバイダーにあるかを確認してください。
+            </p>
+          </div>
+        </section>
+
+        {/* ── 粗利（会社に残るお金） ── */}
+        <section className="mst-block">
+          <h3 className="mst-block-title">粗利（会社に残るお金）</h3>
+          <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+            集計画面で「売上 − 経費 − 人工 = 会社に残る額」を出し、その額から下の率を取り分として分けます。
+          </p>
+
+          <div className="field">
+            <label className="label" htmlFor="set-shareName">
+              取り分を渡す相手
+            </label>
+            <input
+              id="set-shareName"
+              className="input"
+              name="profitShareName"
+              type="text"
+              maxLength={40}
+              value={shareName}
+              onChange={(e) => setShareName(e.target.value)}
+              placeholder="例: 大和"
+            />
+          </div>
+
+          <div className="field">
+            <label className="label" htmlFor="set-sharePct">
+              取り分の率（%）
+            </label>
+            <input
+              id="set-sharePct"
+              className="input input--num"
+              name="profitSharePct"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              max={100}
+              step={0.1}
+              required
+              value={sharePct}
+              onChange={(e) => setSharePct(e.target.value)}
+              placeholder="20"
+            />
+            <p className="hint">
+              会社に残る額 × この率 を取り分（円未満切り捨て）、残りが会社に残るお金になります。
+            </p>
+          </div>
+
+          <div className="field">
+            <span className="label">粗利を見られるロール</span>
+            <label className="inline-row" style={{ gap: 8 }}>
+              <input type="checkbox" checked disabled />
+              <span>管理者（常に見られます）</span>
+            </label>
+            {PROFIT_ROLE_OPTIONS.map((o) => (
+              <label key={o.role} className="inline-row" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  name="profitViewRoles"
+                  value={o.role}
+                  checked={viewRoles.includes(o.role)}
+                  onChange={(e) => toggleViewRole(o.role, e.target.checked)}
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+            <p className="hint">
+              自社管理者・組織管理者には自社分の粗利だけを表示します（協力会社の数字は出しません）。協力会社の組織管理者には表示しません。
             </p>
           </div>
         </section>

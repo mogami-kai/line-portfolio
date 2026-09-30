@@ -4,19 +4,15 @@
 //
 //   冪等キー確認 → 取引先/職人の実在確認 → validateReportRows(聞き返し判定)
 //   → Report(+entries+expenses) 保存 → 監査ログ → キャッシュ無効化
-//   → 現場利用統計更新 → (SELF かつ postToGroup!==false なら)LINEグループ投稿
+//   → 現場利用統計更新 → (notify!==false なら)管理者へ LINE 個別通知（@/lib/notify）
 //
 //   ロジックは元々 api/reports/route.ts に実装されていたものをそのまま移植。
-//   挙動を変えたのは投稿条件のみ（org.kind==="SELF" → org.kind==="SELF" && postToGroup!==false）。
+//   通知はグループ投稿をやめ、自社・協力会社とも通知先ロールの管理者へ個別に送る。
 // ============================================================
 
 import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/db.js";
-import {
-  formatReportLog,
-  pushToGroup,
-  type ReportLogInput,
-} from "@/lib/line.js";
+import { notifyReportToAdmins, reportNotifyText } from "@/lib/notify.js";
 import {
   buildAskbackMessage,
   validateReportRows,
@@ -58,9 +54,9 @@ export interface CreateReportContext {
   orgKind: OrgKind;
   createdById: string;
   createdByName: string;
-  // undefined = 既存どおり org.kind で自動判定(SELF→投稿)。
-  // false を渡すと SELF でも投稿をスキップ（管理画面の代理登録用）。
-  postToGroup?: boolean;
+  // undefined / true = 管理者へ LINE 通知する。
+  // false = 通知しない（管理画面のまとめて後追い登録など）。通知済み扱いにして「未通知」警告に出さない。
+  notify?: boolean;
 }
 
 export type CreateReportResult =
@@ -68,7 +64,8 @@ export type CreateReportResult =
       ok: true;
       reportId: string;
       status: "CONFIRMED" | "NEEDS_REVIEW";
-      postedToGroup: boolean;
+      /** 管理者への通知が済んだか（送信失敗なら false＝管理ホームの「未通知」から再通知）。 */
+      notified: boolean;
       deduped?: boolean;
       askback?: string;
     }
@@ -84,7 +81,7 @@ export async function createReportCore(
   if (input.clientRequestId) {
     const dup = await prisma.report.findUnique({
       where: { clientRequestId: input.clientRequestId },
-      select: { id: true, status: true, postedToGroup: true, createdById: true },
+      select: { id: true, status: true, notified: true, createdById: true },
     });
     if (dup) {
       if (dup.createdById !== ctx.createdById) {
@@ -94,7 +91,7 @@ export async function createReportCore(
         ok: true,
         reportId: dup.id,
         status: dup.status,
-        postedToGroup: dup.postedToGroup,
+        notified: dup.notified,
         deduped: true,
       };
     }
@@ -184,7 +181,7 @@ export async function createReportCore(
         orgId: ctx.orgId,
         createdById: ctx.createdById,
         status,
-        postedToGroup: false,
+        notified: false,
         clientRequestId: input.clientRequestId ?? null,
         entries: {
           create: input.entries.map((e) => ({
@@ -231,14 +228,14 @@ export async function createReportCore(
     ) {
       const existing = await prisma.report.findUnique({
         where: { clientRequestId: input.clientRequestId },
-        select: { id: true, status: true, postedToGroup: true },
+        select: { id: true, status: true, notified: true },
       });
       if (existing) {
         return {
           ok: true,
           reportId: existing.id,
           status: existing.status,
-          postedToGroup: existing.postedToGroup,
+          notified: existing.notified,
           deduped: true,
         };
       }
@@ -267,48 +264,43 @@ export async function createReportCore(
     }
   }
 
-  // ── 投稿ルーティング: SELF かつ postToGroup!==false のときだけグループへ投稿 ──
-  let postedToGroup = false;
-  if (ctx.orgKind === "SELF" && ctx.postToGroup !== false) {
+  // ── 管理者へ LINE 個別通知（自社・協力会社とも。送り先は通知先ロールの設定で決まる）──
+  //   通知しない指定なら通知済み扱い。送信に失敗したら未通知のまま（管理ホームから再通知）。
+  let notified = false;
+  if (ctx.notify === false) {
+    notified = true;
+  } else {
     try {
-      const baseSiteName = created.siteName ?? "";
-      const ukeoiNote =
-        created.contractType === "UKEOI" && created.contractAmount != null
-          ? `（請負 ¥${created.contractAmount.toLocaleString("ja-JP")}）`
-          : "";
-      const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
-      const logInput: ReportLogInput = {
-        workDate: created.workDate,
-        contractType: created.contractType,
-        client: created.client,
-        site: displaySiteName ? { name: displaySiteName } : null,
-        entries: created.entries.map((e) => ({
-          shift: e.shift,
-          manDays: e.manDays,
-          otHours: e.otHours,
-          worker: e.worker,
-        })),
-        expenses: created.expenses.map((x) => ({
-          kind: x.kind,
-          amount: x.amount,
-        })),
-      };
-      await pushToGroup(formatReportLog(logInput));
-      postedToGroup = true;
-      await prisma.report.update({
-        where: { id: created.id },
-        data: { postedToGroup: true },
-      });
+      const partnerOrgName =
+        ctx.orgKind === "PARTNER"
+          ? ((
+              await prisma.organization.findUnique({
+                where: { id: ctx.orgId },
+                select: { name: true },
+              })
+            )?.name ?? null)
+          : null;
+      await notifyReportToAdmins(
+        { source: ctx.orgKind, orgId: ctx.orgId, createdById: ctx.createdById },
+        reportNotifyText(created, { kind: "created", partnerOrgName }),
+      );
+      notified = true;
     } catch (e) {
-      console.error("[reportCreate] pushToGroup failed", e);
+      console.error("[reportCreate] notify admins failed", e);
     }
+  }
+  if (notified) {
+    await prisma.report.update({
+      where: { id: created.id },
+      data: { notified: true },
+    });
   }
 
   return {
     ok: true,
     reportId: created.id,
     status: created.status,
-    postedToGroup,
+    notified,
     askback: report.status === "confirm" ? buildAskbackMessage(report) : undefined,
   };
 }

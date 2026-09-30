@@ -678,7 +678,7 @@ export default function LiffPage() {
       setOkResult({
         reportId: data.reportId,
         status: data.status,
-        posted: Boolean(data.postedToGroup),
+        posted: Boolean(data.notified),
         askback: data.askback,
         summary: summarySnapshot,
       });
@@ -915,7 +915,7 @@ export default function LiffPage() {
           </div>
 
           {okResult.posted && (
-            <p className="muted">出面グループへ投稿しました。</p>
+            <p className="muted">管理者へLINEで通知しました。</p>
           )}
           {needsReview && (
             <div className="notice notice--warn" style={{ textAlign: "left" }}>

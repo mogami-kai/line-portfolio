@@ -3457,3 +3457,116 @@ details.card .field {
 .dm-filter-note {
   margin: 0 0 8px;
 }
+
+/* ============================================================
+   粗利（会社に残るお金）— /admin/aggregate
+   自社 / 協力会社 / その他経費 → 会社に残る額 → 取り分 / 会社 の順に縦に並べる。
+   ============================================================ */
+.pf-card {
+  padding: 4px 16px 12px;
+}
+.pf-warn {
+  margin: 12px 0 4px;
+  font-size: 13px;
+}
+.pf-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 14px 0 2px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.pf-total {
+  border-bottom: 1.5px solid var(--line-strong);
+}
+.pf-total .k {
+  color: var(--ink);
+  font-weight: 700;
+}
+.pf-result {
+  margin-top: 14px;
+  padding: 2px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+.pf-result .kv {
+  border-bottom-color: #dbe4f3;
+}
+.pf-company .k {
+  color: var(--accent-dark);
+  font-weight: 800;
+}
+.pf-company .v {
+  color: var(--accent-dark);
+  font-size: 18px;
+  font-weight: 800;
+}
+.pf-note {
+  margin: 10px 0 0;
+}
+.pf-other-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.pf-other-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pf-other-amt {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pf-other-empty {
+  margin: 6px 0;
+  font-size: 13px;
+}
+.pf-other-form {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.pf-other-form .input {
+  min-height: 40px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.pf-other-form .input:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pf-other-form .input--num {
+  flex: 0 0 104px;
+  width: 104px;
+}
+.pf-other-form .btn {
+  flex: 0 0 auto;
+}
+.pf-other-error {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+}
+
+/* ユーザー管理: 管理者の出面LINE通知（友だち状態・ON/OFF） */
+.user-notify {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.user-notify .list-meta {
+  flex: 1 1 200px;
+  margin: 0;
+}

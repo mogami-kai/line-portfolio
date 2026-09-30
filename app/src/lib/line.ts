@@ -1,6 +1,7 @@
 // ============================================================
 // LINE 連携ヘルパー（SDK 非依存・fetch のみ）
-//   - pushToGroup     : Messaging API push で出面グループへ整形ログ投稿
+//   - multicastToUsers: Messaging API multicast で管理者へ個別に出面ログを送る
+//   - pushToUser      : 単一ユーザーへ DM（入金リマインド・テスト送信）
 //   - getProfile      : LIFF アクセストークン → LINE プロフィール
 //   - verifyAccessToken: LIFF アクセストークンの検証（チャネル一致確認）
 //   - formatReportLog : v1 bot 受信確認フォーマットのログ文面生成
@@ -28,45 +29,48 @@ function channelAccessToken(): string {
   return t;
 }
 
-/** 出面ログの投稿先グループ ID（未設定なら空文字）。 */
+/**
+ * 旧・出面グループの ID（未設定なら空文字）。出面の通知は管理者への個別送信に
+ * 切り替えたため投稿には使わない。/api/admin/line-diag の疎通確認でのみ参照する。
+ */
 export function groupId(): string {
   return env("LINE_GROUP_ID");
 }
 
-// ============================================================
-// push: 出面グループへテキスト投稿
-//   to = LINE_GROUP_ID（出面グループ）
-// ============================================================
-export async function pushToGroup(text: string): Promise<void> {
-  const to = groupId();
-  if (!to) {
-    // グループ未設定でも入力フロー自体は失敗させない（ログのみ）。
-    console.warn("[line] LINE_GROUP_ID is not set; skip pushToGroup");
-    return;
-  }
+/** multicast 1回あたりの宛先上限（Messaging API の仕様）。 */
+const MULTICAST_MAX = 500;
 
-  const res = await fetch(`${LINE_API}/v2/bot/message/push`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${channelAccessToken()}`,
-    },
-    body: JSON.stringify({
-      to,
-      messages: [{ type: "text", text }],
-    }),
-  });
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    // 宛先の種別だけ添える（C…=グループ / R…=トークルーム / U…=ユーザー）。
-    // 「グループID のはずが U… 」なら LINE_GROUP_ID の設定ミス。フルIDはログに出さない。
-    const head = to[0];
-    const kind =
-      head === "C" ? "group(C)" : head === "R" ? "room(R)" : head === "U" ? "user(U)" : `other(${head})`;
-    throw new Error(
-      `LINE push failed: ${res.status} to=${kind} len=${to.length} body=${body}`,
-    );
+// ============================================================
+// multicast: 複数ユーザーへ同じテキストを個別に送る（出面の管理者通知）
+//   to = LINE userId（U…）の配列。相手が公式アカウントを友だち追加済みであること
+//   （未追加・ブロック中の相手には届かないが、API はエラーにしない）。
+//   通数は宛先の人数ぶんカウントされる。
+// ============================================================
+export async function multicastToUsers(
+  userIds: string[],
+  text: string,
+): Promise<void> {
+  const ids = Array.from(new Set(userIds.filter(Boolean)));
+  for (let i = 0; i < ids.length; i += MULTICAST_MAX) {
+    const chunk = ids.slice(i, i + MULTICAST_MAX);
+    const res = await fetch(`${LINE_API}/v2/bot/message/multicast`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${channelAccessToken()}`,
+      },
+      body: JSON.stringify({
+        to: chunk,
+        messages: [{ type: "text", text }],
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      // userId はログに出さない（人数のみ）。
+      throw new Error(
+        `LINE multicast failed: ${res.status} n=${chunk.length} body=${body}`,
+      );
+    }
   }
 }
 
@@ -228,6 +232,9 @@ export function buildLoginUrl(state: string, nonce?: string): string {
   url.searchParams.set("redirect_uri", adminRedirectUrl());
   url.searchParams.set("state", state);
   url.searchParams.set("scope", "openid profile");
+  // 管理者には出面の通知を公式アカウントから個別に送るため、ログイン時に友だち追加を促す
+  // （LINE Login チャネルに公式アカウントがリンクされている場合のみ表示される）。
+  url.searchParams.set("bot_prompt", "aggressive");
   if (nonce) url.searchParams.set("nonce", nonce);
   return url.toString();
 }
@@ -266,6 +273,26 @@ export async function exchangeCode(
   }
 }
 
+/**
+ * ログインしたユーザーと公式アカウントの友だち関係（LINE Login の access_token で確認）。
+ *   GET /friendship/v1/status → { friendFlag }。
+ *   LINE Login チャネルに公式アカウントがリンクされていない等で確認できなければ null。
+ */
+export async function getFriendshipStatus(
+  accessToken: string,
+): Promise<boolean | null> {
+  try {
+    const res = await fetch(`${LINE_API}/friendship/v1/status`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { friendFlag?: boolean };
+    return typeof json.friendFlag === "boolean" ? json.friendFlag : null;
+  } catch {
+    return null;
+  }
+}
+
 // ============================================================
 // 受信確認ログ（v1 bot フォーマット踏襲）
 //   日付 / 取引先 / 現場 / 職人ごとの 人工・残業
@@ -293,7 +320,7 @@ export interface ReportLogInput {
     otHours: number;
     worker: { name: string };
   }>;
-  /** 立替経費（任意）。グループ投稿に「パーキング800円」等で併記する。 */
+  /** 立替経費（任意）。通知に「パーキング800円」等で併記する。 */
   expenses?: Array<{ kind: string; amount: number }>;
 }
 
@@ -307,7 +334,7 @@ function fmtDateJp(d: Date | string): string {
 }
 
 /**
- * 出面グループ投稿用テキスト（実運用ログのフォーマット踏襲）:
+ * 出面の通知テキスト（旧グループ投稿と同じ、実運用ログのフォーマット踏襲）:
  *   1行目: 日付(曜)
  *   2行目: 取引先　契約（常用/請負）
  *   3行目: 現場
@@ -338,10 +365,10 @@ export function formatReportLog(report: ReportLogInput): string {
 }
 
 /**
- * 出面取消の訂正投稿。
+ * 出面取消の訂正通知。
  * LINE の仕様上、bot が送った過去メッセージは API から送信取り消しできない。
- * そのため「アプリを正」とし、出面が削除されたらこの訂正テキストをグループへ
- * 流して、LINE 上の見た目と DB の中身のずれを残さない。
+ * そのため「アプリを正」とし、出面が削除されたらこの訂正テキストを通知済みの
+ * 管理者へ流して、LINE 上の見た目と DB の中身のずれを残さない。
  */
 export function formatReportCancelLog(report: ReportLogInput): string {
   return `【出面取消】以下の出面は削除されました。\n${formatReportLog(report)}`;

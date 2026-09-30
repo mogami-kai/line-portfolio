@@ -9,9 +9,9 @@
 //        confirm → status=NEEDS_REVIEW で保存（管理者承認キューへ）
 //        ok      → status=CONFIRMED で保存
 //   4) Report(+entries+expenses) を保存（source=org.kind / orgId / createdById）
-//   5) ★ルーティング（org.kind で1分岐）★
-//        SELF    → pushToGroup(formatReportLog(...)) ＋ postedToGroup=true
-//        PARTNER → push しない（管理ダッシュボードでのみ集約）
+//   5) ★通知★ 管理者へ LINE 個別通知（@/lib/notify・送信できたら notified=true）
+//        SELF    → 自社の出面の通知先ロールの管理者へ
+//        PARTNER → 協力会社の出面の通知先ロールの管理者へ（自社管理者には送らない）
 //   6) { ok, reportId, status } を返す
 // ============================================================
 
@@ -157,7 +157,7 @@ export async function POST(req: Request) {
       orgKind: org.kind,
       createdById: user.id,
       createdByName: user.displayName,
-      // postToGroup は渡さない＝org.kind による既存の自動判定を維持。
+      // notify は渡さない＝通知先ロールの管理者へ通知する。
     },
   );
 
@@ -175,7 +175,7 @@ export async function POST(req: Request) {
     ok: true,
     reportId: result.reportId,
     status: result.status,
-    postedToGroup: result.postedToGroup,
+    notified: result.notified,
     deduped: result.deduped,
     askback: result.askback,
   });

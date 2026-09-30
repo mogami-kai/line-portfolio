@@ -6,7 +6,7 @@
 //       0) 次にやること … 状態から導いた最優先導線（adminInsights）
 //       0') 今月の状態 … 入力/要確認/承認待ち/請求候補 等の指標カード（metric-grid）
 //       1) 要確認（NEEDS_REVIEW）… その場で「承認」「編集」できる行動カード
-//       2) 直近の出面 … 当月の入力フィード（LINE グループと同じ並びで一目確認）
+//       2) 直近の出面 … 当月の入力フィード（LINE 通知と同じ並びで一目確認）
 //       3) 集計・請求 … くわしい数字は「集計」へ、月末は「請求書」へ（導線のみ）
 //     詳細な月次集計（合計・職人別・取引先別）は /admin/aggregate（集計）へ分離した。
 //
@@ -196,13 +196,13 @@ export default async function AdminPage({
         expenses: { select: { kind: true, amount: true, receiptPath: true } },
       },
     }),
-    // 自社(SELF)の出面で LINE グループ投稿に失敗したもの（postedToGroup=false）。
-    // 投稿漏れは請求・共有の抜けにつながるため、ホームで警告し「再投稿」できるようにする。
-    // 直近90日を対象（古すぎる投稿漏れは実運用上ノイズになるため範囲を絞る）。
+    // 管理者への LINE 通知に失敗した出面（notified=false）。自社・協力会社とも対象
+    // （スコープ管理者は自組織のみ）。通知漏れは確認・共有の抜けにつながるため、
+    // ホームで警告し「再通知」できるようにする。
+    // 直近90日を対象（古すぎる通知漏れは実運用上ノイズになるため範囲を絞る）。
     prisma.report.findMany({
       where: {
-        postedToGroup: false,
-        org: { kind: "SELF" },
+        notified: false,
         workDate: {
           gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
         },
@@ -316,12 +316,12 @@ export default async function AdminPage({
       <div className="admin-grid">
         {/* ───────── 左：日々のチェック（主役）───────── */}
         <div className="admin-main">
-          {/* ⓪ 削除申請（LIFFマイページから本人が申請。承認＝削除＋LINE取消投稿 / 却下） */}
+          {/* ⓪ 削除申請（LIFFマイページから本人が申請。承認＝削除＋LINE取消通知 / 却下） */}
           {deleteRequests.length > 0 && (
             <section className="block">
               <div className="notice notice--warn" style={{ marginBottom: 12 }}>
                 出面の削除申請が {deleteRequests.length} 件あります。
-                「削除する」で確定すると集計から消え、LINE グループにも取消が投稿されます。
+                「削除する」で確定すると集計から消え、通知を受けた管理者にも LINE で取消が届きます。
               </div>
               <div className="review-list">
                 {deleteRequests.map((r) => {
@@ -355,7 +355,7 @@ export default async function AdminPage({
                           id={r.id}
                           label="削除する"
                           className="btn btn--primary btn--sm"
-                          confirmText={`${mdW(r.workDate)} ${r.client.name} ${site} の出面を削除します。集計から消え、LINEグループにも取消が投稿されます。よろしいですか？`}
+                          confirmText={`${mdW(r.workDate)} ${r.client.name} ${site} の出面を削除します。集計から消え、通知を受けた管理者にも LINE で取消が届きます。よろしいですか？`}
                         />
                         <form action={rejectReportDeleteAction}>
                           <input type="hidden" name="id" value={r.id} />
@@ -371,12 +371,12 @@ export default async function AdminPage({
             </section>
           )}
 
-          {/* ⓪ 未投稿アラート（自社SELFのグループ投稿失敗） */}
+          {/* ⓪ 未通知アラート（管理者への LINE 通知の失敗） */}
           {unposted.length > 0 && (
             <section className="block">
               <div className="notice notice--warn" style={{ marginBottom: 12 }}>
-                LINE グループに投稿できていない出面が {unposted.length} 件あります。
-                内容を確認して「再投稿」してください。
+                管理者へ LINE で通知できていない出面が {unposted.length} 件あります。
+                内容を確認して「再通知」してください。
               </div>
               <div className="review-list">
                 {unposted.map((r) => {
@@ -390,7 +390,7 @@ export default async function AdminPage({
                         <div className="review-title">
                           <span className="review-date">{mdW(r.workDate)}</span>
                           {r.client.name}
-                          <span className="badge badge--review">未投稿</span>
+                          <span className="badge badge--review">未通知</span>
                         </div>
                         <div className="review-meta">
                           {r.siteName || r.site?.name || "(現場未設定)"}

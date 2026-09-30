@@ -19,6 +19,53 @@ import {
 import { monthRange } from "./aggregate.js";
 import { jstTodayDate, computeDueDate } from "./invoiceDates.js";
 
+/** 請求の材料にする出面1件（collectBillingWork の入力）。 */
+export interface BillingReportRow {
+  contractType: "JOYO" | "UKEOI";
+  contractAmount: number | null;
+  siteName: string | null;
+  site: { name: string } | null;
+  entries: { shift: string; manDays: number; otHours: number }[];
+}
+
+/**
+ * 出面群 → 請求の材料（現場ごとの日勤/夜勤人工・残業合計・請負金額）。DB非依存の純粋関数。
+ * 請求書（buildClientInvoiceLines）と粗利（lib/profit）で同じ規約を使うため共通化。
+ *   現場ごとに「日勤(DAY+HALF)」「夜勤(NIGHT)」の人工を畳む。残業は全体で合算。
+ *   委託料の人工/残業は「常用（JOYO）」のみ積む。請負（UKEOI）は Report ごとの
+ *   contractAmount を「○月委託料 数量1（式）」で計上（人工×単価には混ぜない＝二重計上回避）。
+ */
+export function collectBillingWork(reports: BillingReportRow[]): {
+  sites: SiteWork[];
+  otHours: number;
+  ukeoiAmounts: number[];
+} {
+  const siteMap = new Map<string, SiteWork>();
+  let otHours = 0;
+  const ukeoiAmounts: number[] = [];
+  for (const r of reports) {
+    if (r.contractType === "JOYO") {
+      const siteName = r.siteName?.trim() || r.site?.name || "(現場未設定)";
+      let agg = siteMap.get(siteName);
+      if (!agg) {
+        agg = { site: siteName, dayManDays: 0, nightManDays: 0 };
+        siteMap.set(siteName, agg);
+      }
+      for (const e of r.entries) {
+        const md = resolveManDays(e.shift as Shift, e.manDays);
+        if (e.shift === "NIGHT") agg.nightManDays += md;
+        else agg.dayManDays += md;
+        otHours += Number(e.otHours) || 0;
+      }
+    } else if (r.contractType === "UKEOI") {
+      // UKEOI の職人 entries は社内記録用で請求額に影響しない（共通仕様）。
+      const amt = Number(r.contractAmount) || 0;
+      if (amt > 0) ukeoiAmounts.push(amt);
+    }
+  }
+  return { sites: Array.from(siteMap.values()), otHours, ukeoiAmounts };
+}
+
 /**
  * 取引先×月の Report → InvoiceLine[]。
  * 取引先ごとに合算（現場の内訳なし）：委託料＝合計人工×単価、残業＝合計時間×残業単価、
@@ -51,32 +98,7 @@ export async function buildClientInvoiceLines(
     },
   });
 
-  // 現場ごとに「日勤(DAY+HALF)」「夜勤(NIGHT)」の人工を畳む。残業は全体で合算。
-  //   委託料の人工/残業は「常用（JOYO）」のみ積む。請負（UKEOI）は Report ごとの
-  //   contractAmount を「○月委託料 数量1（式）」で計上（人工×単価には混ぜない＝二重計上回避）。
-  const siteMap = new Map<string, SiteWork>();
-  let otHours = 0;
-  const ukeoiAmounts: number[] = [];
-  for (const r of reports) {
-    if (r.contractType === "JOYO") {
-      const siteName = r.siteName?.trim() || r.site?.name || "(現場未設定)";
-      let agg = siteMap.get(siteName);
-      if (!agg) {
-        agg = { site: siteName, dayManDays: 0, nightManDays: 0 };
-        siteMap.set(siteName, agg);
-      }
-      for (const e of r.entries) {
-        const md = resolveManDays(e.shift as Shift, e.manDays);
-        if (e.shift === "NIGHT") agg.nightManDays += md;
-        else agg.dayManDays += md;
-        otHours += Number(e.otHours) || 0;
-      }
-    } else if (r.contractType === "UKEOI") {
-      // UKEOI の職人 entries は社内記録用で請求額に影響しない（共通仕様）。
-      const amt = Number(r.contractAmount) || 0;
-      if (amt > 0) ukeoiAmounts.push(amt);
-    }
-  }
+  const { sites, otHours, ukeoiAmounts } = collectBillingWork(reports);
 
   // 請負（UKEOI）契約金額を LumpContract から取り込む（その月・ACTIVE）。
   const lumps = await prisma.lumpContract.findMany({
@@ -86,7 +108,6 @@ export async function buildClientInvoiceLines(
   });
   const lumpItems = lumps.map((l) => ({ name: l.name, amount: l.amount }));
 
-  const sites = Array.from(siteMap.values());
   const hasWork =
     sites.some((s) => s.dayManDays > 0 || s.nightManDays > 0) ||
     otHours > 0 ||
