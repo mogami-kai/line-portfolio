@@ -36,6 +36,11 @@ import {
 } from "@/lib/invite.js";
 import { headers } from "next/headers";
 import { createReportCore } from "@/lib/reportCreate.js";
+import {
+  DEFAULT_PROFIT_SHARE_NAME,
+  PROFIT_VIEWABLE_ROLES,
+  profitScopeFor,
+} from "@/lib/profit.js";
 import type {
   ReportEditorData,
   ReportEditInput,
@@ -465,14 +470,21 @@ const settingSchema = z.object({
   dueReminderEnabled: z.boolean().default(false),
   dueReminderHour: z.number().int().min(0).max(23).default(9),
   dueReminderUserId: z.string().optional(), // 空=null（最高管理者へ）
+  // 粗利（取り分の相手・率・見られるロール）
+  profitShareName: z.string().min(1).max(40),
+  profitShareRate: z.number().min(0, "取り分の率は0〜100%").max(1, "取り分の率は0〜100%"),
+  profitViewRoles: z.array(z.enum(PROFIT_VIEWABLE_ROLES)),
 });
 
 export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
-  await requireAdminAction();
+  // 設定ページは全社管理者のみ（粗利を見られるロールの付与もここで行うため）。
+  await requireFullAdminAction();
   // 税率は % 入力（例: 10）を 0.10 に変換。
   const pct = Number(str(fd, "taxRatePct"));
   const taxRate = Number.isFinite(pct) ? pct / 100 : NaN;
   const hourNum = Number(str(fd, "dueReminderHour"));
+  // 取り分の率も % 入力（例: 20）を 0.20 に変換。
+  const sharePct = Number(str(fd, "profitSharePct"));
   const parsed = settingSchema.safeParse({
     issuerName: str(fd, "issuerName"),
     address: str(fd, "address") || undefined,
@@ -487,6 +499,11 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
       fd.get("dueReminderEnabled") === "true",
     dueReminderHour: Number.isFinite(hourNum) ? hourNum : 9,
     dueReminderUserId: str(fd, "dueReminderUserId") || undefined,
+    profitShareName: str(fd, "profitShareName") || DEFAULT_PROFIT_SHARE_NAME,
+    profitShareRate: Number.isFinite(sharePct) ? sharePct / 100 : NaN,
+    profitViewRoles: fd
+      .getAll("profitViewRoles")
+      .filter((v): v is string => typeof v === "string"),
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
 
@@ -502,6 +519,9 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
     dueReminderEnabled: parsed.data.dueReminderEnabled,
     dueReminderHour: parsed.data.dueReminderHour,
     dueReminderUserId: parsed.data.dueReminderUserId ?? null,
+    profitShareName: parsed.data.profitShareName,
+    profitShareRate: parsed.data.profitShareRate,
+    profitViewRoles: parsed.data.profitViewRoles,
   };
   const existing = await prisma.invoiceSetting.findFirst();
   if (existing) {
@@ -1677,4 +1697,68 @@ export async function deleteInviteAction(fd: FormData): Promise<DeleteResult> {
   await prisma.invite.delete({ where: { id } });
   revalidatePath(USERS_PATH);
   return { ok: true };
+}
+
+// ============================================================
+// その他経費（粗利で引く、出面にひも付かない会社の経費）
+//   粗利を見られる管理者のみ（profitScopeFor）。月ごとに項目を足す／消す。
+//   クライアントから「プレーン引数」で呼ぶ（React 19 Server Actions）。
+// ============================================================
+const otherExpenseSchema = z.object({
+  yearMonth: z.string().regex(/^\d{4}-\d{2}$/, "対象月は YYYY-MM"),
+  name: z.string().trim().min(1, "項目名を入力してください").max(40, "項目名は40文字まで"),
+  amount: z
+    .number()
+    .int("金額は円単位の整数で入力してください")
+    .min(1, "金額を入力してください")
+    .max(100_000_000, "金額が大きすぎます"),
+});
+
+/** 粗利を見られる管理者を要求する（設定のロール許可を反映）。 */
+async function requireProfitViewerAction(): Promise<ResolvedUser> {
+  const admin = await requireAdminAction();
+  const setting = await prisma.invoiceSetting.findFirst({
+    select: { profitViewRoles: true },
+  });
+  if (!profitScopeFor(admin, setting?.profitViewRoles ?? [])) {
+    throw new Error("FORBIDDEN: 粗利を見る権限がありません。");
+  }
+  return admin;
+}
+
+export async function addOtherExpenseAction(input: {
+  yearMonth: string;
+  name: string;
+  amount: number;
+}): Promise<void> {
+  const admin = await requireProfitViewerAction();
+  const parsed = otherExpenseSchema.safeParse(input);
+  if (!parsed.success)
+    throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
+  const { yearMonth, name, amount } = parsed.data;
+  await prisma.otherExpense.create({
+    data: { yearMonth, name, amount, createdById: admin.user.id },
+  });
+  await writeAuditLog({
+    actorId: admin.user.id,
+    actorName: admin.user.displayName,
+    action: "OTHER_EXPENSE_ADD",
+    summary: `${yearMonth} ${name} ¥${amount.toLocaleString("ja-JP")}`,
+  });
+  revalidatePath("/admin/aggregate");
+}
+
+export async function deleteOtherExpenseAction(id: string): Promise<void> {
+  const admin = await requireProfitViewerAction();
+  if (!id) throw new Error("id がありません");
+  const row = await prisma.otherExpense.findUnique({ where: { id } });
+  if (!row) throw new Error("その他経費が見つかりません");
+  await prisma.otherExpense.delete({ where: { id } });
+  await writeAuditLog({
+    actorId: admin.user.id,
+    actorName: admin.user.displayName,
+    action: "OTHER_EXPENSE_DELETE",
+    summary: `${row.yearMonth} ${row.name} ¥${row.amount.toLocaleString("ja-JP")}`,
+  });
+  revalidatePath("/admin/aggregate");
 }

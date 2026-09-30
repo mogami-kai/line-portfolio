@@ -331,6 +331,24 @@ model InvoiceSetting {
   dueReminderHour       Int       @default(9)     // 送信時刻（0-23・JST）
   dueReminderUserId     String?   // 通知先の管理者(User.id)。null=最高管理者へ
   dueReminderLastSentOn DateTime? @db.Date         // 二重送信防止（最後に送った日・JST）
+  // ── 粗利（会社に残るお金）──
+  //   会社に残る額 × profitShareRate を profitShareName へ渡し、残りが会社の取り分。
+  profitShareName String @default("大和") // 取り分を渡す相手の表示名
+  profitShareRate Float  @default(0.2)   // 取り分の率（0.2 = 20%）
+  // ADMIN 以外で粗利を見られるロール（SELF_ADMIN / ORG_ADMIN）。自社所属の管理者のみ有効。
+  profitViewRoles Role[] @default([])
+}
+
+// その他経費（粗利の計算で引く、出面にひも付かない会社の経費。月ごとに手入力）
+model OtherExpense {
+  id          String   @id @default(cuid())
+  yearMonth   String // "2026-09"
+  name        String // 例: 車両リース / 保険
+  amount      Int
+  createdById String? // 登録した管理者（User.id）
+  createdAt   DateTime @default(now())
+
+  @@index([yearMonth])
 }
 
 // ── 請求書（取引先×月、発行時スナップショット）──

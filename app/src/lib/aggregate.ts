@@ -273,7 +273,7 @@ export async function summarizeByClient(
   return out;
 }
 
-interface ClientRateInfo {
+export interface ClientRateInfo {
   /** 概算に使う人工単価（取引先設定優先・無ければ旧RateCard・無ければ0）。 */
   resolvedUnit: number;
   /** 取引先に明示設定された人工単価（編集フォーム初期値）。未設定は null。 */
@@ -282,13 +282,16 @@ interface ClientRateInfo {
   nightUnitPrice: number | null;
   /** 取引先に明示設定された残業単価（円/時）。未設定は null（自動計算）。 */
   otUnitPrice: number | null;
+  /** 請求方式（集約 / 現場ごと）。粗利の売上を請求書と同じ明細で計算するために使う。 */
+  billingMode: "AGGREGATE" | "PER_SITE";
 }
 
 /**
  * 取引先の単価情報（人工・残業）を 1〜2 クエリでまとめ取りする（N+1 回避）。
- * 人工単価は 取引先設定 → 旧RateCard既定 の順で解決。残業単価は取引先設定のみ。
+ * 人工単価は 取引先設定 → 旧RateCard既定 の順で解決（請求書の resolveDefaultRate と同じ）。
+ * 残業単価は取引先設定のみ。
  */
-async function loadClientRates(
+export async function loadClientRates(
   clientIds: string[],
   on: Date,
 ): Promise<Map<string, ClientRateInfo>> {
@@ -301,6 +304,7 @@ async function loadClientRates(
       unitPrice: true,
       nightUnitPrice: true,
       otUnitPrice: true,
+      billingMode: true,
     },
   });
   for (const c of clients) {
@@ -309,6 +313,7 @@ async function loadClientRates(
       clientUnitPrice: c.unitPrice ?? null,
       nightUnitPrice: c.nightUnitPrice ?? null,
       otUnitPrice: c.otUnitPrice ?? null,
+      billingMode: c.billingMode,
     });
   }
   // 人工単価が未設定の取引先のみ旧RateCard既定でフォールバック（過去分維持）。

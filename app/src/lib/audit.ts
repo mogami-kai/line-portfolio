@@ -19,7 +19,9 @@ export type AuditAction =
   | "REPORT_DISMISS"
   | "REPORT_DELETE_REQUEST"
   | "REPORT_DELETE_WITHDRAW"
-  | "REPORT_DELETE_REJECT";
+  | "REPORT_DELETE_REJECT"
+  | "OTHER_EXPENSE_ADD"
+  | "OTHER_EXPENSE_DELETE";
 
 export const ACTION_LABEL: Record<AuditAction, string> = {
   REPORT_CREATE: "フォーム入力",
@@ -31,6 +33,8 @@ export const ACTION_LABEL: Record<AuditAction, string> = {
   REPORT_DELETE_REQUEST: "削除申請",
   REPORT_DELETE_WITHDRAW: "削除申請の取り下げ",
   REPORT_DELETE_REJECT: "削除申請の却下",
+  OTHER_EXPENSE_ADD: "その他経費の追加",
+  OTHER_EXPENSE_DELETE: "その他経費の削除",
 };
 
 /** 出面の1行要約（例: "7/9 辻濱興業 みなとみらい"）。 */

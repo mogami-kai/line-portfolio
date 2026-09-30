@@ -12,6 +12,7 @@
 //   ?ym= 対応・月スイッチャー可。集計は @/lib/aggregate（calc・invoice を再利用）で
 //   ロジックは変えず、ホームから当該ブロックを移設したもの。
 //   ?client= で月間出勤マトリクスだけを取引先で絞り込む（月を切り替えても維持）。
+//   粗利（会社に残るお金）は ADMIN と、設定で許可したロール（自社所属）だけに出す。
 // ============================================================
 
 import { Suspense } from "react";
@@ -35,7 +36,10 @@ import {
   type WorkerMonthSummary,
 } from "@/lib/aggregate.js";
 import { jstTodayDate } from "@/lib/invoiceDates.js";
+import { prisma } from "@/lib/db.js";
+import { profitScopeFor, summarizeMonthProfit } from "@/lib/profit.js";
 import { RateEditor } from "./_rateEditor.js";
+import { ProfitPanel } from "./_profit.js";
 import { EditReportButton } from "../_editReport.js";
 import {
   DispatchClientFilter,
@@ -217,8 +221,11 @@ function ClientAccordion({
 function WorkerAccordion({
   rows,
   totals,
+  payLabel = "給料（概算）",
 }: {
   rows: WorkerMonthSummary[];
+  /** 金額の見出し（自社＝給料 / 協力会社＝支払い）。 */
+  payLabel?: string;
   totals: {
     manDays: number;
     dayManDays: number;
@@ -271,7 +278,7 @@ function WorkerAccordion({
               </div>
             )}
             <div className="kv">
-              <span className="k">給料（概算）</span>
+              <span className="k">{payLabel}</span>
               <span className="v">{w.pay > 0 ? yen(w.pay) : "単価未設定"}</span>
             </div>
 
@@ -405,6 +412,38 @@ function ExpenseAggregation({
   );
 }
 
+/** 粗利（会社に残るお金）の見出し＋パネル。 */
+function ProfitSection({
+  ym,
+  profit,
+}: {
+  ym: string;
+  profit: Awaited<ReturnType<typeof summarizeMonthProfit>>["profit"];
+}) {
+  return (
+    <>
+      <div className="section-head">
+        <h3 className="section-subtitle">粗利（会社に残るお金）</h3>
+      </div>
+      <ProfitPanel ym={ym} profit={profit} />
+    </>
+  );
+}
+
+/** 職人別の人工・残業の合計（合計行の表示用）。 */
+function workerTotals(rows: WorkerMonthSummary[]) {
+  return rows.reduce(
+    (a, r) => ({
+      manDays: a.manDays + r.manDays,
+      dayManDays: a.dayManDays + r.dayManDays,
+      halfManDays: a.halfManDays + r.halfManDays,
+      nightManDays: a.nightManDays + r.nightManDays,
+      otHours: a.otHours + r.otHours,
+    }),
+    { manDays: 0, dayManDays: 0, halfManDays: 0, nightManDays: 0, otHours: 0 },
+  );
+}
+
 /**
  * 今月の集計（自社/パートナー＋自社合計）。
  * 重い集計を getMonthSummary（unstable_cache）で取得し、<Suspense> 配下で
@@ -414,20 +453,25 @@ async function MonthSummary({
   ym,
   scopeOrgId,
   clientId,
+  profitScope,
 }: {
   ym: string;
   scopeOrgId: string | null;
   /** 月間出勤マトリクスの取引先絞り込み（?client=）。他の集計には効かない。 */
   clientId: string | null;
+  /** 粗利の閲覧範囲（null＝見せない）。 */
+  profitScope: "ALL" | "SELF" | null;
 }) {
   // スコープ管理者（自組織のみ）: 自組織1つ分の集計を計算して表示する。
   if (scopeOrgId) {
     const rows = await loadMonthRows(ym, { orgId: scopeOrgId });
-    const [clients, byWorker, expenses, dispatch] = await Promise.all([
+    const [clients, byWorker, expenses, dispatch, profit] = await Promise.all([
       summarizeByClient(ym, rows),
       summarizeByWorker(ym, { orgId: scopeOrgId }),
       summarizeExpenses(ym, { orgId: scopeOrgId }),
       summarizeDispatchMatrix(ym, { orgId: scopeOrgId, clientId }),
+      // 許可された自社管理者だけ、自社分の粗利（協力会社は読まない）。
+      profitScope === "SELF" ? summarizeMonthProfit(ym, "SELF") : null,
     ]);
     const totals = clients.reduce(
       (a, r) => ({
@@ -441,6 +485,8 @@ async function MonthSummary({
     );
     return (
       <>
+        {profit && <ProfitSection ym={ym} profit={profit.profit} />}
+
         <DispatchMatrixSection
           ym={ym}
           view={dispatch}
@@ -472,15 +518,22 @@ async function MonthSummary({
   }
 
   // フル管理者: 自社 ＋ 協力会社（全社）。
-  const [{ self, partner, byWorker, selfTotals, expensePayers, expenseTotal }, dispatch] =
-    await Promise.all([
-      getMonthSummary(ym),
-      // 職人別（給料の見方）と同じ範囲＝自社(SELF)のみ。合計を一致させるため。
-      // 取引先の候補もこの範囲の出面から作る（協力会社の取引先は出さない）。
-      summarizeDispatchMatrix(ym, { source: "SELF", clientId }),
-    ]);
+  const [
+    { self, partner, byWorker, selfTotals, expensePayers, expenseTotal },
+    dispatch,
+    profit,
+  ] = await Promise.all([
+    getMonthSummary(ym),
+    // 職人別（給料の見方）と同じ範囲＝自社(SELF)のみ。合計を一致させるため。
+    // 取引先の候補もこの範囲の出面から作る（協力会社の取引先は出さない）。
+    summarizeDispatchMatrix(ym, { source: "SELF", clientId }),
+    // フル管理者（ADMIN）は常に自社＋協力会社の粗利を見られる。
+    profitScope === "ALL" ? summarizeMonthProfit(ym, "ALL") : null,
+  ]);
   return (
     <>
+      {profit && <ProfitSection ym={ym} profit={profit.profit} />}
+
       {/* 月間出勤マトリクス（職人別と同じ範囲＝自社） */}
       <DispatchMatrixSection
         ym={ym}
@@ -526,6 +579,22 @@ async function MonthSummary({
         rows={partner}
         emptyLabel="この月の協力会社のデータはありません。"
       />
+
+      {/* 協力会社の職人（支払いの見方）。粗利の「協力会社への支払い」の内訳と単価入力。 */}
+      {profit && profit.partnerWorkers.length > 0 && (
+        <>
+          <div className="section-head">
+            <h3 className="section-subtitle">
+              協力会社の職人（支払いの見方）
+            </h3>
+          </div>
+          <WorkerAccordion
+            rows={profit.partnerWorkers}
+            totals={workerTotals(profit.partnerWorkers)}
+            payLabel="支払い（概算）"
+          />
+        </>
+      )}
     </>
   );
 }
@@ -554,6 +623,11 @@ export default async function AggregatePage({
 
   // スコープ管理者は自分の所属組織のみ閲覧。
   const scopeOrgId = adminScopeOrgId(admin);
+  // 粗利は ADMIN と、設定で許可したロール（自社所属）だけ。
+  const setting = await prisma.invoiceSetting.findFirst({
+    select: { profitViewRoles: true },
+  });
+  const profitScope = profitScopeFor(admin, setting?.profitViewRoles ?? []);
 
   const sp = await searchParams;
   const ym = sp.ym && /^\d{4}-\d{2}$/.test(sp.ym) ? sp.ym : currentYearMonth();
@@ -613,7 +687,12 @@ export default async function AggregatePage({
         </a>
 
         <Suspense fallback={<SummarySkeleton />}>
-          <MonthSummary ym={ym} scopeOrgId={scopeOrgId} clientId={clientId} />
+          <MonthSummary
+            ym={ym}
+            scopeOrgId={scopeOrgId}
+            clientId={clientId}
+            profitScope={profitScope}
+          />
         </Suspense>
       </section>
     </main>
