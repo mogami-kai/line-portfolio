@@ -5,8 +5,9 @@
 //
 // 2系統ルーティングの核 = マルチテナント（Organization 単位）。
 //   ・User.org で所属を持ち、source はサーバ側が org.kind から自動判定
-//   ・SELF    → 保存 ＋ 出面グループへ bot ログ投稿
-//   ・PARTNER → 保存のみ（グループ非投稿）／管理ダッシュボードのみ集約閲覧
+//   ・SELF    → 保存 ＋ 管理者へ LINE 個別通知（自社の管理者に届く）
+//   ・PARTNER → 保存 ＋ 管理者へ LINE 個別通知（全社管理者/その協力会社の管理者のみ）
+//               ／管理ダッシュボードのみ集約閲覧。自社の管理者・職人には出さない
 //   ・パートナー追加 = Organization(kind=PARTNER) を足すだけ（拡張性）
 // 例はダミー。実名・住所・口座は DB / 環境変数に保持（リポジトリに焼かない）。
 // ============================================================
@@ -95,6 +96,9 @@ model User {
   orgId       String
   org         Organization @relation(fields: [orgId], references: [id])
   createdAt   DateTime @default(now())
+  // ── 出面の LINE 通知（管理者への個別送信）──
+  notifyReports Boolean  @default(true) // 出面の登録・取消を LINE で受け取るか（管理者ごと）
+  lineFriend    Boolean? // 公式アカウントの友だち状態（null=不明 / true=追加済み / false=未追加・ブロック）
 
   @@index([orgId])
   @@index([approved])
@@ -230,12 +234,13 @@ model Report {
   siteName      String?      // v3: 現場の自由入力名（siteId に依存しない。請求には出ない）
   contractType  ContractType @default(JOYO)
   contractAmount Int?        // v3: 請負(UKEOI)の契約金額。請求は「○月委託料 数量1」
-  source        OrgKind // ルーティング: SELF→グループ投稿 / PARTNER→管理者のみ
+  source        OrgKind // 区分: SELF=自社 / PARTNER=協力会社（通知先ロール・集計の分け方に使う）
   orgId         String
   org           Organization @relation(fields: [orgId], references: [id])
   createdById   String
   status        ReportStatus @default(CONFIRMED)
-  postedToGroup Boolean      @default(false)
+  // 管理者へ LINE 通知済みか（列名は旧「グループ投稿済み」のまま）。false は「未通知」警告に出る。
+  notified      Boolean      @default(false) @map("postedToGroup")
   // 二重送信防止: クライアントが生成する一意キー（任意）。
   // 同一キーの再POSTは既存レポートを返して新規作成しない（冪等性）。
   clientRequestId String?    @unique
@@ -337,6 +342,11 @@ model InvoiceSetting {
   profitShareRate Float  @default(0.2)   // 取り分の率（0.2 = 20%）
   // ADMIN 以外で粗利を見られるロール（SELF_ADMIN / ORG_ADMIN）。自社所属の管理者のみ有効。
   profitViewRoles Role[] @default([])
+  // ── 出面の LINE 通知の送り先（ロール）──
+  //   自社の出面    : ADMIN / SELF_ADMIN / ORG_ADMIN（その自社組織の）から選ぶ。
+  //   協力会社の出面: ADMIN / ORG_ADMIN（その協力会社の）から選ぶ。自社管理者には送らない。
+  notifySelfRoles    Role[] @default([ADMIN, SELF_ADMIN, ORG_ADMIN])
+  notifyPartnerRoles Role[] @default([ADMIN])
 }
 
 // その他経費（粗利の計算で引く、出面にひも付かない会社の経費。月ごとに手入力）

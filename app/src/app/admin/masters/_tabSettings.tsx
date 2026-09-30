@@ -22,7 +22,21 @@ import type { JSX } from "react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { SettingRow, AdminOption } from "./_mastersTypes.js";
-import { saveInvoiceSettingAction } from "../_actions.js";
+import {
+  saveInvoiceSettingAction,
+  sendTestNotificationAction,
+} from "../_actions.js";
+
+/** 出面の通知先に選べるロール（lib/notify の NOTIFY_*_ROLE_OPTIONS と同じ）。 */
+const NOTIFY_SELF_OPTIONS: { role: string; label: string }[] = [
+  { role: "ADMIN", label: "管理者" },
+  { role: "SELF_ADMIN", label: "自社管理者" },
+  { role: "ORG_ADMIN", label: "組織管理者（自社所属）" },
+];
+const NOTIFY_PARTNER_OPTIONS: { role: string; label: string }[] = [
+  { role: "ADMIN", label: "管理者" },
+  { role: "ORG_ADMIN", label: "組織管理者（その協力会社）" },
+];
 
 /** ADMIN 以外で粗利の閲覧を許可できるロール（lib/profit の PROFIT_VIEWABLE_ROLES と同じ）。 */
 const PROFIT_ROLE_OPTIONS: { role: string; label: string }[] = [
@@ -77,6 +91,34 @@ export function SettingsTab({
     setViewRoles((cur) =>
       on ? Array.from(new Set([...cur, role])) : cur.filter((r) => r !== role),
     );
+  // 出面の LINE 通知の送り先ロール（未作成なら既定: 自社=全管理者 / 協力会社=管理者）。
+  const [notifySelf, setNotifySelf] = useState<string[]>(
+    setting?.notifySelfRoles ?? ["ADMIN", "SELF_ADMIN", "ORG_ADMIN"],
+  );
+  const [notifyPartner, setNotifyPartner] = useState<string[]>(
+    setting?.notifyPartnerRoles ?? ["ADMIN"],
+  );
+  const toggleIn =
+    (set: (fn: (cur: string[]) => string[]) => void) => (role: string, on: boolean) =>
+      set((cur) =>
+        on ? Array.from(new Set([...cur, role])) : cur.filter((r) => r !== role),
+      );
+  // テスト送信（ログイン中の管理者本人へ）。
+  const [testPending, startTest] = useTransition();
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(
+    null,
+  );
+  function sendTest(): void {
+    setTestResult(null);
+    startTest(async () => {
+      const r = await sendTestNotificationAction();
+      setTestResult(
+        r.ok
+          ? { ok: true, msg: "送信しました。LINE に届いたか確認してください。" }
+          : { ok: false, msg: r.error ?? "送信できませんでした。" },
+      );
+    });
+  }
 
   function submit(fd: FormData): void {
     setErr(null);
@@ -331,6 +373,73 @@ export function SettingsTab({
             </select>
             <p className="hint">
               通知先の管理者が、この公式アカウントを「友だち追加」している必要があります（未追加だと届きません）。
+            </p>
+          </div>
+        </section>
+
+        {/* ── 出面の LINE 通知（管理者へ個別送信） ── */}
+        <section className="mst-block">
+          <h3 className="mst-block-title">出面のLINE通知（管理者へ個別に送信）</h3>
+          <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+            出面の登録・取消を、公式アカウントから管理者へ個別に送ります（グループには投稿しません）。
+            管理者ごとのON/OFFと友だち追加の状況は「ユーザー管理」で確認できます。
+          </p>
+
+          <div className="field">
+            <span className="label">自社の出面の通知先</span>
+            {NOTIFY_SELF_OPTIONS.map((o) => (
+              <label key={o.role} className="inline-row" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  name="notifySelfRoles"
+                  value={o.role}
+                  checked={notifySelf.includes(o.role)}
+                  onChange={(e) => toggleIn(setNotifySelf)(o.role, e.target.checked)}
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+          </div>
+
+          <div className="field">
+            <span className="label">協力会社の出面の通知先</span>
+            {NOTIFY_PARTNER_OPTIONS.map((o) => (
+              <label key={o.role} className="inline-row" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  name="notifyPartnerRoles"
+                  value={o.role}
+                  checked={notifyPartner.includes(o.role)}
+                  onChange={(e) =>
+                    toggleIn(setNotifyPartner)(o.role, e.target.checked)
+                  }
+                />
+                <span>{o.label}</span>
+              </label>
+            ))}
+            <p className="hint">協力会社の出面は自社管理者には送りません。</p>
+          </div>
+
+          <div className="field">
+            <button
+              type="button"
+              className="btn btn--ghost btn--sm"
+              onClick={sendTest}
+              disabled={testPending}
+            >
+              {testPending ? "送信中…" : "自分にテスト送信"}
+            </button>
+            {testResult && (
+              <p
+                className="hint"
+                role="status"
+                style={{ color: testResult.ok ? "var(--ok-ink)" : "var(--danger)" }}
+              >
+                {testResult.msg}
+              </p>
+            )}
+            <p className="hint">
+              届かない場合は、公式アカウントを友だち追加しているか、LINE ログイン用チャネルと公式アカウント（Messaging API）が同じプロバイダーにあるかを確認してください。
             </p>
           </div>
         </section>

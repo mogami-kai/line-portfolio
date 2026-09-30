@@ -1,7 +1,7 @@
 // ============================================================
 // ロール/組織種別の表示ラベル・説明（管理画面共通）
 //   実態に即した説明: 管理画面に入れるのは ADMIN のみ。OWNER/VIEWER/PARTNER は
-//   LIFF入力のみ（approved 必須）。SELF はグループ投稿あり / PARTNER は保存のみ。
+//   LIFF入力のみ（approved 必須）。入力した出面は管理者へ LINE で個別に通知される。
 // ============================================================
 
 import type { OrgKind, Role } from "@prisma/client";
@@ -65,8 +65,8 @@ export function describeAccess(role: Role, orgKind: OrgKind): string[] {
   const where = orgKind === "PARTNER" ? "協力会社" : "自社";
   const post =
     orgKind === "SELF"
-      ? "入力した出面は自社LINEグループに投稿される"
-      : "入力した出面は保存のみ（自社グループには投稿されない）";
+      ? "入力した出面は管理者にLINEで通知される"
+      : "入力した出面は管理者にのみLINEで通知される（自社メンバーには見えない）";
   return [
     `${where}の出面を入力フォームから入力できる`,
     post,

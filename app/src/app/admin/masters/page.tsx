@@ -96,6 +96,8 @@ export default async function MastersPage() {
         profitShareName: setting.profitShareName,
         profitShareRate: setting.profitShareRate,
         profitViewRoles: setting.profitViewRoles,
+        notifySelfRoles: setting.notifySelfRoles,
+        notifyPartnerRoles: setting.notifyPartnerRoles,
       }
     : null;
 

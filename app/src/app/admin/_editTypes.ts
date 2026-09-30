@@ -98,7 +98,7 @@ export interface ReportEditInput {
 /**
  * createReportAction への入力（管理画面からの新規出面登録）。
  *   orgId … 職人プールを決める組織（全社管理者のみ選択可。スコープ管理者は自組織固定）。
- *   postToGroup … SELF 組織のときだけ有効。false なら投稿をスキップ（代理登録の後追い登録など）。
+ *   notify … 管理者へ LINE 通知するか。false なら通知しない（まとめて後追い登録など）。
  */
 export interface ReportCreateInput {
   orgId: string;
@@ -109,14 +109,14 @@ export interface ReportCreateInput {
   contractAmount: number | null;
   entries: EditableEntry[]; // 最低1件
   expenses: EditableExpense[];
-  postToGroup: boolean;
+  notify: boolean;
 }
 
 /** createReportAction の戻り値（失敗時は他アクション同様 throw）。 */
 export interface ReportCreateResult {
   reportId: string;
   status: ReportStatus;
-  postedToGroup: boolean;
+  notified: boolean;
 }
 
 // ── 勤務体系（ドメイン定数。LIFF と同じ並び/換算） ──

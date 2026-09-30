@@ -64,6 +64,9 @@ export interface SettingRow {
   profitShareName: string; // 取り分を渡す相手（例: 大和）
   profitShareRate: number; // 0.2 のような比率（% ではない）
   profitViewRoles: string[]; // ADMIN 以外で粗利を見られるロール
+  // 出面の LINE 通知の送り先ロール
+  notifySelfRoles: string[]; // 自社の出面
+  notifyPartnerRoles: string[]; // 協力会社の出面
 }
 
 /** 通知先に選べる管理者（設定タブのプルダウン用）。 */

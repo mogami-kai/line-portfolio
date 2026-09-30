@@ -21,13 +21,12 @@ import {
   type ResolvedUser,
 } from "@/lib/auth.js";
 import {
-  formatReportCancelLog,
-  formatReportLog,
-  groupId,
-  pushToGroup,
-  type ReportLogInput,
-} from "@/lib/line.js";
-import type { ContractType, Shift } from "@prisma/client";
+  NOTIFY_PARTNER_ROLE_OPTIONS,
+  NOTIFY_SELF_ROLE_OPTIONS,
+  notifyReportToAdmins,
+  reportNotifyText,
+  sendTestNotification,
+} from "@/lib/notify.js";
 import { reportLabel, writeAuditLog } from "@/lib/audit.js";
 import {
   INVITABLE_ROLES,
@@ -474,6 +473,9 @@ const settingSchema = z.object({
   profitShareName: z.string().min(1).max(40),
   profitShareRate: z.number().min(0, "取り分の率は0〜100%").max(1, "取り分の率は0〜100%"),
   profitViewRoles: z.array(z.enum(PROFIT_VIEWABLE_ROLES)),
+  // 出面の LINE 通知の送り先ロール（自社 / 協力会社）
+  notifySelfRoles: z.array(z.enum(NOTIFY_SELF_ROLE_OPTIONS)),
+  notifyPartnerRoles: z.array(z.enum(NOTIFY_PARTNER_ROLE_OPTIONS)),
 });
 
 export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
@@ -504,6 +506,12 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
     profitViewRoles: fd
       .getAll("profitViewRoles")
       .filter((v): v is string => typeof v === "string"),
+    notifySelfRoles: fd
+      .getAll("notifySelfRoles")
+      .filter((v): v is string => typeof v === "string"),
+    notifyPartnerRoles: fd
+      .getAll("notifyPartnerRoles")
+      .filter((v): v is string => typeof v === "string"),
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
 
@@ -522,6 +530,8 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
     profitShareName: parsed.data.profitShareName,
     profitShareRate: parsed.data.profitShareRate,
     profitViewRoles: parsed.data.profitViewRoles,
+    notifySelfRoles: parsed.data.notifySelfRoles,
+    notifyPartnerRoles: parsed.data.notifyPartnerRoles,
   };
   const existing = await prisma.invoiceSetting.findFirst();
   if (existing) {
@@ -585,7 +595,7 @@ export async function setLumpContractStatusAction(fd: FormData): Promise<void> {
 // 出面レポート（要確認キューの承認 / 削除）
 //   「日々のチェック」の中核。LIFF から上がった出面のうち、
 //   NEEDS_REVIEW（新規・要確認）を承認（CONFIRMED）するか、誤登録を削除する。
-//   ※ 承認は状態確定のみ。グループ再投稿はしない（誤爆・二重投稿防止）。
+//   ※ 承認は状態確定のみ。再通知はしない（誤爆・二重通知防止）。
 // ============================================================
 export async function confirmReportAction(fd: FormData): Promise<void> {
   const admin = await requireAdminAction();
@@ -618,55 +628,16 @@ export async function confirmReportAction(fd: FormData): Promise<void> {
   revalidatePath("/admin");
 }
 
-/**
- * グループ投稿用の ReportLogInput を組み立てる（投稿・再投稿・取消投稿で共通）。
- * 現場表記は自由入力（siteName）優先。請負(UKEOI)は請負金額を現場行に併記する。
- */
-function toReportLogInput(rep: {
-  workDate: Date;
-  contractType: ContractType;
-  contractAmount: number | null;
-  siteName: string | null;
-  client: { name: string };
-  entries: Array<{
-    shift: Shift;
-    manDays: number;
-    otHours: number;
-    worker: { name: string };
-  }>;
-  expenses: Array<{ kind: string; amount: number }>;
-}): ReportLogInput {
-  const baseSiteName = rep.siteName ?? "";
-  const ukeoiNote =
-    rep.contractType === "UKEOI" && rep.contractAmount != null
-      ? `（請負 ¥${rep.contractAmount.toLocaleString("ja-JP")}）`
-      : "";
-  const displaySiteName = `${baseSiteName}${ukeoiNote}`.trim();
-  return {
-    workDate: rep.workDate,
-    contractType: rep.contractType,
-    client: rep.client,
-    site: displaySiteName ? { name: displaySiteName } : null,
-    entries: rep.entries.map((e) => ({
-      shift: e.shift,
-      manDays: e.manDays,
-      otHours: e.otHours,
-      worker: e.worker,
-    })),
-    expenses: rep.expenses.map((x) => ({ kind: x.kind, amount: x.amount })),
-  };
-}
-
 export async function deleteReportAction(fd: FormData): Promise<void> {
   const admin = await requireAdminAction();
   const id = str(fd, "id");
   if (!id) throw new Error("id がありません");
-  // 取消の訂正投稿にも使うため、削除前に全文を取得しておく。
+  // 取消の訂正通知にも使うため、削除前に全文を取得しておく。
   const rep = await prisma.report.findUnique({
     where: { id },
     include: {
       client: { select: { name: true } },
-      org: { select: { kind: true } },
+      org: { select: { kind: true, name: true } },
       entries: { include: { worker: { select: { name: true } } } },
       expenses: { select: { kind: true, amount: true } },
     },
@@ -679,14 +650,20 @@ export async function deleteReportAction(fd: FormData): Promise<void> {
     prisma.expense.deleteMany({ where: { reportId: id } }),
     prisma.report.delete({ where: { id } }),
   ]);
-  // ★アプリを正: グループ投稿済みの自社出面を消したら、bot から取消の訂正投稿を流す
-  //   （LINE の仕様上、投稿済みメッセージ自体は消せないため）。PARTNER は非投稿の
-  //   仕様なので流さない。投稿失敗でも削除は確定済み（best-effort）。
-  if (rep.org.kind === "SELF" && rep.postedToGroup) {
+  // ★アプリを正: 通知済みの出面を消したら、管理者へ取消の訂正通知を流す
+  //   （LINE の仕様上、送信済みメッセージ自体は消せないため）。送り先は登録時と同じ規則。
+  //   送信失敗でも削除は確定済み（best-effort）。
+  if (rep.notified) {
     try {
-      await pushToGroup(formatReportCancelLog(toReportLogInput(rep)));
+      await notifyReportToAdmins(
+        { source: rep.org.kind, orgId: rep.orgId, createdById: admin.user.id },
+        reportNotifyText(rep, {
+          kind: "canceled",
+          partnerOrgName: rep.org.kind === "PARTNER" ? rep.org.name : null,
+        }),
+      );
     } catch (e) {
-      console.error("[delete] cancel push failed", e);
+      console.error("[delete] cancel notify failed", e);
     }
   }
   // 操作履歴: 誰が削除したか（対象の要約は削除前に取得済み）。
@@ -734,7 +711,7 @@ export async function rejectReportDeleteAction(fd: FormData): Promise<void> {
   revalidatePath("/admin");
 }
 
-/** 再投稿/再投稿しない の結果（クライアントにインライン表示するため throw しない）。 */
+/** 再通知/再通知しない の結果（クライアントにインライン表示するため throw しない）。 */
 export type UnpostedActionResult = { ok: boolean; error?: string };
 
 /** LINE push の失敗を、現場の人が読める日本語メッセージに変換する。 */
@@ -747,21 +724,20 @@ function lineErrorMessage(e: unknown): string {
     return "LINEのアクセストークンが無効です。Vercel の LINE_CHANNEL_ACCESS_TOKEN を確認してください。";
   }
   if (raw.includes(" 400")) {
-    return "送信先グループの設定（LINE_GROUP_ID）が正しくない可能性があります。Vercel の環境変数を確認してください。";
+    return "送信先の管理者に送れませんでした。公式アカウントを友だち追加しているか、LINE ログイン用チャネルと公式アカウント（Messaging API）が同じプロバイダーかを確認してください。";
   }
-  return `LINEへの投稿に失敗しました。時間をおいて再試行してください。（${raw.slice(0, 120)}）`;
+  return `LINEへの送信に失敗しました。時間をおいて再試行してください。（${raw.slice(0, 120)}）`;
 }
 
 /**
- * LINE グループへの再投稿（自社 SELF の出面が投稿失敗＝postedToGroup=false のとき）。
- *   - 投稿成功で初めて postedToGroup=true にする（二重投稿を避けるため、
+ * 管理者への再通知（通知に失敗した出面＝notified=false のとき）。
+ *   - 送信成功で初めて notified=true にする（二重通知を避けるため、
  *     既に true のものは何もしない）。
- *   - SELF（自社）以外は投稿対象外（協力会社はグループ非投稿の仕様）。
  *   - スコープ管理者は自組織のみ（assertOrgInScope）。
  *   - 失敗は throw せず { ok:false, error } で返す（ボタンの横に理由を表示するため。
  *     throw すると Next の汎用エラー画面になり「なぜ失敗したか」が伝わらない）。
  */
-export async function resendReportToGroupAction(
+export async function resendReportNotifyAction(
   id: string,
 ): Promise<UnpostedActionResult> {
   try {
@@ -772,7 +748,7 @@ export async function resendReportToGroupAction(
       where: { id },
       include: {
         client: { select: { name: true } },
-        org: { select: { kind: true } },
+        org: { select: { kind: true, name: true } },
         entries: { include: { worker: { select: { name: true } } } },
         expenses: { select: { kind: true, amount: true } },
       },
@@ -780,50 +756,37 @@ export async function resendReportToGroupAction(
     if (!rep) return { ok: false, error: "出面が見つかりません" };
     await assertOrgInScope(admin, rep.orgId);
 
-    // 自社のみ投稿対象。協力会社はグループ非投稿の仕様なので何もしない。
-    if (rep.org.kind !== "SELF") {
-      return {
-        ok: false,
-        error: "この出面はグループ投稿の対象ではありません（協力会社は非投稿）。",
-      };
-    }
-    // 既に投稿済みなら二重投稿を避けて終了（成功したものを再送しない）。
-    if (rep.postedToGroup) {
+    // 既に通知済みなら二重通知を避けて終了（成功したものを再送しない）。
+    if (rep.notified) {
       revalidatePath("/admin");
       return { ok: true };
     }
 
-    // 送信先未設定のまま「成功扱い」で流れるのを防ぐ（pushToGroup は未設定だと
-    // 何もせず戻るため、ここで先に弾いて理由を伝える）。
-    if (!groupId()) {
-      return {
-        ok: false,
-        error:
-          "送信先グループが未設定です（Vercel の LINE_GROUP_ID）。設定後にもう一度お試しください。",
-      };
-    }
-
-    // reports API と同じ整形ロジック（請負金額の併記含む）。
-    const logInput = toReportLogInput(rep);
-
-    // 投稿が成功した場合のみ postedToGroup=true。失敗時はフラグを変えず理由を返す。
+    // 送信が成功した場合のみ notified=true。失敗時はフラグを変えず理由を返す。
+    let recipients = 0;
     try {
-      await pushToGroup(formatReportLog(logInput));
+      ({ recipients } = await notifyReportToAdmins(
+        { source: rep.org.kind, orgId: rep.orgId, createdById: rep.createdById },
+        reportNotifyText(rep, {
+          kind: "created",
+          partnerOrgName: rep.org.kind === "PARTNER" ? rep.org.name : null,
+        }),
+      ));
     } catch (e) {
-      console.error("[resend] pushToGroup failed", e);
+      console.error("[resend] notify admins failed", e);
       return { ok: false, error: lineErrorMessage(e) };
     }
     await prisma.report.update({
       where: { id },
-      data: { postedToGroup: true },
+      data: { notified: true },
     });
-    // 操作履歴: 誰が再投稿したか。
+    // 操作履歴: 誰が再通知したか。
     await writeAuditLog({
       actorId: admin.user.id,
       actorName: admin.user.displayName,
       action: "REPORT_RESEND",
       reportId: id,
-      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} をLINEへ再投稿`,
+      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を管理者へ再通知（${recipients}人）`,
     });
     revalidatePath("/admin");
     return { ok: true };
@@ -833,8 +796,8 @@ export async function resendReportToGroupAction(
 }
 
 /**
- * 「再投稿しない」＝この出面はグループに投稿しなくてよいものとして、未投稿アラートから外す。
- *   - 実際には LINE へ投稿せず postedToGroup=true にするだけ（投稿済み扱い＝一覧から消える）。
+ * 「再通知しない」＝この出面は通知しなくてよいものとして、未通知アラートから外す。
+ *   - 実際には LINE へ送らず notified=true にするだけ（通知済み扱い＝一覧から消える）。
  *   - スコープ管理者は自組織のみ（assertOrgInScope）。
  */
 export async function dismissUnpostedReportAction(
@@ -854,18 +817,18 @@ export async function dismissUnpostedReportAction(
     });
     if (!rep) return { ok: false, error: "出面が見つかりません" };
     await assertOrgInScope(admin, rep.orgId);
-    // 投稿はせず、未投稿アラートから外すだけ（投稿済み扱い）。
+    // 送信はせず、未通知アラートから外すだけ（通知済み扱い）。
     await prisma.report.update({
       where: { id },
-      data: { postedToGroup: true },
+      data: { notified: true },
     });
-    // 操作履歴: 誰が「再投稿しない」にしたか。
+    // 操作履歴: 誰が「再通知しない」にしたか。
     await writeAuditLog({
       actorId: admin.user.id,
       actorName: admin.user.displayName,
       action: "REPORT_DISMISS",
       reportId: id,
-      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を再投稿しない（投稿済み扱い）に変更`,
+      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を再通知しない（通知済み扱い）に変更`,
     });
     revalidatePath("/admin");
     return { ok: true };
@@ -1155,7 +1118,7 @@ const reportCreateSchema = z.object({
       paidBy: z.string().trim().max(50).optional(),
     }),
   ),
-  postToGroup: z.boolean(),
+  notify: z.boolean(),
 });
 
 /** 出面を新規登録（管理画面）。作成本体は createReportCore に委譲。 */
@@ -1174,7 +1137,7 @@ export async function createReportAction(
     contractAmount,
     entries,
     expenses,
-    postToGroup,
+    notify,
   } = parsed.data;
 
   // スコープ管理者は自組織以外を選べない。
@@ -1206,8 +1169,8 @@ export async function createReportAction(
       orgKind: org.kind,
       createdById: admin.user.id,
       createdByName: admin.user.displayName,
-      // PARTNER 組織にはそもそも投稿対象が無いので postToGroup は SELF のときだけ効かせる。
-      postToGroup: org.kind === "SELF" ? postToGroup : undefined,
+      // 自社・協力会社とも、通知先ロールの管理者へ個別に通知する（オフなら通知しない）。
+      notify,
     },
   );
 
@@ -1219,7 +1182,7 @@ export async function createReportAction(
   return {
     reportId: result.reportId,
     status: result.status,
-    postedToGroup: result.postedToGroup,
+    notified: result.notified,
   };
 }
 
@@ -1761,4 +1724,34 @@ export async function deleteOtherExpenseAction(id: string): Promise<void> {
     summary: `${row.yearMonth} ${row.name} ¥${row.amount.toLocaleString("ja-JP")}`,
   });
   revalidatePath("/admin/aggregate");
+}
+
+// ============================================================
+// 出面の LINE 通知（管理者への個別送信）
+//   setUserNotifyReportsAction : 管理者ごとの通知 ON/OFF（ユーザー管理・全社管理者のみ）
+//   sendTestNotificationAction : ログイン中の管理者本人にテスト送信（設定画面）
+// ============================================================
+export async function setUserNotifyReportsAction(fd: FormData): Promise<void> {
+  await requireFullAdminAction();
+  const userId = str(fd, "userId");
+  if (!userId) throw new Error("userId がありません");
+  const on = str(fd, "notifyReports") === "on";
+  await prisma.user.update({
+    where: { id: userId },
+    data: { notifyReports: on },
+  });
+  revalidatePath("/admin/users");
+}
+
+export async function sendTestNotificationAction(): Promise<UnpostedActionResult> {
+  try {
+    const admin = await requireAdminAction();
+    // 送信 API が受け付けても、友だち未追加・ブロック中だと実際には届かない。
+    // 届いたかは本人が LINE で確認する（ここでは友だち状態を推測で書き換えない）。
+    await sendTestNotification(admin.user.lineUserId);
+    return { ok: true };
+  } catch (e) {
+    console.error("[notify] test send failed", e);
+    return { ok: false, error: lineErrorMessage(e) };
+  }
 }

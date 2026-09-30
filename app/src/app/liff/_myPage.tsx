@@ -5,7 +5,7 @@
 //   上: 今月の自分の合計（件数 / 人工 / 残業h）
 //   下: 自分が提出した出面の一覧（月ごとに小計付きでずらっと・新しい順）
 //   各行から「削除申請」を送れる（管理者が承認すると削除が確定し、
-//   LINE グループへも取消の訂正投稿が流れる）。申請の取り下げも可能。
+//   通知を受けた管理者へ取消の訂正通知が流れる）。申請の取り下げも可能。
 //   データは GET /api/reports/mine（Bearer = LIFF アクセストークン）。
 // ============================================================
 
@@ -17,7 +17,7 @@ interface MineReport {
   clientName: string;
   siteName: string;
   status: "CONFIRMED" | "NEEDS_REVIEW";
-  postedToGroup: boolean;
+  notified: boolean;
   deleteRequested: boolean;
   manDays: number;
   nightManDays: number;
@@ -88,7 +88,7 @@ export function MyPage({ token }: { token: string }) {
       if (
         !withdraw &&
         !window.confirm(
-          `${mdW(r.workDate)} ${r.clientName} の出面の削除を申請します。\n管理者が承認すると削除が確定し、LINEグループにも取消が流れます。よろしいですか？`,
+          `${mdW(r.workDate)} ${r.clientName} の出面の削除を申請します。\n管理者が承認すると削除が確定します。よろしいですか？`,
         )
       ) {
         return;

@@ -10,7 +10,7 @@
 //   異なる点:
 //     - 組織セレクトあり（全社管理者のみ。スコープ管理者は自組織固定＝非表示）
 //     - 職人プールは選択中の組織でフィルタ（active のみ）
-//     - LINEグループ投稿チェック（選択組織が SELF のときだけ表示・既定ON）
+//     - 管理者へのLINE通知チェック（既定ON。まとめて後追い登録ならオフ）
 //     - 削除／メタ表示（入力者・最終編集）は無し（新規作成のため）
 // ============================================================
 
@@ -69,7 +69,7 @@ export function CreateModal({ onClose }: { onClose: () => void }) {
   const [contractAmount, setContractAmount] = useState("");
   const [entries, setEntries] = useState<EditableEntry[]>([]);
   const [expenses, setExpenses] = useState<EditableExpense[]>([]);
-  const [postToGroup, setPostToGroup] = useState(true);
+  const [notify, setNotify] = useState(true);
 
   const [errMsg, setErrMsg] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -111,7 +111,6 @@ export function CreateModal({ onClose }: { onClose: () => void }) {
     };
   }, [onClose]);
 
-  const selectedOrg = orgs.find((o) => o.id === orgId) ?? null;
   const pool: WorkerLite[] = orgId ? workers.filter((w) => w.orgId === orgId) : [];
 
   // 組織を切り替えたら、その組織に属さない職人行はクリア（誤登録防止）。
@@ -187,7 +186,7 @@ export function CreateModal({ onClose }: { onClose: () => void }) {
           contractAmount: contractType === "UKEOI" ? Number(contractAmount) : null,
           entries,
           expenses: expenses.filter((x) => x.kind.trim() && x.amount > 0),
-          postToGroup,
+          notify,
         });
         router.refresh();
         onClose();
@@ -499,23 +498,21 @@ export function CreateModal({ onClose }: { onClose: () => void }) {
                 </button>
               </div>
 
-              {/* ── ⑤ LINEグループ投稿（SELF組織のときだけ）── */}
-              {selectedOrg?.kind === "SELF" && (
-                <div className="rem-sec">
-                  <div className="rem-sec-title">LINE通知</div>
-                  <label className="inline-row">
-                    <input
-                      type="checkbox"
-                      checked={postToGroup}
-                      onChange={(e) => setPostToGroup(e.target.checked)}
-                    />
-                    出面グループに投稿する
-                  </label>
-                  <p className="es-sub">
-                    まとめて後追い登録する場合はオフにすると、グループへの通知を省略できます。
-                  </p>
-                </div>
-              )}
+              {/* ── ⑤ LINE通知（管理者へ個別に送る）── */}
+              <div className="rem-sec">
+                <div className="rem-sec-title">LINE通知</div>
+                <label className="inline-row">
+                  <input
+                    type="checkbox"
+                    checked={notify}
+                    onChange={(e) => setNotify(e.target.checked)}
+                  />
+                  管理者にLINEで通知する
+                </label>
+                <p className="es-sub">
+                  まとめて後追い登録する場合はオフにすると、通知を省略できます。
+                </p>
+              </div>
 
               {errMsg && <div className="notice notice--error">{errMsg}</div>}
             </div>

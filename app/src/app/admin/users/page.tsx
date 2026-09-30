@@ -9,6 +9,8 @@
 //     - 協力会社管理者(ORG_ADMIN): 割り当てた協力会社のみ閲覧。
 //     - 自社(OWNER)/協力会社(PARTNER): 入力のみ。
 //   協力会社（PARTNER 組織）の追加は「マスタ」ページに集約（ここでは重複させない）。
+//   管理者には出面の LINE 通知の ON/OFF と、公式アカウントの友だち状態を出す
+//   （通知は友だち追加済みの相手にしか届かないため）。
 //   ガード: 全社管理者のみ（スコープ管理者はホームへ）。
 // ============================================================
 
@@ -18,6 +20,7 @@ import { prisma } from "@/lib/db.js";
 import { getAdminContext, adminScope } from "@/lib/auth.js";
 import {
   setUserStatusAction,
+  setUserNotifyReportsAction,
   deleteUserAction,
   revokeInviteAction,
   deleteInviteAction,
@@ -262,11 +265,45 @@ export default async function UsersPage({
                 <span className="muted" style={{ marginLeft: 8 }}>
                   {u.org.name}
                 </span>
+                {isManagerUser(u) && !isDisabled && !u.notifyReports && (
+                  <span className="badge" style={{ marginLeft: 6 }}>通知OFF</span>
+                )}
+                {isManagerUser(u) && !isDisabled && u.lineFriend === false && (
+                  <span className="badge badge--review" style={{ marginLeft: 6 }}>
+                    友だち未追加
+                  </span>
+                )}
               </summary>
 
               <div className="list-meta" style={{ marginTop: 8 }}>
                 登録: {fmtDateTime(u.createdAt)}
               </div>
+
+              {/* 出面の LINE 通知（管理者のみ）: 友だち状態と ON/OFF */}
+              {isManagerUser(u) && !isDisabled && (
+                <div className="user-notify">
+                  <div className="list-meta">
+                    出面のLINE通知: <b>{u.notifyReports ? "ON" : "OFF"}</b>
+                    {" ／ "}公式アカウント:{" "}
+                    {u.lineFriend === true
+                      ? "友だち追加済み"
+                      : u.lineFriend === false
+                        ? "未追加またはブロック中（通知が届きません）"
+                        : "未確認（本人が管理画面にログインすると確認されます）"}
+                  </div>
+                  <form action={setUserNotifyReportsAction}>
+                    <input type="hidden" name="userId" value={u.id} />
+                    <input
+                      type="hidden"
+                      name="notifyReports"
+                      value={u.notifyReports ? "off" : "on"}
+                    />
+                    <button type="submit" className="btn btn--ghost btn--sm">
+                      {u.notifyReports ? "通知をOFFにする" : "通知をONにする"}
+                    </button>
+                  </form>
+                </div>
+              )}
 
               {/* 👑最高管理者は変更不可。それ以外はロール変更フォーム（失敗はインライン表示）。 */}
               {isSuper ? (

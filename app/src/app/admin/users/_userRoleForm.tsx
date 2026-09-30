@@ -50,7 +50,7 @@ export function UserRoleForm({
       <div className="field">
         <label className="label">役割</label>
         <select className="select" name="role" defaultValue={defaultRole}>
-          <option value="OWNER">自社メンバー（LINEグループに投稿）</option>
+          <option value="OWNER">自社メンバー（出面を入力）</option>
           <option value="PARTNER">協力会社メンバー（保存のみ）</option>
           <option value="SELF_ADMIN">自社管理者（自社の集計のみ）</option>
           <option value="ORG_ADMIN">協力会社管理者（選んだ協力会社のみ）</option>

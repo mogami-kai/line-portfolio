@@ -3553,3 +3553,20 @@ details.card .field {
   font-size: 13px;
   color: var(--danger);
 }
+
+/* ユーザー管理: 管理者の出面LINE通知（友だち状態・ON/OFF） */
+.user-notify {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.user-notify .list-meta {
+  flex: 1 1 200px;
+  margin: 0;
+}

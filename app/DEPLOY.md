@@ -2,7 +2,7 @@
 
 このアプリは **コードは完成**させてあるが、**外部サービスの認証情報・設定はオーナー本人（=あなた）しか作成/操作できない**。以下がその一覧と手順。
 
-> 自動化済み（コード側）: 入力フォーム(LIFF)・送信API・2系統ルーティング・グループ投稿・集計・請求書(xlsx/CSV)・バリデーション・Prismaスキーマ。
+> 自動化済み（コード側）: 入力フォーム(LIFF)・送信API・2系統ルーティング・管理者へのLINE通知・集計・粗利・請求書(xlsx/CSV)・バリデーション・Prismaスキーマ。
 > 手動（あなた）: 下記アカウント作成・キー発行・env設定・migrate・デプロイ・LINE設定・初期マスタ入力。
 
 ---
@@ -36,12 +36,16 @@ LINE Developers Console（developers.line.biz）で:
      `LINE_LOGIN_CHANNEL_ID` / `LINE_LOGIN_CHANNEL_SECRET` に設定（未設定なら上記を流用）。
    - **Callback URL** に `https://<your-vercel-domain>/api/auth/line/callback` を登録し、
      同じ値を `.env` の `ADMIN_LOGIN_REDIRECT_URL` にも設定（**完全一致**が必須）。
+   - **リンクされたLINE公式アカウント** に出面botを設定（推奨）。管理ログイン時に友だち追加を促し、
+     友だち状態をユーザー管理に表示できる（出面の通知は友だち追加済みの管理者にしか届かない）。
+   - ※ Messaging API チャネルと**同じProvider**に作ること（別Providerだと LINE の userId が一致せず通知が届かない）。
 3. **LIFF アプリ**を追加:
    - Endpoint URL = `https://<your-vercel-domain>/liff`
    - サイズ = Full、`openid profile` スコープ。
    - 発行された `LIFF ID` → `NEXT_PUBLIC_LIFF_ID`
-4. **出面グループのID** `LINE_GROUP_ID`:
-   - botをグループに入れて、webhookに来るイベントの `source.groupId` を控える → `.env`。
+4. **管理者への通知の確認**:
+   - 各管理者が出面botを友だち追加 → 管理画面「設定 > 出面のLINE通知」の「自分にテスト送信」で届くか確認。
+   - 送り先のロールも同じ画面で選ぶ（出面のグループ投稿は廃止。`LINE_GROUP_ID` は不要）。
 5. **リッチメニュー**（自社入力の入口。各メンバーがbotを友だち追加すると1対1に表示。※グループには出ない仕様）:
    - 画像＋「日報入力」領域 → action: URI = LIFF URL。
    - パートナーは**別のLIFFリンク**を個別配布（リッチメニューには載せない＝自社に見えない）。
@@ -104,13 +108,13 @@ npx tsx scripts/setup-richmenu.ts
 - [ ] LINE Login チャネル＋LIFFアプリ作成（`NEXT_PUBLIC_LIFF_ID`）
 - [ ] **管理ログイン用 Callback URL 登録**（`/api/auth/line/callback`）＋ `ADMIN_LOGIN_REDIRECT_URL`
 - [ ] **`SESSION_SECRET`（本番固有のランダム値）を発行・登録**
-- [ ] 出面グループの `LINE_GROUP_ID` 取得
+- [ ] 管理者が出面botを友だち追加し、「設定 > 出面のLINE通知 > 自分にテスト送信」で届くか確認
 - [ ] リッチメニュー作成（`scripts/setup-richmenu.ts`）／パートナー用LIFFリンク配布
 - [ ] Vercel に Import（Root=`app`）＋ env 登録＋デプロイ
 - [ ] デプロイ後ドメインを LINE Webhook/LIFF/Callback に反映
 - [ ] 初期 ADMIN（`ADMIN_LINE_USER_IDS`）が一度 LIFF を開く → `/admin` からログインできるか確認
 - [ ] 初期マスタ入力（管理画面 `/admin/masters`: 自社情報・取引先・単価・職人・組織・請負金額）
 - [ ] 未承認ユーザーを `/admin/users` で承認（パートナーは PARTNER 組織へ）
-- [ ] 自分のLINEで1往復テスト（自社入力→グループ投稿、パートナー入力→管理画面のみ）
+- [ ] 自分のLINEで1往復テスト（自社入力→管理者へ通知、パートナー入力→全社管理者にのみ通知）
 
 > これらは外部アカウントの所有権・本人認証が必要で、サンドボックスからは実行不可。コードはすべて整っているので、上を順に埋めれば稼働する。
