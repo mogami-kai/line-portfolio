@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExpenseKindPicker } from "../_components/expenseKindPicker.js";
 import { MyPage } from "./_myPage.js";
+import { TeamPage } from "./_teamPage.js";
 import { LIFF_SDK_URL } from "./_sdkUrl.js";
 
 // 冪等キー生成（二重送信防止）。crypto.randomUUID 優先、無ければ簡易生成。
@@ -75,6 +76,8 @@ interface MastersResponse {
   me?: { displayName: string; role: string; orgName: string };
   clients: ClientOption[];
   workers: WorkerOption[];
+  /** 後日入力のしきい値（この日数以上前の日付は管理者の承認待ちになる。null = 使わない）。 */
+  lateEntryDays?: number | null;
   error?: string;
   message?: string;
 }
@@ -140,6 +143,13 @@ function todayISO(): string {
   return `${y}-${m}-${day}`;
 }
 
+/** "yyyy-MM-dd" の日付が今日（端末ローカル）から何日前か。未来日は負。 */
+function daysBeforeToday(iso: string): number {
+  const t = Date.parse(`${todayISO()}T00:00:00Z`);
+  const d = Date.parse(`${iso}T00:00:00Z`);
+  return Number.isNaN(d) ? 0 : Math.round((t - d) / 86_400_000);
+}
+
 function loadLast(): LastReport | null {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -179,7 +189,7 @@ function loadLiffSdk(): Promise<void> {
 }
 
 type View = "form" | "confirm" | "success";
-type Tab = "input" | "mypage";
+type Tab = "input" | "team" | "mypage";
 
 interface SubmitOk {
   reportId: string;
@@ -215,7 +225,7 @@ export default function LiffPage() {
   const [workerQuery, setWorkerQuery] = useState<string>("");
 
   const [view, setView] = useState<View>("form");
-  // 下タブ（入力 / マイページ）。マイページから自分の出面を確認・削除申請できる。
+  // 下タブ（入力 / みんな / マイページ）。みんな=同じ会社の出面、マイページ=自分の出面と削除申請。
   const [tab, setTab] = useState<Tab>("input");
   const [submitting, setSubmitting] = useState(false);
   const [okResult, setOkResult] = useState<SubmitOk | null>(null);
@@ -834,7 +844,7 @@ export default function LiffPage() {
     );
   }
 
-  // ── 下タブ（入力 / マイページ）。読み込み完了後の全ビュー共通で下部固定表示 ──
+  // ── 下タブ（入力 / みんな / マイページ）。読み込み完了後の全ビュー共通で下部固定表示 ──
   const tabBar = (
     <nav className="tab-bar" aria-label="メニュー">
       <button
@@ -851,6 +861,20 @@ export default function LiffPage() {
       </button>
       <button
         type="button"
+        className={`tab-item ${tab === "team" ? "tab-item--on" : ""}`}
+        onClick={() => setTab("team")}
+        aria-current={tab === "team" ? "page" : undefined}
+      >
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3 19c0-3 2.5-5 6-5s6 2 6 5" />
+          <circle cx="17" cy="9" r="2.5" />
+          <path d="M16 14.2c2.9.2 5 2 5 4.8" />
+        </svg>
+        みんな
+      </button>
+      <button
+        type="button"
         className={`tab-item ${tab === "mypage" ? "tab-item--on" : ""}`}
         onClick={() => setTab("mypage")}
         aria-current={tab === "mypage" ? "page" : undefined}
@@ -863,6 +887,20 @@ export default function LiffPage() {
       </button>
     </nav>
   );
+
+  // ── みんなの出面（同じ会社の1日ぶん・名前がない人） ──
+  if (tab === "team") {
+    return (
+      <main className="container has-tabbar">
+        <div className="page-head">
+          <h1 className="page-title">みんなの出面</h1>
+          {masters.me && <span className="muted">{masters.me.orgName}</span>}
+        </div>
+        <TeamPage token={token ?? ""} />
+        {tabBar}
+      </main>
+    );
+  }
 
   // ── マイページ（自分の出面一覧・削除申請） ──
   if (tab === "mypage") {
@@ -963,6 +1001,17 @@ export default function LiffPage() {
         <p className="muted" style={{ marginTop: 0 }}>
           内容を確認して、よければ下の「送信」を押してください。
         </p>
+
+        {/* 後日入力の予告（送信後に「承認待ち」で驚かせない） */}
+        {masters.lateEntryDays != null &&
+          daysBeforeToday(workDate) >= masters.lateEntryDays && (
+            <div className="notice notice--warn">
+              <p className="notice-title">{daysBeforeToday(workDate)}日前の出面です</p>
+              <span>
+                後からの入力は、管理者が確認するまで集計に入りません。日付が合っているか確認してください。
+              </span>
+            </div>
+          )}
 
         {errorMsg && (
           <div

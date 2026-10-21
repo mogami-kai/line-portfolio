@@ -23,10 +23,14 @@ import {
 import {
   NOTIFY_PARTNER_ROLE_OPTIONS,
   NOTIFY_SELF_ROLE_OPTIONS,
+  REPORT_FOR_RESEND_INCLUDE,
+  isQuotaError,
   notifyReportToAdmins,
   reportNotifyText,
+  resendReportNotification,
   sendTestNotification,
 } from "@/lib/notify.js";
+import { loadLateEntryDays } from "@/lib/lateEntry.js";
 import { reportLabel, writeAuditLog } from "@/lib/audit.js";
 import {
   INVITABLE_ROLES,
@@ -476,6 +480,8 @@ const settingSchema = z.object({
   // 出面の LINE 通知の送り先ロール（自社 / 協力会社）
   notifySelfRoles: z.array(z.enum(NOTIFY_SELF_ROLE_OPTIONS)),
   notifyPartnerRoles: z.array(z.enum(NOTIFY_PARTNER_ROLE_OPTIONS)),
+  // 後日入力を承認制にする日数（null = 使わない）
+  lateEntryDays: z.number().int().min(1).max(31).nullable(),
 });
 
 export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
@@ -512,6 +518,8 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
     notifyPartnerRoles: fd
       .getAll("notifyPartnerRoles")
       .filter((v): v is string => typeof v === "string"),
+    // 空 = 使わない（null）。
+    lateEntryDays: str(fd, "lateEntryDays") ? Number(str(fd, "lateEntryDays")) : null,
   });
   if (!parsed.success) throw new Error(parsed.error.issues[0]?.message ?? "入力エラー");
 
@@ -532,6 +540,7 @@ export async function saveInvoiceSettingAction(fd: FormData): Promise<void> {
     profitViewRoles: parsed.data.profitViewRoles,
     notifySelfRoles: parsed.data.notifySelfRoles,
     notifyPartnerRoles: parsed.data.notifyPartnerRoles,
+    lateEntryDays: parsed.data.lateEntryDays,
   };
   const existing = await prisma.invoiceSetting.findFirst();
   if (existing) {
@@ -717,7 +726,7 @@ export type UnpostedActionResult = { ok: boolean; error?: string };
 /** LINE push の失敗を、現場の人が読める日本語メッセージに変換する。 */
 function lineErrorMessage(e: unknown): string {
   const raw = String((e as Error)?.message ?? e ?? "");
-  if (raw.includes(" 429") || raw.includes("monthly limit")) {
+  if (isQuotaError(e)) {
     return "LINEの月間メッセージ通数の上限に達している可能性があります（無料プランは月200通）。翌月まで待つか、LINE公式アカウントのプランをご確認ください。";
   }
   if (raw.includes(" 401")) {
@@ -731,8 +740,8 @@ function lineErrorMessage(e: unknown): string {
 
 /**
  * 管理者への再通知（通知に失敗した出面＝notified=false のとき）。
- *   - 送信成功で初めて notified=true にする（二重通知を避けるため、
- *     既に true のものは何もしない）。
+ *   - 送信成功で初めて notified=true にする（二重通知を避けるため、既に通知済み
+ *     ／自動再通知が送信中のものは何もしない。@/lib/notify の resendReportNotification）。
  *   - スコープ管理者は自組織のみ（assertOrgInScope）。
  *   - 失敗は throw せず { ok:false, error } で返す（ボタンの横に理由を表示するため。
  *     throw すると Next の汎用エラー画面になり「なぜ失敗したか」が伝わらない）。
@@ -746,47 +755,28 @@ export async function resendReportNotifyAction(
 
     const rep = await prisma.report.findUnique({
       where: { id },
-      include: {
-        client: { select: { name: true } },
-        org: { select: { kind: true, name: true } },
-        entries: { include: { worker: { select: { name: true } } } },
-        expenses: { select: { kind: true, amount: true } },
-      },
+      include: REPORT_FOR_RESEND_INCLUDE,
     });
     if (!rep) return { ok: false, error: "出面が見つかりません" };
     await assertOrgInScope(admin, rep.orgId);
 
-    // 既に通知済みなら二重通知を避けて終了（成功したものを再送しない）。
-    if (rep.notified) {
+    const r = await resendReportNotification(rep, await loadLateEntryDays());
+    if (r.status === "failed") {
+      console.error("[resend] notify admins failed", r.error);
+      return { ok: false, error: lineErrorMessage(r.error) };
+    }
+    if (r.status === "already") {
+      // 既に通知済み（成功したものを再送しない）。
       revalidatePath("/admin");
       return { ok: true };
     }
-
-    // 送信が成功した場合のみ notified=true。失敗時はフラグを変えず理由を返す。
-    let recipients = 0;
-    try {
-      ({ recipients } = await notifyReportToAdmins(
-        { source: rep.org.kind, orgId: rep.orgId, createdById: rep.createdById },
-        reportNotifyText(rep, {
-          kind: "created",
-          partnerOrgName: rep.org.kind === "PARTNER" ? rep.org.name : null,
-        }),
-      ));
-    } catch (e) {
-      console.error("[resend] notify admins failed", e);
-      return { ok: false, error: lineErrorMessage(e) };
-    }
-    await prisma.report.update({
-      where: { id },
-      data: { notified: true },
-    });
     // 操作履歴: 誰が再通知したか。
     await writeAuditLog({
       actorId: admin.user.id,
       actorName: admin.user.displayName,
       action: "REPORT_RESEND",
       reportId: id,
-      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を管理者へ再通知（${recipients}人）`,
+      summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を管理者へ再通知（${r.recipients}人）`,
     });
     revalidatePath("/admin");
     return { ok: true };

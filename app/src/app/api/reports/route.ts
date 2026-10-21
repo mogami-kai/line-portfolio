@@ -8,6 +8,7 @@
 //        hold    → 422（buildAskbackMessage を返す。保存しない）
 //        confirm → status=NEEDS_REVIEW で保存（管理者承認キューへ）
 //        ok      → status=CONFIRMED で保存
+//      後日入力（出面の日付から設定日数以上あと）・請求書作成済みの月 → NEEDS_REVIEW
 //   4) Report(+entries+expenses) を保存（source=org.kind / orgId / createdById）
 //   5) ★通知★ 管理者へ LINE 個別通知（@/lib/notify・送信できたら notified=true）
 //        SELF    → 自社の出面の通知先ロールの管理者へ
@@ -158,6 +159,8 @@ export async function POST(req: Request) {
       createdById: user.id,
       createdByName: user.displayName,
       // notify は渡さない＝通知先ロールの管理者へ通知する。
+      // 本人入力なので、後日入力・請求書作成済みの月は要確認にする。
+      checkLate: true,
     },
   );
 

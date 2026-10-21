@@ -23,6 +23,8 @@ export interface FeedItem {
   exp: string;
   partner: boolean;
   review: boolean;
+  /** 後日入力なら遅れ日数（出面の日付から何日後に入力されたか）。そうでなければ null。 */
+  late: number | null;
 }
 
 export function RecentFeed({
@@ -47,6 +49,14 @@ export function RecentFeed({
             <div className="feed-client">
               {r.client}
               {r.review && <span className="badge badge--review feed-mini">要</span>}
+              {r.late != null && (
+                <span
+                  className="badge badge--late feed-mini"
+                  title={`後日入力（${r.late}日後に入力）`}
+                >
+                  後+{r.late}
+                </span>
+              )}
               {r.partner && <span className="badge badge--partner feed-mini">協</span>}
             </div>
             <div className="feed-site">{r.site}</div>

@@ -181,6 +181,30 @@ describe("reportNotifyText — 通知本文", () => {
     );
     expect(text).toContain("みなとみらい（請負 ¥300,000）");
   });
+
+  it("後日入力は先頭に注意書き（遅れ日数・承認待ち）を付ける", () => {
+    const text = reportNotifyText(rep, { kind: "created", lateDays: 5 });
+    expect(text.split("\n")[0]).toBe(
+      "⚠後日入力（5日後に入力・承認するまで集計に入りません）",
+    );
+    expect(text).toContain("辻濱興業");
+  });
+
+  it("協力会社の後日入力は 会社名 → 注意書き の順", () => {
+    const lines = reportNotifyText(rep, {
+      kind: "created",
+      partnerOrgName: "協力A",
+      lateDays: 3,
+    }).split("\n");
+    expect(lines[0]).toBe("【協力会社 協力A】");
+    expect(lines[1]).toMatch(/^⚠後日入力（3日後/);
+  });
+
+  it("取消には後日入力の注意書きを付けない", () => {
+    expect(reportNotifyText(rep, { kind: "canceled", lateDays: 3 })).not.toContain(
+      "後日入力",
+    );
+  });
 });
 
 describe("multicastToUsers — まとめて送信", () => {

@@ -21,7 +21,7 @@
 import type { JSX } from "react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { SettingRow, AdminOption } from "./_mastersTypes.js";
+import type { SettingRow, AdminOption, LineQuotaRow } from "./_mastersTypes.js";
 import {
   saveInvoiceSettingAction,
   sendTestNotificationAction,
@@ -36,6 +36,16 @@ const NOTIFY_SELF_OPTIONS: { role: string; label: string }[] = [
 const NOTIFY_PARTNER_OPTIONS: { role: string; label: string }[] = [
   { role: "ADMIN", label: "管理者" },
   { role: "ORG_ADMIN", label: "組織管理者（その協力会社）" },
+];
+
+/** 後日入力の扱い（値 = 何日あとの入力から承認制にするか。"" = 使わない。lib/lateEntry 参照）。 */
+const LATE_ENTRY_OPTIONS: { value: string; label: string }[] = [
+  { value: "1", label: "当日のみOK" },
+  { value: "2", label: "翌日までOK" },
+  { value: "3", label: "2日後までOK" },
+  { value: "4", label: "3日後までOK" },
+  { value: "8", label: "1週間後までOK" },
+  { value: "", label: "使わない（制限なし）" },
 ];
 
 /** ADMIN 以外で粗利の閲覧を許可できるロール（lib/profit の PROFIT_VIEWABLE_ROLES と同じ）。 */
@@ -53,9 +63,11 @@ function rateToPct(taxRate: number | undefined): number {
 export function SettingsTab({
   setting,
   admins,
+  lineQuota,
 }: {
   setting: SettingRow | null;
   admins: AdminOption[];
+  lineQuota: LineQuotaRow | null;
 }): JSX.Element {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -97,6 +109,10 @@ export function SettingsTab({
   );
   const [notifyPartner, setNotifyPartner] = useState<string[]>(
     setting?.notifyPartnerRoles ?? ["ADMIN"],
+  );
+  // 後日入力を承認制にする日数（未作成なら既定 2。"" = 使わない）。
+  const [lateDays, setLateDays] = useState<string>(
+    setting ? (setting.lateEntryDays == null ? "" : String(setting.lateEntryDays)) : "2",
   );
   const toggleIn =
     (set: (fn: (cur: string[]) => string[]) => void) => (role: string, on: boolean) =>
@@ -377,6 +393,33 @@ export function SettingsTab({
           </div>
         </section>
 
+        {/* ── 後日入力（「忘れてた」と後から入れる出面） ── */}
+        <section className="mst-block">
+          <h3 className="mst-block-title">出面の後日入力</h3>
+          <div className="field">
+            <label className="label" htmlFor="set-lateEntryDays">
+              LINE（出面入力）からそのまま登録できる範囲
+            </label>
+            <select
+              id="set-lateEntryDays"
+              className="select"
+              name="lateEntryDays"
+              value={lateDays}
+              onChange={(e) => setLateDays(e.target.value)}
+            >
+              {LATE_ENTRY_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <p className="hint">
+              出面の日付からこれより後に入力された出面は「要確認」になり、ホームで承認するまで集計・請求に入りません（既定は翌日までOK）。
+              請求書を作成済みの月への入力も同じく要確認になります。管理画面からの登録は対象外です。
+            </p>
+          </div>
+        </section>
+
         {/* ── 出面の LINE 通知（管理者へ個別送信） ── */}
         <section className="mst-block">
           <h3 className="mst-block-title">出面のLINE通知（管理者へ個別に送信）</h3>
@@ -384,6 +427,8 @@ export function SettingsTab({
             出面の登録・取消を、公式アカウントから管理者へ個別に送ります（グループには投稿しません）。
             管理者ごとのON/OFFと友だち追加の状況は「ユーザー管理」で確認できます。
           </p>
+
+          <LineQuotaNote quota={lineQuota} />
 
           <div className="field">
             <span className="label">自社の出面の通知先</span>
@@ -534,6 +579,47 @@ export function SettingsTab({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ============================================================
+// 今月の LINE 送信数（通知が届かない原因の切り分け）
+//   上限に達すると送信が失敗し、未通知のまま残る。8割を超えたら注意を出す。
+// ============================================================
+function LineQuotaNote({ quota }: { quota: LineQuotaRow | null }): JSX.Element {
+  if (!quota) {
+    return (
+      <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+        今月のLINE送信数を取得できませんでした。
+      </p>
+    );
+  }
+  if (quota.limit == null) {
+    return (
+      <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+        今月のLINE送信数: {quota.used.toLocaleString("ja-JP")}通（上限なしのプラン）
+      </p>
+    );
+  }
+  const ratio = quota.limit > 0 ? quota.used / quota.limit : 1;
+  const text = `今月のLINE送信数: ${quota.used.toLocaleString("ja-JP")} / ${quota.limit.toLocaleString("ja-JP")}通`;
+  if (ratio < 0.8) {
+    return (
+      <p className="hint" style={{ marginTop: 0, marginBottom: 12 }}>
+        {text}
+      </p>
+    );
+  }
+  return (
+    <div
+      className={`notice ${ratio >= 1 ? "notice--error" : "notice--warn"}`}
+      style={{ marginBottom: 12 }}
+    >
+      {text}
+      {ratio >= 1
+        ? "。上限に達したため、来月まで出面の通知は届きません。LINE公式アカウントのプランを見直してください。"
+        : "。上限が近いです。上限に達すると出面の通知が届かなくなります（通数は 出面の件数 × 通知先の人数）。"}
     </div>
   );
 }

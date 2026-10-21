@@ -32,6 +32,8 @@ import {
 import { ConfirmDeleteButton } from "./_confirmDelete.js";
 import { UnpostedActions } from "./_unpostedActions.js";
 import { currentYearMonth, monthRange } from "@/lib/aggregate.js";
+import { entryLateDays, isLateEntry, loadLateEntryDays } from "@/lib/lateEntry.js";
+import { getMessageQuota, isQuotaReached } from "@/lib/line.js";
 
 export const dynamic = "force-dynamic";
 
@@ -164,7 +166,7 @@ export default async function AdminPage({
   // 重い月次集計は本ページから分離し、/admin/aggregate（集計）へ移設した。
   // 編集の取引先/職人ドロップダウンは、カードの「編集」を押した時にモーダル側で
   // 取得する（一覧へ巨大配列を撒かない＝ホームの転送量とハイドレーションを軽く保つ）。
-  const [needsReview, recent, unposted, deleteRequests] = await Promise.all([
+  const [needsReview, recent, unposted, deleteRequests, lateEntryDays] = await Promise.all([
     prisma.report.findMany({
       where: { status: "NEEDS_REVIEW", ...scopeWhere },
       orderBy: { createdAt: "desc" },
@@ -184,6 +186,7 @@ export default async function AdminPage({
       select: {
         id: true,
         workDate: true,
+        createdAt: true,
         status: true,
         siteName: true,
         client: { select: { name: true } },
@@ -235,23 +238,35 @@ export default async function AdminPage({
         entries: { select: { worker: { select: { name: true } } } },
       },
     }),
+    loadLateEntryDays(),
   ]);
 
-  // 削除申請者の表示名（deleteRequestedBy は素の User.id）。
-  const requesterIds = Array.from(
+  // 未通知があるときだけ、原因の切り分けに LINE の今月の送信数を見る
+  // （上限に達していると、再通知しても届かない）。
+  const quota = unposted.length > 0 ? await getMessageQuota() : null;
+
+  /** 後日入力なら遅れ日数（出面の日付から何日後に入力されたか）。そうでなければ null。 */
+  const lateOf = (r: { workDate: Date; createdAt: Date }): number | null => {
+    const d = entryLateDays(r.workDate, r.createdAt);
+    return isLateEntry(d, lateEntryDays) ? d : null;
+  };
+
+  // 削除申請者・要確認の入力者の表示名（deleteRequestedBy / createdById は素の User.id）。
+  const userIds = Array.from(
     new Set(
-      deleteRequests
-        .map((r) => r.deleteRequestedBy)
-        .filter((v): v is string => Boolean(v)),
+      [
+        ...deleteRequests.map((r) => r.deleteRequestedBy),
+        ...needsReview.map((r) => r.createdById),
+      ].filter((v): v is string => Boolean(v)),
     ),
   );
-  const requesters = requesterIds.length
+  const users = userIds.length
     ? await prisma.user.findMany({
-        where: { id: { in: requesterIds } },
+        where: { id: { in: userIds } },
         select: { id: true, displayName: true },
       })
     : [];
-  const requesterNameById = new Map(requesters.map((u) => [u.id, u.displayName]));
+  const userNameById = new Map(users.map((u) => [u.id, u.displayName]));
 
   // 月ナビ。
   const prev = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth() - 1, 1));
@@ -290,6 +305,7 @@ export default async function AdminPage({
           : "（領収書なし）"),
     partner: r.org.kind === "PARTNER",
     review: r.status === "NEEDS_REVIEW",
+    late: lateOf(r),
   }));
 
   return (
@@ -330,7 +346,7 @@ export default async function AdminPage({
                     .filter(Boolean)
                     .join("　");
                   const requester = r.deleteRequestedBy
-                    ? requesterNameById.get(r.deleteRequestedBy) ?? "(不明)"
+                    ? userNameById.get(r.deleteRequestedBy) ?? "(不明)"
                     : "(不明)";
                   const site = r.siteName || r.site?.name || "(現場未設定)";
                   return (
@@ -376,7 +392,15 @@ export default async function AdminPage({
             <section className="block">
               <div className="notice notice--warn" style={{ marginBottom: 12 }}>
                 管理者へ LINE で通知できていない出面が {unposted.length} 件あります。
-                内容を確認して「再通知」してください。
+                {isQuotaReached(quota) ? (
+                  <>
+                    {" "}
+                    原因: LINE の今月の送信数が上限に達しています（{quota!.used}/{quota!.limit}通）。
+                    来月になるかプランを上げるまで、LINE の通知は届きません。出面はこの画面で確認してください。
+                  </>
+                ) : (
+                  <> 直近3日の分は1時間ごとに自動で再通知します。急ぐときは「再通知」を押してください。</>
+                )}
               </div>
               <div className="review-list">
                 {unposted.map((r) => {
@@ -425,6 +449,8 @@ export default async function AdminPage({
                   const md = r.entries.reduce((a, e) => a + Number(e.manDays || 0), 0);
                   const ot = r.entries.reduce((a, e) => a + Number(e.otHours || 0), 0);
                   const isPartner = r.org.kind === "PARTNER";
+                  const late = lateOf(r);
+                  const inputBy = userNameById.get(r.createdById);
                   const names = r.entries
                     .map((e) => e.worker?.name)
                     .filter(Boolean)
@@ -442,9 +468,13 @@ export default async function AdminPage({
                           >
                             {r.org.kind === "SELF" ? "自社" : "協力会社"}
                           </span>
+                          {late != null && (
+                            <span className="badge badge--late">後日入力 +{late}日</span>
+                          )}
                         </div>
                         <div className="review-meta">
                           {r.siteName || r.site?.name || "(現場未設定)"} ・ {r.org.name}
+                          {inputBy && <> ・ 入力: {inputBy}</>}
                         </div>
                         {names && <div className="review-names">{names}</div>}
                         <div className="review-figs">
