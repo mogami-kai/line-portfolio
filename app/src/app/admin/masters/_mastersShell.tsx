@@ -23,6 +23,7 @@ import type {
   OrgRow,
   SettingRow,
   AdminOption,
+  LineQuotaRow,
 } from "./_mastersTypes.js";
 import { ClientsTab } from "./_tabClients.js";
 import { WorkersTab } from "./_tabWorkers.js";
@@ -41,12 +42,14 @@ export function MastersShell({
   orgs,
   setting,
   admins,
+  lineQuota,
 }: {
   clients: ClientRow[];
   workers: WorkerRow[];
   orgs: OrgRow[];
   setting: SettingRow | null;
   admins: AdminOption[];
+  lineQuota: LineQuotaRow | null;
 }): JSX.Element {
   const [tab, setTab] = useState<MasterTab>("workers");
 
@@ -108,7 +111,7 @@ export function MastersShell({
 
       {tab === "clients" && <ClientsTab clients={clients} />}
       {tab === "workers" && <WorkersTab workers={workers} orgs={orgs} />}
-      {tab === "settings" && <SettingsTab setting={setting} admins={admins} />}
+      {tab === "settings" && <SettingsTab setting={setting} admins={admins} lineQuota={lineQuota} />}
     </div>
   );
 }

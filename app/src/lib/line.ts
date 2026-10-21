@@ -2,6 +2,7 @@
 // LINE 連携ヘルパー（SDK 非依存・fetch のみ）
 //   - multicastToUsers: Messaging API multicast で管理者へ個別に出面ログを送る
 //   - pushToUser      : 単一ユーザーへ DM（入金リマインド・テスト送信）
+//   - getMessageQuota : 今月の送信数と上限（通知が届かない原因の切り分け）
 //   - getProfile      : LIFF アクセストークン → LINE プロフィール
 //   - verifyAccessToken: LIFF アクセストークンの検証（チャネル一致確認）
 //   - formatReportLog : v1 bot 受信確認フォーマットのログ文面生成
@@ -97,6 +98,46 @@ export async function pushToUser(userId: string, text: string): Promise<void> {
       `LINE push(user) failed: ${res.status} len=${userId.length} body=${body}`,
     );
   }
+}
+
+// ============================================================
+// 今月の送信数と上限（LINE 公式アカウントのプラン）
+//   GET /v2/bot/message/quota             → { type: "none" | "limited", value? }
+//   GET /v2/bot/message/quota/consumption → { totalUsage }
+//   通知が届かない原因の切り分け用（上限に達すると送信が 429 で失敗する）。
+//   取得できなければ null（トークン未設定・通信失敗など。本処理は止めない）。
+// ============================================================
+export interface MessageQuota {
+  /** 月間の上限通数。null = 上限なし（従量課金のプラン）。 */
+  limit: number | null;
+  /** 今月これまでに送った通数。 */
+  used: number;
+}
+
+export async function getMessageQuota(): Promise<MessageQuota | null> {
+  try {
+    const headers = { Authorization: `Bearer ${channelAccessToken()}` };
+    const [q, c] = await Promise.all([
+      fetch(`${LINE_API}/v2/bot/message/quota`, { headers }),
+      fetch(`${LINE_API}/v2/bot/message/quota/consumption`, { headers }),
+    ]);
+    if (!q.ok || !c.ok) return null;
+    const quota = (await q.json()) as { type?: string; value?: number };
+    const used = (await c.json()) as { totalUsage?: number };
+    return {
+      limit:
+        quota.type === "limited" && typeof quota.value === "number" ? quota.value : null,
+      used: Number(used.totalUsage ?? 0),
+    };
+  } catch (e) {
+    console.warn("[line] getMessageQuota failed", e);
+    return null;
+  }
+}
+
+/** 上限に達しているか（上限なしのプランは false）。 */
+export function isQuotaReached(q: MessageQuota | null): boolean {
+  return q != null && q.limit != null && q.used >= q.limit;
 }
 
 // ============================================================

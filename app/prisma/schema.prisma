@@ -347,6 +347,10 @@ model InvoiceSetting {
   //   協力会社の出面: ADMIN / ORG_ADMIN（その協力会社の）から選ぶ。自社管理者には送らない。
   notifySelfRoles    Role[] @default([ADMIN, SELF_ADMIN, ORG_ADMIN])
   notifyPartnerRoles Role[] @default([ADMIN])
+  // ── 後日入力（「忘れてた」と後から入れる出面）──
+  //   出面の日付からこの日数以上たって LIFF から入力されたら要確認（承認するまで集計に入れない）。
+  //   2 = 当日・翌日の入力はそのまま／2日以上あとは承認制。null = 使わない。
+  lateEntryDays Int? @default(2)
 }
 
 // その他経費（粗利の計算で引く、出面にひも付かない会社の経費。月ごとに手入力）

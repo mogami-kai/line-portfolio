@@ -14,6 +14,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db.js";
 import { getAdminContext, adminScope } from "@/lib/auth.js";
+import { getMessageQuota } from "@/lib/line.js";
 import { MastersShell } from "./_mastersShell.js";
 import type {
   ClientRow,
@@ -30,7 +31,7 @@ export default async function MastersPage() {
   // スコープ管理者（自社/協力会社管理者）は設定ページを見られない（ホームへ）。
   if (adminScope(admin) === "ORG") redirect("/admin");
 
-  const [clientRows, workerRows, orgRows, setting, adminRows] = await Promise.all([
+  const [clientRows, workerRows, orgRows, setting, adminRows, lineQuota] = await Promise.all([
     prisma.client.findMany({ orderBy: { name: "asc" } }),
     prisma.worker.findMany({
       orderBy: { name: "asc" },
@@ -48,6 +49,8 @@ export default async function MastersPage() {
       orderBy: { displayName: "asc" },
       select: { id: true, displayName: true },
     }),
+    // 出面通知が届かない原因の切り分け用（今月の LINE 送信数と上限）。
+    getMessageQuota(),
   ]);
 
   const clients: ClientRow[] = clientRows.map((c) => ({
@@ -98,6 +101,7 @@ export default async function MastersPage() {
         profitViewRoles: setting.profitViewRoles,
         notifySelfRoles: setting.notifySelfRoles,
         notifyPartnerRoles: setting.notifyPartnerRoles,
+        lateEntryDays: setting.lateEntryDays,
       }
     : null;
 
@@ -115,6 +119,7 @@ export default async function MastersPage() {
         orgs={orgs}
         setting={settingRow}
         admins={admins}
+        lineQuota={lineQuota}
       />
     </main>
   );

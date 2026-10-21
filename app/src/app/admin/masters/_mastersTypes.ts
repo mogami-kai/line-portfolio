@@ -67,6 +67,14 @@ export interface SettingRow {
   // 出面の LINE 通知の送り先ロール
   notifySelfRoles: string[]; // 自社の出面
   notifyPartnerRoles: string[]; // 協力会社の出面
+  // 後日入力を承認制にする日数（null = 使わない）
+  lateEntryDays: number | null;
+}
+
+/** LINE 公式アカウントの今月の送信数（設定タブの表示用。取れなければ null）。 */
+export interface LineQuotaRow {
+  limit: number | null; // 月間の上限通数。null = 上限なし
+  used: number;
 }
 
 /** 通知先に選べる管理者（設定タブのプルダウン用）。 */

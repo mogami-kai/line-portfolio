@@ -5,12 +5,14 @@
 //   返却:
 //     - clients : 取引先（active）。v3 で現場は自由入力化したため sites は返さない。
 //     - workers : 呼び出しユーザーの org に属する職人（active）
+//     - lateEntryDays : 後日入力のしきい値（確認画面の注意書き用。null = 使わない）
 //   ※ 取引先は全社共通マスタ。職人は org スコープ（自社/協力会社で分離）。
 //   未承認ユーザーは 403（フォームを使わせない）。
 // ============================================================
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db.js";
+import { loadLateEntryDays } from "@/lib/lateEntry.js";
 import {
   bearerToken,
   requireApproved,
@@ -52,7 +54,7 @@ export async function GET(req: Request) {
 
   const { org, user } = resolved;
 
-  const [clients, workers] = await Promise.all([
+  const [clients, workers, lateEntryDays] = await Promise.all([
     // 取引先（請求先）は全社共通マスタ。有効なもののみ。
     // v3: 現場は LIFF 側で自由入力（Report.siteName）になったため、
     // 現場ピッカー用の sites サブ取得は廃止（payload 縮小）。
@@ -70,6 +72,8 @@ export async function GET(req: Request) {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    // 後日入力のしきい値（確認画面で「承認待ちになります」と先に知らせるため）。
+    loadLateEntryDays(),
   ]);
 
   return NextResponse.json({
@@ -77,5 +81,6 @@ export async function GET(req: Request) {
     me: { displayName: user.displayName, role: user.role, orgName: org.name },
     clients,
     workers,
+    lateEntryDays,
   });
 }

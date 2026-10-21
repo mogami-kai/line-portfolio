@@ -11,10 +11,16 @@
 //   共通: 承認済み・有効・通知ON・友だち未追加(false)ではない・本人の登録分は本人に送らない。
 //
 //   送り先の選定（selectReportRecipients）は DB 非依存の純粋関数にして単体テストする。
+//
+//   取りこぼし対策: 送信に失敗した出面（notified=false）は cron が毎時自動で再通知する
+//   （retryUnnotifiedReports）。手動の「再通知」と同じ resendReportNotification を通り、
+//   先に notified を確保してから送るので、手動と自動が重なっても二重に送らない。
 // ============================================================
 
 import type { ContractType, OrgKind, Role, Shift } from "@prisma/client";
 import { prisma } from "./db.js";
+import { reportLabel, writeAuditLog } from "./audit.js";
+import { entryLateDays, isLateEntry, loadLateEntryDays } from "./lateEntry.js";
 import {
   formatReportCancelLog,
   formatReportLog,
@@ -125,15 +131,25 @@ export function toReportLogInput(rep: ReportForNotify): ReportLogInput {
 /**
  * 通知本文。自社は従来のグループ投稿と同じ文面。協力会社は先頭に会社名を付ける
  * （協力会社の出面は自社管理者には送らないので、受け取るのは全社/その会社の管理者のみ）。
+ * 後日入力（承認待ち）は lateDays を渡すと、ひと目で分かるよう先頭に注意書きを付ける。
  */
 export function reportNotifyText(
   rep: ReportForNotify,
-  opts: { kind: "created" | "canceled"; partnerOrgName?: string | null },
+  opts: {
+    kind: "created" | "canceled";
+    partnerOrgName?: string | null;
+    lateDays?: number | null;
+  },
 ): string {
   const input = toReportLogInput(rep);
   const body =
     opts.kind === "canceled" ? formatReportCancelLog(input) : formatReportLog(input);
-  return opts.partnerOrgName ? `【協力会社 ${opts.partnerOrgName}】\n${body}` : body;
+  const head: string[] = [];
+  if (opts.partnerOrgName) head.push(`【協力会社 ${opts.partnerOrgName}】`);
+  if (opts.kind === "created" && opts.lateDays != null) {
+    head.push(`⚠後日入力（${opts.lateDays}日後に入力・承認するまで集計に入りません）`);
+  }
+  return [...head, body].join("\n");
 }
 
 /** 通知先ロールの設定（未作成なら既定）。 */
@@ -187,6 +203,129 @@ export async function notifyReportToAdmins(
     text,
   );
   return { recipients: to.length };
+}
+
+/** 再通知に使う出面（notifyReportToAdmins + 本文に必要な部分）。 */
+export interface ReportForResend extends ReportForNotify {
+  id: string;
+  orgId: string;
+  createdById: string;
+  createdAt: Date;
+  status: "CONFIRMED" | "NEEDS_REVIEW";
+  org: { kind: OrgKind; name: string };
+}
+
+/** 再通知の対象を読むときの include（ReportForResend を満たす）。 */
+export const REPORT_FOR_RESEND_INCLUDE = {
+  client: { select: { name: true } },
+  org: { select: { kind: true, name: true } },
+  entries: { include: { worker: { select: { name: true } } } },
+  expenses: { select: { kind: true, amount: true } },
+} as const;
+
+export type ResendOutcome =
+  | { status: "sent"; recipients: number }
+  | { status: "already" }
+  | { status: "failed"; error: unknown };
+
+/**
+ * 未通知の出面を1件再通知する（手動の「再通知」と cron の自動再通知で共通）。
+ *   先に notified を false→true で確保してから送る（手動と自動が重なっても二重に送らない）。
+ *   送信に失敗したら notified を false に戻す（次の自動再通知 or 手動で再挑戦できる）。
+ */
+export async function resendReportNotification(
+  rep: ReportForResend,
+  lateEntryDays: number | null,
+): Promise<ResendOutcome> {
+  const claimed = await prisma.report.updateMany({
+    where: { id: rep.id, notified: false },
+    data: { notified: true },
+  });
+  if (claimed.count === 0) return { status: "already" };
+  const late = entryLateDays(rep.workDate, rep.createdAt);
+  try {
+    const { recipients } = await notifyReportToAdmins(
+      { source: rep.org.kind, orgId: rep.orgId, createdById: rep.createdById },
+      reportNotifyText(rep, {
+        kind: "created",
+        partnerOrgName: rep.org.kind === "PARTNER" ? rep.org.name : null,
+        lateDays:
+          rep.status === "NEEDS_REVIEW" && isLateEntry(late, lateEntryDays) ? late : null,
+      }),
+    );
+    return { status: "sent", recipients };
+  } catch (e) {
+    await prisma.report.updateMany({
+      where: { id: rep.id },
+      data: { notified: false },
+    });
+    return { status: "failed", error: e };
+  }
+}
+
+/** LINE の月間送信数の上限に当たったエラーか（429）。 */
+export function isQuotaError(e: unknown): boolean {
+  const raw = String((e as Error)?.message ?? e ?? "");
+  return raw.includes(" 429") || raw.includes("monthly limit");
+}
+
+/** 自動再通知の対象: 作成からこの時間がたったもの（登録直後の送信とぶつけない）。 */
+const RETRY_MIN_AGE_MS = 5 * 60 * 1000;
+/** 自動再通知の対象: 作成からこの期間内のもの（古い通知漏れは管理ホームから手動で）。 */
+const RETRY_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+/** 1回の実行で再通知する上限。 */
+const RETRY_BATCH = 20;
+
+export interface RetryResult {
+  tried: number;
+  sent: number;
+  failed: number;
+  /** 月間送信数の上限に当たって打ち切った。 */
+  quotaExceeded: boolean;
+}
+
+/**
+ * 通知に失敗した出面（notified=false）を自動で再通知する（cron から毎時）。
+ * 月間送信数の上限（429）に当たったら、残りを送っても届かないので打ち切る。
+ */
+export async function retryUnnotifiedReports(now: Date = new Date()): Promise<RetryResult> {
+  const reps = await prisma.report.findMany({
+    where: {
+      notified: false,
+      createdAt: {
+        lte: new Date(now.getTime() - RETRY_MIN_AGE_MS),
+        gte: new Date(now.getTime() - RETRY_MAX_AGE_MS),
+      },
+    },
+    orderBy: { createdAt: "asc" },
+    take: RETRY_BATCH,
+    include: REPORT_FOR_RESEND_INCLUDE,
+  });
+  const out: RetryResult = { tried: 0, sent: 0, failed: 0, quotaExceeded: false };
+  if (reps.length === 0) return out;
+  const lateEntryDays = await loadLateEntryDays();
+  for (const rep of reps) {
+    out.tried += 1;
+    const r = await resendReportNotification(rep, lateEntryDays);
+    if (r.status === "sent") {
+      out.sent += 1;
+      await writeAuditLog({
+        actorId: null,
+        actorName: "自動再通知",
+        action: "REPORT_RESEND",
+        reportId: rep.id,
+        summary: `${reportLabel(rep.workDate, rep.client.name, rep.siteName)} を管理者へ自動で再通知（${r.recipients}人）`,
+      });
+    } else if (r.status === "failed") {
+      out.failed += 1;
+      console.error("[notify] auto resend failed", r.error);
+      if (isQuotaError(r.error)) {
+        out.quotaExceeded = true;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /** 設定画面の「テスト送信」: ログイン中の管理者本人に1通送る。 */

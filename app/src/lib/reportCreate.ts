@@ -3,6 +3,7 @@
 // 管理画面の createReportAction（代理登録）の両方から呼ぶ。
 //
 //   冪等キー確認 → 取引先/職人の実在確認 → validateReportRows(聞き返し判定)
+//   → (LIFF の本人入力なら)後日入力・請求書作成済みの月を要確認に（@/lib/lateEntry）
 //   → Report(+entries+expenses) 保存 → 監査ログ → キャッシュ無効化
 //   → 現場利用統計更新 → (notify!==false なら)管理者へ LINE 個別通知（@/lib/notify）
 //
@@ -19,6 +20,12 @@ import {
   type RowInput,
 } from "@/lib/validate.js";
 import { isValidReceiptId } from "@/lib/storage.js";
+import {
+  buildLateEntryNotice,
+  entryLateDays,
+  isLateEntry,
+  loadLateEntryDays,
+} from "@/lib/lateEntry.js";
 import { reportLabel, writeAuditLog } from "@/lib/audit.js";
 import type { ContractType, OrgKind, Shift } from "@prisma/client";
 
@@ -57,6 +64,9 @@ export interface CreateReportContext {
   // undefined / true = 管理者へ LINE 通知する。
   // false = 通知しない（管理画面のまとめて後追い登録など）。通知済み扱いにして「未通知」警告に出さない。
   notify?: boolean;
+  // true = 後日入力・請求書作成済みの月を要確認にする（LIFF の本人入力）。
+  // 管理画面からの登録は管理者が判断して入れるものなので判定しない。
+  checkLate?: boolean;
 }
 
 export type CreateReportResult =
@@ -148,9 +158,42 @@ export async function createReportCore(
     return { ok: false, kind: "hold", message: buildAskbackMessage(report), askback: buildAskbackMessage(report) };
   }
 
-  const status = report.status === "confirm" ? "NEEDS_REVIEW" : "CONFIRMED";
-
   const dayStart = new Date(`${input.workDate}T00:00:00.000Z`);
+
+  // ── 後日入力・請求書作成済みの月（LIFF の本人入力のみ）──
+  //   「忘れてた」と後から入れた出面を黙って集計・請求に入れない。要確認にして管理者の承認を待つ。
+  const lateReasons: string[] = [];
+  let lateDays: number | null = null;
+  if (ctx.checkLate) {
+    const yearMonth = input.workDate.slice(0, 7);
+    const [threshold, invoice] = await Promise.all([
+      loadLateEntryDays(),
+      prisma.invoice.findUnique({
+        where: { clientId_yearMonth: { clientId: client.id, yearMonth } },
+        select: { id: true },
+      }),
+    ]);
+    const days = entryLateDays(dayStart, refDate);
+    if (isLateEntry(days, threshold)) {
+      lateDays = days;
+      lateReasons.push(`後日入力（出面の日付から${days}日後の入力）`);
+    }
+    if (invoice) {
+      lateReasons.push(
+        `${Number(yearMonth.slice(5, 7))}月の${client.name}の請求書は作成済み`,
+      );
+    }
+  }
+
+  const status =
+    report.status === "confirm" || lateReasons.length > 0 ? "NEEDS_REVIEW" : "CONFIRMED";
+  const askback =
+    [
+      report.status === "confirm" ? buildAskbackMessage(report) : "",
+      buildLateEntryNotice(lateReasons),
+    ]
+      .filter(Boolean)
+      .join("\n\n") || undefined;
 
   // 領収書IDの所有権検証: 形式が正しく、かつ自組織(orgId)の ReceiptImage に実在するものだけ許可。
   const receiptIdCandidates = (input.expenses ?? [])
@@ -282,7 +325,7 @@ export async function createReportCore(
           : null;
       await notifyReportToAdmins(
         { source: ctx.orgKind, orgId: ctx.orgId, createdById: ctx.createdById },
-        reportNotifyText(created, { kind: "created", partnerOrgName }),
+        reportNotifyText(created, { kind: "created", partnerOrgName, lateDays }),
       );
       notified = true;
     } catch (e) {
@@ -301,6 +344,6 @@ export async function createReportCore(
     reportId: created.id,
     status: created.status,
     notified,
-    askback: report.status === "confirm" ? buildAskbackMessage(report) : undefined,
+    askback,
   };
 }
